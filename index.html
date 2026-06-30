@@ -1072,8 +1072,35 @@
   function setCustomSheet(dim,val){let x=Math.round(+val||0);if(x<50)x=50;if(x>6000)x=6000;customSheet[dim]=x;render();}
   function setGroupMat(mat,v){items.forEach(it=>{if(it.mat===mat)it.mat=v;});render();}
   function setSheetSize(mat,si,v){sheetSizeOv[mat+'#'+si]=v;render();}
-  function openZoom(i){const d=nestSvgs[i];if(!d)return;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}ov.innerHTML=`<div class="zoombox"><div class="zoomhead"><b>${esc(d.label)}</b><span><label class="sub">zoom <input type="range" min="120" max="700" value="220" oninput="document.getElementById('zoomInner').style.width=this.value+'%'"></label> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoomscroll"><div id="zoomInner" style="width:220%">${d.svg}</div></div></div>`;ov.classList.add('show');}
-  function closeZoom(){const ov=document.getElementById('zoomOverlay');if(ov)ov.classList.remove('show');}
+  let _zoom=null;
+  function openZoom(i){const d=nestSvgs[i];if(!d)return;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
+    ov.innerHTML=`<div class="zoombox"><div class="zoomhead"><b>${esc(d.label)}</b><span><span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div><div class="sub" style="text-align:center;padding-top:2px">Scroll to zoom (towards the cursor) · drag to pan</div></div>`;
+    ov.classList.add('show');setupZoomPanZoom();}
+  function closeZoom(){const ov=document.getElementById('zoomOverlay');if(ov)ov.classList.remove('show');_zoom=null;}
+  function zoomFit(){if(_zoom)_zoom.fit();}
+  // The zoom opens showing the WHOLE sheet (fit). Mouse wheel zooms in/out toward the cursor; drag pans. Transform-based (no scrollbars).
+  function setupZoomPanZoom(){
+    const scroll=document.getElementById('zoomScroll'),inner=document.getElementById('zoomInner');if(!scroll||!inner)return;
+    const svg=inner.querySelector('svg');if(!svg)return;
+    const vb=(svg.getAttribute('viewBox')||'0 0 1 1').split(/\s+/).map(Number),aspect=(vb[2]&&vb[3])?vb[2]/vb[3]:1;
+    scroll.style.overflow='hidden';scroll.style.position='relative';scroll.style.cursor='grab';
+    inner.style.position='absolute';inner.style.left='0';inner.style.top='0';inner.style.transformOrigin='0 0';
+    const st={s:1,tx:0,ty:0,bw:0,bh:0};
+    function sizeSvg(){const e=inner.querySelector('svg');if(e){e.style.width=st.bw+'px';e.style.height=st.bh+'px';e.style.maxWidth='none';e.style.display='block';}}
+    function clampPan(){const vw=scroll.clientWidth,vh=scroll.clientHeight,cw=st.bw*st.s,ch=st.bh*st.s,m=60;
+      if(st.s<=1.0001){st.tx=(vw-cw)/2;st.ty=(vh-ch)/2;return;}                                  // fully zoomed out -> centred fit
+      st.tx=Math.max(m-cw,Math.min(vw-m,st.tx));st.ty=Math.max(m-ch,Math.min(vh-m,st.ty));}      // zoomed in -> keep >=60px visible, follow cursor
+    function apply(){clampPan();inner.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.s})`;const p=document.getElementById('zoomPct');if(p)p.textContent=Math.round(st.s*100)+'%';}
+    function fit(){const vw=scroll.clientWidth,vh=scroll.clientHeight,pad=14;let bw=vw-2*pad,bh=bw/aspect;if(bh>vh-2*pad){bh=vh-2*pad;bw=bh*aspect;}st.bw=bw;st.bh=bh;sizeSvg();st.s=1;st.tx=(vw-bw)/2;st.ty=(vh-bh)/2;apply();}
+    function zoomAt(cx,cy,f){const ns=Math.min(20,Math.max(1,st.s*f));if(Math.abs(ns-st.s)<1e-4)return;const px=(cx-st.tx)/st.s,py=(cy-st.ty)/st.s;st.s=ns;st.tx=cx-px*ns;st.ty=cy-py*ns;apply();}
+    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);},{passive:false});
+    let drag=null;
+    scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
+    scroll.addEventListener('pointermove',e=>{if(!drag)return;st.tx=drag.tx+(e.clientX-drag.x);st.ty=drag.ty+(e.clientY-drag.y);apply();});
+    const end=()=>{drag=null;scroll.style.cursor='grab';};scroll.addEventListener('pointerup',end);scroll.addEventListener('pointercancel',end);scroll.addEventListener('pointerleave',end);
+    _zoom={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();}};
+    fit();
+  }
   // Click a part in the nest = select it (syncs list + inspector). Shift+click = zoom the sheet.
   function nestClick(ev,zi){
     if(ev.shiftKey){if(ev.preventDefault)ev.preventDefault();if(window.getSelection)try{window.getSelection().removeAllRanges();}catch(e){}openZoom(zi);return;}
@@ -1081,8 +1108,8 @@
     if(g&&g.getAttribute('data-key')!=null){const i=parseInt(g.getAttribute('data-key'),10);if(!isNaN(i)&&i>=0&&i<items.length){
       sel(i);renderNest();
       // if a sheet is open in the zoom, refresh it so the selection highlight shows there too
-      const ov=document.getElementById('zoomOverlay'),inner=document.getElementById('zoomInner');
-      if(ov&&ov.classList.contains('show')&&inner&&nestSvgs[zi])inner.innerHTML=nestSvgs[zi].svg;
+      const ov=document.getElementById('zoomOverlay');
+      if(ov&&ov.classList.contains('show')&&_zoom&&nestSvgs[zi])_zoom.refresh(nestSvgs[zi].svg);
     }}
     // plain click on empty sheet area does nothing — zoom is Shift+click only
   }
