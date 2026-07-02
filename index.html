@@ -526,15 +526,26 @@
     if(!raw||raw==='auto')return first;
     return (raw==='bottom'||raw==='right')?second:first;
   }
+  // hinge positions along the LONG side, measured from the top (vertical side) / left (horizontal side).
+  // h.custom = array of mm positions (individual editing); otherwise evenly spread from the end offset.
+  function hingePositions(h,span){
+    if(h&&Array.isArray(h.custom)&&h.custom.length)return h.custom.map(v=>Math.max(10,Math.min(span-10,+v||0))).sort((a,b)=>a-b);
+    const n=Math.max(1,+((h&&h.count))||1),eo=+((h&&h.offset))||100;
+    if(n===1)return [span/2];
+    const out=[];for(let k=0;k<n;k++)out.push(eo+(span-2*eo)*k/(n-1));
+    return out;
+  }
   function hingeInfo(it){
     if(!it.hinges||!it.hinges.on)return{on:false};
     const W=+it.w||0,H=+it.h||0;
     const raw=it.hinges.side||'auto';
     const side=resolveHingeSide(W,H,raw);
     const span=Math.max(W,H);
+    const custom=(Array.isArray(it.hinges.custom)&&it.hinges.custom.length)?it.hinges.custom.slice():null;
     let count=2; if(span>1500)count=4; else if(span>900)count=3;
     if(it.hinges.count&&it.hinges.count!=='auto')count=+it.hinges.count;
-    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,auto:(!it.hinges.count||it.hinges.count==='auto')};
+    if(custom)count=custom.length;
+    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,custom,auto:(!it.hinges.count||it.hinges.count==='auto')&&!custom};
   }
 
   // ---- offset profiles (reusable line sets) ----
@@ -792,10 +803,15 @@
   function dxfRect(layer,x,y,w,h){return dxfPoly(layer,[{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}],true);}
   function dxfRoundRect(layer,x,y,w,h,r){r=Math.min(r,w/2-0.1,h/2-0.1);if(r<=0)return dxfRect(layer,x,y,w,h);const k=0.41421356;return dxfPoly(layer,[{x:x+r,y:y},{x:x+w-r,y:y,b:k},{x:x+w,y:y+r},{x:x+w,y:y+h-r,b:k},{x:x+w-r,y:y+h},{x:x+r,y:y+h,b:k},{x:x,y:y+h-r},{x:x,y:y+r,b:k}],true);}
   function hingeCenters(p,bx,by){
-    const h=p.hinge,out=[],inset=22.5,eo=h.offset||100,n=h.count;
+    const h=p.hinge,out=[],inset=22.5;
     const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
-    if(side==='left'||side==='right'){const cx=side==='left'?bx+inset:bx+p.w-inset;const y1=by+eo,y2=by+p.h-eo;for(let k=0;k<n;k++)out.push({x:cx,y:n===1?(y1+y2)/2:y1+(y2-y1)*k/(n-1)});}
-    else{const cy=side==='bottom'?by+inset:by+p.h-inset;const x1=bx+eo,x2=bx+p.w-eo;for(let k=0;k<n;k++)out.push({x:n===1?(x1+x2)/2:x1+(x2-x1)*k/(n-1),y:cy});}
+    if(side==='left'||side==='right'){
+      const cx=side==='left'?bx+inset:bx+p.w-inset;
+      hingePositions(h,p.h).forEach(pos=>out.push({x:cx,y:by+p.h-pos}));      // pos measured from the TOP edge (y-up here)
+    }else{
+      const cy=side==='bottom'?by+inset:by+p.h-inset;
+      hingePositions(h,p.w).forEach(pos=>out.push({x:bx+pos,y:cy}));          // pos measured from the LEFT edge
+    }
     return out;
   }
   function dxfForThickness(th,list){
@@ -1217,18 +1233,32 @@
     ${(it.type==='trad'||it.type==='flush'||it.type==='reeded')?reedBlock(i,it):''}
     <div style="margin-top:10px;text-align:right">${ap(i,'offset')}</div>`;}
 
+  // individual hinge editing: Customize materialises the auto positions into an editable per-hinge list
+  function hingeCustomize(i){const it=items[i];const h=hingeInfo(it);if(!h.on)return;it.hinges.custom=hingePositions(it.hinges&&it.hinges.custom?it.hinges:h,h.span).map(v=>Math.round(v));render();}
+  function hingeAuto(i){delete items[i].hinges.custom;render();}
+  function hingeSetPos(i,k,v){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);arr[k]=Math.max(10,Math.min(h.span-10,Math.round(+v||0)));it.hinges.custom=arr.sort((a,b)=>a-b);render();}
+  function hingeDelPos(i,k){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);if(arr.length<=1)return;arr.splice(k,1);it.hinges.custom=arr;render();}
+  function hingeAddPos(i){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);
+    const pts=[0].concat(arr,[h.span]);let bi=0,bg=0;for(let k=0;k+1<pts.length;k++){const g=pts[k+1]-pts[k];if(g>bg){bg=g;bi=k;}}
+    arr.push(Math.round((pts[bi]+pts[bi+1])/2));it.hinges.custom=arr.sort((a,b)=>a-b);render();}
   function tabHinges(i,it){
     const cur=(it.hinges.side==='right')?'right':'left';   // only the two long edges, labelled Left/Right
+    const h=hingeInfo(it);
+    const refLabel=h.on?((h.side==='left'||h.side==='right')?'from top':'from left'):'';
     return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" ${it.hinges.on?'checked':''} onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
     ${it.hinges.on?`
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
       <label class="sub">Side <select onchange="setHingeSide(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['left','right'].map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select></label>
-      <label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
-      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(it.hinges.count)?'selected':''}>${o}</option>`).join('')}</select></label>
+      ${h.custom?'':`<label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
+      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(it.hinges.count)?'selected':''}>${o}</option>`).join('')}</select></label>`}
       ${hingeDiagram(it)}
     </div>
-    <div class="sub" style="margin-top:8px">${(function(){var h=hingeInfo(it);return 'always on the longest side ('+h.span+'mm) · Left/Right = the two long edges · '+h.count+' hinges · '+h.offset+'mm from ends · +5% CNC';})()}</div>`:'<div class="sub" style="margin-top:8px">No hinges (off by default — turn on only if this part needs them).</div>'}`;}
+    ${h.custom?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">
+      ${hingePositions(it.hinges,h.span).map((pos,k)=>`<div class="sub" style="display:flex;gap:6px;align-items:center"><b style="width:56px">Hinge ${k+1}</b><input type="number" min="10" max="${h.span-10}" value="${Math.round(pos)}" onchange="hingeSetPos(${i},${k},this.value)" style="width:72px;padding:4px;border:1px solid var(--line);border-radius:6px"> <span>mm ${refLabel}</span> <button class="iconbtn" title="Remove this hinge" onclick="hingeDelPos(${i},${k})">${ic('trash',12)}</button></div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:2px"><button class="btn ghost tiny" onclick="hingeAddPos(${i})">${ic('plus',12)} Add hinge</button><button class="btn ghost tiny" onclick="hingeAuto(${i})">${ic('reset',12)} Back to auto</button></div>
+    </div>`:`<button class="btn ghost tiny" style="margin-top:8px" onclick="hingeCustomize(${i})">${ic('pencil',12)} Customize positions</button>`}
+    <div class="sub" style="margin-top:8px">${'always on the longest side ('+h.span+'mm) · Left/Right = the two long edges · '+h.count+' hinge'+(h.count===1?'':'s')+(h.custom?' · individual positions':' · '+h.offset+'mm from ends')+' · +5% CNC'}</div>`:'<div class="sub" style="margin-top:8px">No hinges (off by default — turn on only if this part needs them).</div>'}`;}
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}
@@ -1279,9 +1309,9 @@
     const h=hingeInfo(it);if(!h.on)return '';
     const VW=72,VH=72,pad=8,w=Math.max(1,+it.w||1),hh=Math.max(1,+it.h||1);
     const sc=Math.min((VW-2*pad)/w,(VH-2*pad)/hh),bw=w*sc,bh=hh*sc,x0=(VW-bw)/2,y0=(VH-bh)/2;
-    const inset=3,n=h.count;let dots='';const dot=(cx,cy)=>`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.6" fill="#dc2626"/>`;
-    if(h.side==='left'||h.side==='right'){const eo=Math.min(h.offset*sc,bh/2-1),ex=h.side==='left'?x0+inset:x0+bw-inset,y1=y0+eo,y2=y0+bh-eo;for(let k=0;k<n;k++){const cy=n===1?(y1+y2)/2:y1+(y2-y1)*k/(n-1);dots+=dot(ex,cy);}}
-    else{const eo=Math.min(h.offset*sc,bw/2-1),ey=h.side==='top'?y0+inset:y0+bh-inset,x1=x0+eo,x2=x0+bw-eo;for(let k=0;k<n;k++){const cx=n===1?(x1+x2)/2:x1+(x2-x1)*k/(n-1);dots+=dot(cx,ey);}}
+    const inset=3;let dots='';const dot=(cx,cy)=>`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.6" fill="#dc2626"/>`;
+    if(h.side==='left'||h.side==='right'){const ex=h.side==='left'?x0+inset:x0+bw-inset;hingePositions(h,hh).forEach(pos=>dots+=dot(ex,y0+Math.max(2,Math.min(bh-2,pos*sc))));}
+    else{const ey=h.side==='top'?y0+inset:y0+bh-inset;hingePositions(h,w).forEach(pos=>dots+=dot(x0+Math.max(2,Math.min(bw-2,pos*sc)),ey));}
     return `<svg viewBox="0 0 ${VW} ${VH}" style="width:62px;height:auto;border:1px solid var(--line);border-radius:6px;background:#fff"><rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#f8fafc" stroke="#94a3b8" stroke-width="0.8"/>${dots}</svg>`;}
 
   // ---- nesting ----
@@ -1737,11 +1767,11 @@
       if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;
     });
     if(p.hinge&&p.hinge.on){
-      const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),eo=h.offset/10,ins2=2.25;
+      const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
       const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
       const dot=(dx,dy)=>`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="${r.toFixed(2)}" fill="#dc2626"/>`;
-      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;const y1=Y+eo,y2=Y+H-eo;for(let k=0;k<h.count;k++){const dy=h.count===1?(y1+y2)/2:y1+(y2-y1)*k/(h.count-1);if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);}}
-      else{const ey=side==='top'?Y+ins2:Y+H-ins2;const x1=X+eo,x2=X+W-eo;for(let k=0;k<h.count;k++){const dx=h.count===1?(x1+x2)/2:x1+(x2-x1)*k/(h.count-1);if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);}}
+      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);});}
+      else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);});}
     }
     // grain always runs along the sheet X — centred double-arrow, clearly visible (item 5)
     if(grainActive(p)&&Math.min(W,H)>=5){const horiz=true,cx=X+W/2,cy=Y+H/2,L=(horiz?W:H)*0.55,a=Math.max(1.4,Math.min(3.2,L*0.16)),col='#16a34a',sw=Math.max(0.5,Math.min(1.1,Math.min(W,H)/22));
@@ -1846,6 +1876,7 @@
       const typeKey=(p.typeKey&&TYPES[p.typeKey])?p.typeKey:'flat';
       const it=mkItem(typeKey,+p.width,+p.height,Math.max(1,+p.quantity||1),p.mat||orderMaterial,nestSize,p.frame||{t:0,r:0,b:0,l:0},null,p.text||'',p.hinges||{on:false},{offsetName:p.offsetName||'None'});
       if(p.grain)it.grain=(p.grain===true?'long':p.grain);
+      if(p.hinges&&Array.isArray(p.hinges.custom)&&p.hinges.custom.length)it.hinges.custom=p.hinges.custom.slice();
       if(p.offsetName&&profiles[p.offsetName]){it.lines=JSON.parse(JSON.stringify(profiles[p.offsetName].lines));it.pocketSide=profiles[p.offsetName].side||'front';it.offsetName=p.offsetName;}
       items.push(it);
     });
@@ -2323,7 +2354,7 @@
   function printA4Labels(){const pages=collectLabelMapPages();if(!pages.length){alert('Add parts before printing A4 labels.');return;}openRawPrintHtml(a4LabelsPrintHtml(pages));}
   // --- Checklist: rich TSV (human-readable, Excel-friendly, Smart Takeoff can parse it back) + QR-app JSON ---
   function checklistFrameText(it){const f=it.frame||{t:0,r:0,b:0,l:0};if(!f.t&&!f.r&&!f.b&&!f.l)return '';return (f.t===f.r&&f.t===f.b&&f.t===f.l)?String(f.t):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);}
-  function checklistHingesText(it){const h=it.hinges||{};if(!h.on)return '';return (h.side||'auto')+' '+(h.count||'auto')+' @'+(h.offset!=null?h.offset:100);}
+  function checklistHingesText(it){const h=it.hinges||{};if(!h.on)return '';if(Array.isArray(h.custom)&&h.custom.length)return (h.side||'auto')+' @['+h.custom.map(v=>Math.round(+v||0)).join(';')+']';return (h.side||'auto')+' '+(h.count||'auto')+' @'+(h.offset!=null?h.offset:100);}
   function buildChecklistPayload(){
     const groups=buildSheetGroups();
     const labels=collectPartLabels(groups);
@@ -2395,7 +2426,11 @@
       else{const m=frameRaw.match(/T(\d+)\s*R(\d+)\s*B(\d+)\s*L(\d+)/i);if(m)frame={t:+m[1],r:+m[2],b:+m[3],l:+m[4]};}
       const hingesRaw=String((ix('hinges')>=0?c[ix('hinges')]:'')||'').trim();
       let hinges={on:false};
-      if(hingesRaw){const m=hingesRaw.match(/^(\S+)\s+(\S+)\s+@(\d+)/);hinges=m?{on:true,side:m[1],count:(m[2]==='auto'?'auto':(+m[2]||'auto')),offset:+m[3]||100}:{on:true,side:'auto',count:'auto',offset:100};}
+      if(hingesRaw){
+        const mc=hingesRaw.match(/^(\S+)\s+@\[([\d;]+)\]/);
+        if(mc)hinges={on:true,side:mc[1],count:'auto',offset:100,custom:mc[2].split(';').map(v=>+v).filter(v=>v>0)};
+        else{const m=hingesRaw.match(/^(\S+)\s+(\S+)\s+@(\d+)/);hinges=m?{on:true,side:m[1],count:(m[2]==='auto'?'auto':(+m[2]||'auto')),offset:+m[3]||100}:{on:true,side:'auto',count:'auto',offset:100};}
+      }
       const offsetName=String((ix('offset')>=0?c[ix('offset')]:'')||'').trim();
       const gRaw=String((ix('grain')>=0?c[ix('grain')]:'')||'').trim().toLowerCase();
       const grain=gRaw==='short'?'short':((gRaw==='long'||/^y/.test(gRaw))?'long':'');
