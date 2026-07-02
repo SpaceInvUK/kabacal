@@ -180,6 +180,22 @@
   .splitbtn .ic{margin-right:4px;vertical-align:-2px}
   .fab-sat .ic{width:19px;height:19px;vertical-align:middle}
   .fab-main .ic{width:20px;height:20px;vertical-align:middle}
+  /* inspector: fixed part-type selector + material chip + 3-way grain segment + insert card */
+  .insp-type{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:8px 10px 2px}
+  .insp-type .tlab{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);width:100%}
+  .typebtn{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:58px;padding:6px 4px 5px;border:1.5px solid var(--line);border-radius:9px;background:#fff;cursor:pointer;font-size:10.5px;font-weight:700;color:#334155}
+  .typebtn:hover{border-color:#94a3b8}
+  .typebtn.on{color:#fff}
+  .typebtn .ticon{width:20px;height:20px}
+  .insp-mat{display:flex;gap:7px;align-items:center;margin:8px 10px 2px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:#f8fafc;cursor:pointer;font-size:12px}
+  .insp-mat:hover{border-color:#93c5fd;background:#eff6ff}
+  .insp-mat i{width:12px;height:12px;border-radius:4px;flex:none}
+  .insp-mat .sub{margin-left:auto;font-size:10.5px}
+  .seg3{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:fit-content}
+  .segbtn{padding:6px 10px;border:0;border-right:1px solid var(--line);background:#fff;cursor:pointer;font-size:11.5px;font-weight:700;color:#475569}
+  .segbtn:last-child{border-right:0}
+  .segbtn.on{background:#2563eb;color:#fff}
+  .ins-card{display:flex;gap:7px;align-items:center;padding:7px 9px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;font-size:12px;margin-bottom:4px}
   .nlabel{font-size:5px;font-family:Arial;fill:#1e3a8a;font-weight:700;text-anchor:middle}
   .sheet-svg.editing{cursor:default}
   .sheet-svg.editing .npart{cursor:move}
@@ -335,7 +351,7 @@
 
         <div class="quickadd">
           <div class="qa-field"><label>Material</label><select id="qaMat" onchange="orderMaterial=this.value;updateMatPricing()" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:170px"></select></div>
-          <div class="qa-field"><label>Shaker Type</label>
+          <div class="qa-field"><label>Part Type</label>
             <select id="qaType">
               <option value="flat">Flat</option>
               <option value="trad">Insert Traditional</option>
@@ -353,8 +369,8 @@
 
         <div class="legend">
           <span><i style="background:var(--flat)"></i>Flat</span>
-          <span><i style="background:var(--trad)"></i>Insert Traditional</span>
-          <span><i style="background:var(--flush)"></i>Insert Flushback</span>
+          <span><i style="background:var(--trad)"></i>Traditional</span>
+          <span><i style="background:var(--flush)"></i>Flushback</span>
           <span><i style="background:var(--reeded)"></i>Reeded</span>
         </div>
 
@@ -389,8 +405,8 @@
 <script>
   const TYPES={
     flat:{name:'Flat',badge:'b-flat',color:'#2563eb',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`},
-    trad:{name:'Insert Traditional',badge:'b-trad',color:'#9333ea',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="8.5" y="6.5" width="9" height="13" fill="none" stroke="${c}" stroke-width="0.9"/></svg>`},
-    flush:{name:'Insert Flushback',badge:'b-flush',color:'#0891b2',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="7.5" y="5.5" width="11" height="15" fill="none" stroke="${c}" stroke-width="0.7" stroke-dasharray="2 2"/></svg>`},
+    trad:{name:'Traditional',badge:'b-trad',color:'#9333ea',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="8.5" y="6.5" width="9" height="13" fill="none" stroke="${c}" stroke-width="0.9"/></svg>`},
+    flush:{name:'Flushback',badge:'b-flush',color:'#0891b2',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="7.5" y="5.5" width="11" height="15" fill="none" stroke="${c}" stroke-width="0.7" stroke-dasharray="2 2"/></svg>`},
     reeded:{name:'Reeded',badge:'b-reeded',color:'#d97706',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><path d="M9 4.5 V21.5 M13 4.5 V21.5 M17 4.5 V21.5" stroke="${c}" stroke-width="0.8"/></svg>`}
   };
   // The 7 production offset lines map to DXF layers A–G in this fixed order (confirmed from real JSON+DXF)
@@ -456,6 +472,9 @@
     });
   }
   const BLOCK_PALETTE=['#2563eb','#16a34a','#9333ea','#0891b2','#d97706','#db2777','#0d9488','#7c3aed','#ca8a04','#dc2626'];
+  // grain: 'off' | 'long' (grain along the LONGEST side) | 'short' (grain along the SHORTEST side).
+  // Legacy saves used boolean true = 'long'.
+  function grainOf(it){const g=it&&it.grain;if(g===true)return 'long';if(g==='long'||g==='short')return g;return 'off';}
   function blockColor(mat,size){const key=(mat||'')+'|'+(size||'8x4');let h=0;for(let i=0;i<key.length;i++)h=(h*31+key.charCodeAt(i))>>>0;return BLOCK_PALETTE[h%BLOCK_PALETTE.length];}
   // editable per-material background colour (item 4): hash colour by default, override + save locally
   let matColors={};try{matColors=JSON.parse(localStorage.getItem('kab_matColors')||'{}');}catch(e){matColors={};}
@@ -473,7 +492,7 @@
     const fr={t:+frame.t||0,r:+frame.r||0,b:+frame.b||0,l:+frame.l||0};
     return {type,w,h,q,mat,size,frame:fr,frameLink:(fr.t===fr.r&&fr.r===fr.b&&fr.b===fr.l),
       lines:mkLines(linesCfg),pocketSide:extra.side||'front',pocketRound:extra.round?'Yes':'No',
-      text:text||'',spray:!!extra.spray,sprayCfg:extra.sprayCfg||null,grain:!!extra.grain,
+      text:text||'',spray:!!extra.spray,sprayCfg:extra.sprayCfg||null,grain:(extra.grain===true?'long':(extra.grain==='long'||extra.grain==='short'?extra.grain:'off')),
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
       offsetName:extra.offsetName||'Custom'};
@@ -586,7 +605,7 @@
           text:part.text||'',
           spray:(part.sprayFinish||'No')==='Yes',
           sprayCfg:c,
-          grain:(part.grainDirection||block.grainDirectionEnabled||'No')==='Yes',
+          grain:(part.grainAxis==='short')?'short':(((part.grainDirection||block.grainDirectionEnabled||'No')==='Yes')?'long':'off'),
           hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100)},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
@@ -624,7 +643,7 @@
     const f=resolveFrame(it), o={};
     o.width=String(it.w); o.height=String(it.h); o.doorType=(it.type==='flat'?'no':doorFromType(it.type));
     o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=1; o.panelSize='';
-    o.grainDirection=it.grain?'Yes':'No'; o.shapeType='rectangle';
+    o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
     o.hinges=hi.on?'Yes':'No'; o.hingeSide=hi.side||'auto'; o.hingeOffset=num(hi.offset,100); o.hingeSpacing='';
@@ -653,7 +672,7 @@
         material:m.name,thickness:m.th,size:sample.size,
         materialCost:String(priceForSheet(sample.mat,sample.size)),cncServiceCost:String(cncForThickness(sample.mat)),
         quantityDiscountPct:0,sheetQuantity:1,partsCount:arr.length,globalShakerType:'no',
-        grainDirectionEnabled:arr.some(a=>a.it.grain)?'Yes':'No',frameSize:bf,
+        grainDirectionEnabled:arr.some(a=>grainOf(a.it)!=='off')?'Yes':'No',frameSize:bf,
         reededEnabled:(rdSrc?'Yes':'No'),reededDirection:rdc.dir||'vertical',reededSpacing:(+rdc.spacing>=1?+rdc.spacing:12.5),reedDepth:(rdc.depth!=null?+rdc.depth:3),backFrameSize:50,flatFrameToggle:'Yes',drillings:'Yes',
         pocketingEnabled:'Yes',pocketRoundCorners:'No',pocketSideMode:'front',
         pocketLinePocketEnabled:'Yes',pocketLinePocketOffset:0,
@@ -961,7 +980,7 @@
   function render(){
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
-    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,it.grain?1:0].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
+    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it)].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
     if(sig!==lastSig){placements=null;selKey=null;lastSig=sig;}
     if(selItem>=items.length)selItem=items.length-1;
     if(selItem<0&&items.length)selItem=0;
@@ -996,7 +1015,7 @@
               ${frameLabel(it)?'<span class="chip off">'+frameLabel(it)+'</span>':''}
               ${offc?'<span class="chip alt">'+offc+'</span>':''}
               ${hc?'<span class="chip">'+hc+'</span>':''}
-              ${it.grain?'<span class="chip">↔ rigid</span>':''}
+              ${grainOf(it)!=='off'?'<span class="chip">'+(grainOf(it)==='short'?'↕ grain short':'↔ grain long')+'</span>':''}
               ${it.spray?'<span class="chip">spray</span>':''}
               ${it.text?'<span class="chip">“'+esc(it.text)+'”</span>':''}
             </div>
@@ -1089,10 +1108,12 @@
     const M=selSet.size>1;
     if(M&&!multiBase)multiBase=JSON.parse(JSON.stringify(it));   // baseline for change detection
     if(!M)multiBase=null;
-    const tabs=[['part','Part'],['offset','Frame & offset'],['hinges','Hinges'],['spray','Spray']];
+    const tabs=[['part','Part'],['offset','Door set'],['hinges','Hinges'],['spray','Spray']];
     box.innerHTML=`
-      <div class="insp-head">${d.icon(d.color)}<span class="badge ${d.badge}">${d.name}</span><span class="insp-title">${M?selSet.size+' parts selected · base item '+(i+1):'Item '+(i+1)+' · '+it.w+'×'+it.h+' mm'}</span></div>
-      ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width, Height and Quantity are locked in multi-edit.</div>`:''}
+      <div class="insp-head">${d.icon(d.color)}<span class="insp-title">${M?selSet.size+' parts selected · base item '+(i+1):'Item '+(i+1)+' · '+it.w+'×'+it.h+' mm'}</span></div>
+      <div class="insp-type"><span class="tlab">Part type</span>${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
+      <div class="insp-mat" title="Click to move this part to another material group" onclick="openGroupPicker('move')"><i style="background:${matColor(it.mat)}"></i><b>${esc(it.mat)}</b><span class="sub">click to change</span></div>
+      ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}
       <div class="insp-tabs">${tabs.map(([k,lbl])=>`<span class="insp-tab ${inspTab===k?'on':''}" onclick="setInspTab('${k}')">${lbl}</span>`).join('')}</div>
       <div class="insp-body">${inspTab==='part'?tabPart(i,it):inspTab==='offset'?tabOffset(i,it):inspTab==='hinges'?tabHinges(i,it):tabSpray(i,it)}</div>`;
   }
@@ -1122,16 +1143,18 @@
     render();
   }
   function ap(i,field){return `<span class="apf"><span class="t">→</span><span class="aplink" onclick="applyField(${i},'${field}','group')" title="Apply this value to every part in the same group (same material, sheet size and type — any part size)">group</span><span class="aplink" onclick="applyField(${i},'${field}','all')" title="Apply this value to every part in the order">all</span></span>`;}
-  function tabPart(i,it){const M=selSet.size>1;return `
-    <div class="ed-field"><label>Shaker type</label><select onchange="upd(${i},'type',this.value)">${Object.keys(TYPES).map(k=>`<option value="${k}" ${k===it.type?'selected':''}>${TYPES[k].name}</option>`).join('')}</select>${ap(i,'type')}</div>
+  function tabPart(i,it){const M=selSet.size>1;const g=grainOf(it);return `
     <div style="display:flex;gap:8px">
       <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)">${M?'':ap(i,'w')}</div>
       <div class="ed-field" style="flex:1"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)">${M?'':ap(i,'h')}</div>
     </div>
-    <div class="ed-field"><label>Quantity</label><input type="number" value="${it.q}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'q',+this.value)"></div>
-    <div class="ed-field"><label>Material</label><select onchange="upd(${i},'mat',this.value)">${matOptionsHtml(it.mat)}</select>${ap(i,'mat')}</div>
-    <div class="ed-field"><label>Rigid (grain)</label><label class="tg"><input type="checkbox" ${it.grain?'checked':''} onchange="upd(${i},'grain',this.checked)"> grain runs along the longest side</label>${ap(i,'grain')}</div>
-    <div class="ed-field"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry">${ap(i,'text')}</div>`;}
+    <div class="ed-field"><label>Grain</label><div class="seg3">
+      <button class="segbtn ${g==='off'?'on':''}" onclick="upd(${i},'grain','off')">Off</button>
+      <button class="segbtn ${g==='long'?'on':''}" title="Grain runs along the LONGEST side — part lies long-side along the sheet" onclick="upd(${i},'grain','long')">↔ Longest side</button>
+      <button class="segbtn ${g==='short'?'on':''}" title="Grain runs along the SHORTEST side — part stands long-side across the sheet" onclick="upd(${i},'grain','short')">↕ Shortest side</button>
+    </div>${ap(i,'grain')}</div>
+    <div class="ed-field"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry">${ap(i,'text')}</div>
+    <div class="sub" style="margin-top:2px">Material and quantity live outside this panel: material = coloured chip above / group bars; quantity = the − / + stepper on the part row.</div>`;}
 
   function reedBlock(i,it){
     const r=it.reed||{on:false,dir:'vertical',spacing:12.5},isType=it.type==='reeded',on=isType||r.on;
@@ -1145,7 +1168,8 @@
       ${on?ctrls:''}
     </div>`;
   }
-  function tabOffset(i,it){const f=resolveFrame(it);return `
+  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);return `
+    ${ins?`<div class="ins-card">${ic('layers',13)} Creates insert: <b>${esc(ins.mat)}</b> · ${ins.w}×${ins.h}mm${ins.reed?' · reeded':''}<span class="sub" style="margin-left:auto">auto — nests on its own sheet</span></div>`:''}
     <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <span class="sub" style="font-weight:700">Frame:</span>
       ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','r','b','l'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
@@ -1337,19 +1361,25 @@
   }
 
   // ---- parts + packing (shared by nesting view, DXF, manual editor) ----
-  // Rigid (grain) = the LONGEST side runs along the sheet grain (sheet width / X). So a rigid part is
-  // always oriented long-side-horizontal and is never rotated the other way by the auto-packer.
-  function rigidOrient(p){if(p.grain&&p.h>p.w)return {w:p.h,h:p.w};return {w:p.w,h:p.h};}
+  // Grain runs along the sheet X. 'long' = the LONGEST side lies along X (long-side-horizontal);
+  // 'short' = the SHORTEST side lies along X (long-side-vertical). Either way the packer never rotates it.
+  function grainActive(p){return !!p.grain&&p.grain!=='off';}
+  function rigidOrient(p){
+    const g=(p.grain===true)?'long':p.grain;
+    if(g==='short'){if(p.w>p.h)return {w:p.h,h:p.w};return {w:p.w,h:p.h};}
+    if(g&&g!=='off'&&p.h>p.w)return {w:p.h,h:p.w};
+    return {w:p.w,h:p.h};
+  }
   function sheetMeta(mat,idx){const sz=sheetSizeOv[mat+'#'+idx]||nestSize;const S=sheetDef(sz);return {sz,S,g:Math.max(0,nestGap),margin:Math.max(0,nestMargin)};}
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
       const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);const el=enabledLines(it);
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:!!it.grain,frame:f,lines:el,hinge:h});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
-        if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:false,frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
+        if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
       }
     });
     return groups;
@@ -1359,9 +1389,9 @@
   function isHost(p){return (p.type==='trad'||p.type==='flush'||p.type==='reeded')&&!p.isInsert&&!p.isBack;}
   function cavPlace(cav,pw,ph){const g=cav.g;if(cav.cx+pw<=cav.w&&cav.cy+ph<=cav.h){const r={x:cav.x0+cav.cx,y:cav.y0+cav.cy};cav.cx+=pw+g;cav.rowH=Math.max(cav.rowH,ph);return r;}const ny=cav.cy+cav.rowH+g;if(pw<=cav.w&&ny+ph<=cav.h){cav.cx=pw+g;cav.cy=ny;cav.rowH=ph;return {x:cav.x0,y:cav.y0+ny};}return null;}
   function regCavity(cavities,sheetIdx,p,px,py,pw,ph,g){const f=p.frame||{t:0,r:0,b:0,l:0};let il=f.l,ir=f.r,it2=f.t,ib=f.b;if(pw!==p.w){il=f.t;ir=f.b;it2=f.l;ib=f.r;}const cw=pw-il-ir-2*g,ch=ph-it2-ib-2*g;if(cw>=120&&ch>=120)cavities.push({sheet:sheetIdx,x0:px+il+g,y0:py+it2+g,w:cw,h:ch,cx:0,cy:0,rowH:0,g:g});}
-  function fillCavity(cavities,push,p){for(const cav of cavities){let pw=p.w,ph=p.h;if(p.grain&&ph>pw){const t=pw;pw=ph;ph=t;}let pos=cavPlace(cav,pw,ph);if(!pos&&!p.grain){const r2=cavPlace(cav,ph,pw);if(r2){const t=pw;pw=ph;ph=t;pos=r2;}}if(pos){push(cav.sheet,Object.assign({},p,{x:pos.x,y:pos.y,w:pw,h:ph,rot:(pw!==p.w)?90:0,inCav:true}));return true;}}return false;}
+  function fillCavity(cavities,push,p){for(const cav of cavities){let pw=p.w,ph=p.h;if(grainActive(p)){const o=rigidOrient(p);pw=o.w;ph=o.h;}let pos=cavPlace(cav,pw,ph);if(!pos&&!grainActive(p)){const r2=cavPlace(cav,ph,pw);if(r2){const t=pw;pw=ph;ph=t;pos=r2;}}if(pos){push(cav.sheet,Object.assign({},p,{x:pos.x,y:pos.y,w:pw,h:ph,rot:(pw!==p.w)?90:0,inCav:true}));return true;}}return false;}
   // orient a part to whichever way fits the sheet — rotate ONLY if it doesn't fit as entered (item 8). Rigid keeps long side along grain.
-  function orientFor(p,uW,uH){if(p.grain){const o=rigidOrient(p);return {w:o.w,h:o.h};}const w=p.w,h=p.h,fit=(a,b)=>a<=uW&&b<=uH;if(!fit(w,h)&&fit(h,w))return {w:h,h:w};return {w:w,h:h};}
+  function orientFor(p,uW,uH){if(grainActive(p)){const o=rigidOrient(p);return {w:o.w,h:o.h};}const w=p.w,h=p.h,fit=(a,b)=>a<=uW&&b<=uH;if(!fit(w,h)&&fit(h,w))return {w:h,h:w};return {w:w,h:h};}
   // ---- MaxRects bin packing (Best Short Side Fit + free-rect split, rotation, cavity reuse) ----
   function mrOverlap(a,b){return a.x<b.x+b.w-0.01&&a.x+a.w>b.x+0.01&&a.y<b.y+b.h-0.01&&a.y+a.h>b.y+0.01;}
   function mrContains(a,b){return a.x<=b.x+0.01&&a.y<=b.y+0.01&&a.x+a.w>=b.x+b.w-0.01&&a.y+a.h>=b.y+b.h-0.01;}
@@ -1387,7 +1417,7 @@
     return {x:placed.x,y:placed.y,w:pw,h:ph,rot:bRot};
   }
   function mrNewBin(mat,idx){const m=sheetMeta(mat,idx),g=m.g,M=m.margin,W=(m.S.w-2*M)+g,H=((m.S.uh||m.S.h)-2*M)+g;return {idx,m,g,margin:M,W,H,free:[{x:0,y:0,w:W,h:H}],parts:[]};}
-  function mrPartDims(p){if(p.grain){const o=rigidOrient(p);return {w:o.w,h:o.h,rot:false};}return {w:p.w,h:p.h,rot:true};}
+  function mrPartDims(p){if(grainActive(p)){const o=rigidOrient(p);return {w:o.w,h:o.h,rot:false};}return {w:p.w,h:p.h,rot:true};}
   function mrEmit(bin,p,r){const rw=r.w-bin.g,rh=r.h-bin.g;bin.parts.push(Object.assign({},p,{x:bin.margin+r.x,y:bin.margin+r.y,w:rw,h:rh,rot:(rw!==p.w)?90:0}));
     if(isHost(p)){const f=p.frame||{t:0,r:0,b:0,l:0};let fl=f.l,fr=f.r,ft=f.t,fb=f.b;if(rw!==p.w){fl=f.t;fr=f.b;ft=f.l;fb=f.r;}
       const cw=rw-fl-fr-2*bin.g,ch=rh-ft-fb-2*bin.g;if(cw>=100&&ch>=100){bin.free.push({x:r.x+fl+bin.g,y:r.y+ft+bin.g,w:cw,h:ch});bin.free=mrPrune(bin.free);}}}
@@ -1673,8 +1703,8 @@
       if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;const y1=Y+eo,y2=Y+H-eo;for(let k=0;k<h.count;k++){const dy=h.count===1?(y1+y2)/2:y1+(y2-y1)*k/(h.count-1);if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);}}
       else{const ey=side==='top'?Y+ins2:Y+H-ins2;const x1=X+eo,x2=X+W-eo;for(let k=0;k<h.count;k++){const dx=h.count===1?(x1+x2)/2:x1+(x2-x1)*k/(h.count-1);if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);}}
     }
-    // grain runs along the longest side — centred double-arrow, clearly visible (item 5)
-    if(p.grain&&Math.min(W,H)>=5){const horiz=(p.w>=p.h),cx=X+W/2,cy=Y+H/2,L=(horiz?W:H)*0.55,a=Math.max(1.4,Math.min(3.2,L*0.16)),col='#16a34a',sw=Math.max(0.5,Math.min(1.1,Math.min(W,H)/22));
+    // grain always runs along the sheet X — centred double-arrow, clearly visible (item 5)
+    if(grainActive(p)&&Math.min(W,H)>=5){const horiz=true,cx=X+W/2,cy=Y+H/2,L=(horiz?W:H)*0.55,a=Math.max(1.4,Math.min(3.2,L*0.16)),col='#16a34a',sw=Math.max(0.5,Math.min(1.1,Math.min(W,H)/22));
       if(horiz){const x1=cx-L/2,x2=cx+L/2;s+=`<line x1="${x1.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><path d="M${(x1+a).toFixed(1)} ${(cy-a).toFixed(1)} L${x1.toFixed(1)} ${cy.toFixed(1)} L${(x1+a).toFixed(1)} ${(cy+a).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><path d="M${(x2-a).toFixed(1)} ${(cy-a).toFixed(1)} L${x2.toFixed(1)} ${cy.toFixed(1)} L${(x2-a).toFixed(1)} ${(cy+a).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw.toFixed(2)}"/>`;}
       else{const y1=cy-L/2,y2=cy+L/2;s+=`<line x1="${cx.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><path d="M${(cx-a).toFixed(1)} ${(y1+a).toFixed(1)} L${cx.toFixed(1)} ${y1.toFixed(1)} L${(cx+a).toFixed(1)} ${(y1+a).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><path d="M${(cx-a).toFixed(1)} ${(y2-a).toFixed(1)} L${cx.toFixed(1)} ${y2.toFixed(1)} L${(cx+a).toFixed(1)} ${(y2-a).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw.toFixed(2)}"/>`;}
     }
@@ -1775,7 +1805,7 @@
     list.forEach(p=>{
       const typeKey=(p.typeKey&&TYPES[p.typeKey])?p.typeKey:'flat';
       const it=mkItem(typeKey,+p.width,+p.height,Math.max(1,+p.quantity||1),p.mat||orderMaterial,nestSize,p.frame||{t:0,r:0,b:0,l:0},null,p.text||'',p.hinges||{on:false},{offsetName:p.offsetName||'None'});
-      if(p.grain)it.grain=true;
+      if(p.grain)it.grain=(p.grain===true?'long':p.grain);
       if(p.offsetName&&profiles[p.offsetName]){it.lines=JSON.parse(JSON.stringify(profiles[p.offsetName].lines));it.pocketSide=profiles[p.offsetName].side||'front';it.offsetName=p.offsetName;}
       items.push(it);
     });
@@ -2273,7 +2303,7 @@
         l.role==='insert'?'':checklistFrameText(it),
         l.role==='insert'?'':(it.offsetName&&it.offsetName!=='None'?it.offsetName:''),
         l.role==='insert'?'':checklistHingesText(it),
-        (l.role!=='insert'&&it.grain)?'yes':'',
+        (l.role!=='insert'&&grainOf(it)!=='off')?grainOf(it):'',
         l.copyText].join('\t');
     });
     return ['FAST CNC CHECKLIST v2','Client: '+(project.client||''),'Order: '+(project.number||''),
@@ -2306,7 +2336,8 @@
     if(hi<0)return [];
     const cols=lines[hi].split('\t').map(c=>c.trim().toLowerCase());
     const ix=n=>cols.indexOf(n);
-    const nameToType={};Object.keys(TYPES).forEach(k=>{nameToType[TYPES[k].name.toLowerCase()]=k;});
+    const nameToType={'insert traditional':'trad','insert flushback':'flush'};   // legacy checklist names
+    Object.keys(TYPES).forEach(k=>{nameToType[TYPES[k].name.toLowerCase()]=k;});
     const agg=new Map();
     for(let k=hi+1;k<lines.length;k++){
       if(!lines[k].trim())continue;
@@ -2326,9 +2357,10 @@
       let hinges={on:false};
       if(hingesRaw){const m=hingesRaw.match(/^(\S+)\s+(\S+)\s+@(\d+)/);hinges=m?{on:true,side:m[1],count:(m[2]==='auto'?'auto':(+m[2]||'auto')),offset:+m[3]||100}:{on:true,side:'auto',count:'auto',offset:100};}
       const offsetName=String((ix('offset')>=0?c[ix('offset')]:'')||'').trim();
-      const grain=/^y/i.test(String((ix('grain')>=0?c[ix('grain')]:'')||'').trim());
+      const gRaw=String((ix('grain')>=0?c[ix('grain')]:'')||'').trim().toLowerCase();
+      const grain=gRaw==='short'?'short':((gRaw==='long'||/^y/.test(gRaw))?'long':'');
       const qty=Math.max(1,Math.round(+(c[ix('qty')]||1)));
-      const key=[w,h,text2,mat,typeKey,frameRaw,hingesRaw,offsetName,grain?1:0].join('|');
+      const key=[w,h,text2,mat,typeKey,frameRaw,hingesRaw,offsetName,grain].join('|');
       if(agg.has(key))agg.get(key).quantity+=qty;
       else agg.set(key,{width:w,height:h,quantity:qty,text:text2,mat,typeKey,frame,hinges,offsetName,grain});
     }
