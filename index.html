@@ -240,14 +240,20 @@
       </span>
       <span class="menu" onclick="toggleMenu(this,event)">Print
         <div class="dd">
-          <div class="dd-item" onclick="event.stopPropagation();openQuoteDoc();closeMenus()">PDF / Quote…</div>
-          <div class="dd-item" onclick="event.stopPropagation();comingSoon('Doors only (print nesting)');closeMenus()">Doors only <span class="soon">soon</span></div>
-          <div class="dd-item" onclick="event.stopPropagation();comingSoon('Print labels');closeMenus()">Print labels <span class="soon">soon</span></div>
-          <div class="dd-item" onclick="event.stopPropagation();comingSoon('Spray labels / scheme');closeMenus()">Spray labels <span class="soon">soon</span></div>
+          <div class="dd-item" onclick="event.stopPropagation();openQuoteDoc();closeMenus()">Save PDF</div>
+          <div class="dd-item" onclick="event.stopPropagation();printLabelsMap();closeMenus()">Print Labels Map</div>
+          <div class="dd-item" onclick="event.stopPropagation();printCncLabels();closeMenus()">Print CNC Labels</div>
+          <div class="dd-item" onclick="event.stopPropagation();printA4Labels();closeMenus()">Print A4 Labels</div>
+          <div class="dd-sep"></div>
           <div class="dd-item" onclick="event.stopPropagation();openCutList();closeMenus()">Cut list</div>
         </div>
       </span>
-      <span class="menu" onclick="event.stopPropagation();comingSoon('Checklist')">Checklist <span class="soon">soon</span></span>
+      <span class="menu" onclick="toggleMenu(this,event)">Checklist
+        <div class="dd">
+          <div class="dd-item" onclick="event.stopPropagation();openChecklist();closeMenus()">Create Checklist</div>
+          <div class="dd-item" onclick="event.stopPropagation();downloadChecklistJson();closeMenus()">Checklist app file (.json)</div>
+        </div>
+      </span>
     </div>
     <div class="appicons">
       <button title="Open / Load .fastcnc" onclick="document.getElementById('fileIn').click()">⤒</button>
@@ -1680,13 +1686,26 @@
     return null;
   }
   function parseTakeoffText(text){
+    const ck=parseChecklistPaste(text);          // a pasted Kabacal checklist recreates the parts (qty/material/type/frame/hinges/grain)
+    if(ck)return ck;
     const lines=String(text||'').replace(/\r/g,'\n').split(/\n+/).map(x=>x.trim()).filter(Boolean);
     let parsed=lines.map(parseTakeoffLine).filter(it=>it&&it.width>0&&it.height>0);
     if(parsed.length)return parsed;
     const chunks=String(text||'').match(/(?:[DEPWG]\s+)?(?:\d{1,2}\s*x\s*)?\d+(?:\.\d+)?\s*(?:mm)?\s*x\s*\d+(?:\.\d+)?(?:\s*mm)?(?:\s*x\s*\d{1,2})?/gi)||[];
     return chunks.map(parseTakeoffLine).filter(it=>it&&it.width>0&&it.height>0);
   }
-  function addTakeoffItems(list){if(!list||!list.length)return 0;list.forEach(p=>{items.push(mkItem('flat',+p.width,+p.height,Math.max(1,+p.quantity||1),orderMaterial,nestSize,{t:0,r:0,b:0,l:0},null,p.text||'',{on:false},{offsetName:'None'}));});resetSel(items.length-1);render();return list.reduce((s,p)=>s+Math.max(1,+p.quantity||1),0);}
+  function addTakeoffItems(list){
+    if(!list||!list.length)return 0;
+    list.forEach(p=>{
+      const typeKey=(p.typeKey&&TYPES[p.typeKey])?p.typeKey:'flat';
+      const it=mkItem(typeKey,+p.width,+p.height,Math.max(1,+p.quantity||1),p.mat||orderMaterial,nestSize,p.frame||{t:0,r:0,b:0,l:0},null,p.text||'',p.hinges||{on:false},{offsetName:p.offsetName||'None'});
+      if(p.grain)it.grain=true;
+      if(p.offsetName&&profiles[p.offsetName]){it.lines=JSON.parse(JSON.stringify(profiles[p.offsetName].lines));it.pocketSide=profiles[p.offsetName].side||'front';it.offsetName=p.offsetName;}
+      items.push(it);
+    });
+    resetSel(items.length-1);render();
+    return list.reduce((s,p)=>s+Math.max(1,+p.quantity||1),0);
+  }
   function openTakeoff(){
     const html='<div class="sub">Paste measurements (one per line) — e.g. <code>3 x 600 x 400</code>, <code>600x400</code>, or <code>D 450x900</code> (D/E/P/W/G = label). Or drop a <b>.dxf</b> / <b>.txt</b> file. Parts are added in the current material ('+esc(orderMaterial)+'). Image OCR — coming soon.</div>'
       +'<textarea id="tkText" class="tkText" placeholder="3 x 600 x 400&#10;500 x 720&#10;D 450 x 900"></textarea>'
@@ -1697,6 +1716,488 @@
   }
   function tkAddText(){const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');const n=addTakeoffItems(parseTakeoffText(t.value));st.textContent=n?('Added '+n+' part(s).'):'No dimensions found.';if(n)t.value='';}
   function tkDrop(e){e.preventDefault();const d=e.currentTarget;d.classList.remove('over');const files=Array.from((e.dataTransfer&&e.dataTransfer.files)||[]);files.forEach(async f=>{const st=document.getElementById('tkStatus');try{if(/\.dxf$/i.test(f.name)){const n=addTakeoffItems(dxfTakeoffRects(await f.text()));st.textContent=n?('Added '+n+' part(s) from DXF.'):'No closed rectangles found in the DXF.';}else{const ta=document.getElementById('tkText');ta.value+=(ta.value?'\n':'')+await f.text();st.textContent='File loaded — review then press Add parts.';}}catch(err){st.textContent='Error: '+err.message;}});}
+
+  // ===== Labels + Checklist (adapted from the production CNC Calculator) =====
+  // Part numbers = p.pnum (the SAME global numbers as the nesting preview and the DXF). Sheets are numbered
+  // globally across material groups in the same order buildSheetGroups() returns them.
+  function utf8Bytes(text){const v=String(text||'');if(window.TextEncoder)return Array.from(new TextEncoder().encode(v));return unescape(encodeURIComponent(v)).split('').map(ch=>ch.charCodeAt(0));}
+  function shortHash(value){let h=2166136261;String(value||'').split('').forEach(ch=>{h^=ch.charCodeAt(0);h=Math.imul(h,16777619)>>>0;});return h.toString(36).toUpperCase();}
+  function compactQrPayload(label){
+    const quote=String(label.quote||'').replace(/[^A-Za-z0-9]/g,'').slice(-12);
+    const role=String(label.role||'part').replace(/[^A-Za-z0-9]/g,'').slice(0,5).toUpperCase()||'PART';
+    const fields=['FC',quote,label.uid?'U'+String(label.uid):'','P'+String(label.partNo||''),'T'+String(label.total||''),'S'+String(label.size||''),'SH'+String(label.sheetShort||''),'R'+role,(label.group!=null&&label.group!=='')?'G'+shortHash(String(label.group)):'',label.matchKey?'K'+String(label.matchKey):''].filter(Boolean);
+    const raw=fields.join('|');
+    if(utf8Bytes(raw).length<=72)return raw;
+    return ['FC',quote,'H'+shortHash(raw),'P'+String(label.partNo||''),'S'+String(label.size||'')].filter(Boolean).join('|');
+  }
+  // --- QR encoder (version 4, EC L, mask 0) — ported from the production app ---
+  function qrGfTables(){if(qrGfTables.cache)return qrGfTables.cache;const exp=new Array(512),log=new Array(256).fill(0);let x=1;for(let i=0;i<255;i++){exp[i]=x;log[x]=i;x<<=1;if(x&0x100)x^=0x11D;}for(let i=255;i<512;i++)exp[i]=exp[i-255];qrGfTables.cache={exp,log};return qrGfTables.cache;}
+  function qrGfMul(x,y){if(!x||!y)return 0;const t=qrGfTables();return t.exp[t.log[x]+t.log[y]];}
+  function qrRsGenerator(degree){const r=new Array(degree).fill(0);r[degree-1]=1;let root=1;for(let i=0;i<degree;i++){for(let j=0;j<degree;j++){r[j]=qrGfMul(r[j],root);if(j+1<degree)r[j]^=r[j+1];}root=qrGfMul(root,2);}return r;}
+  function qrRsEcc(data,degree){const div=qrRsGenerator(degree),res=new Array(degree).fill(0);data.forEach(b=>{const f=b^res.shift();res.push(0);div.forEach((c,i)=>{res[i]^=qrGfMul(c,f);});});return res;}
+  function qrFormatBits(mask){const d=(1<<3)|(mask&7);let rem=d;for(let i=0;i<10;i++)rem=(rem<<1)^(((rem>>>9)&1)?0x537:0);return ((d<<10)|(rem&0x3FF))^0x5412;}
+  function qrModules(text){
+    const size=33,dataCodewords=80,eccCodewords=20;
+    const modules=Array.from({length:size},()=>Array(size).fill(false));
+    const reserved=Array.from({length:size},()=>Array(size).fill(false));
+    const setF=(x,y,v)=>{if(x<0||y<0||x>=size||y>=size)return;modules[y][x]=!!v;reserved[y][x]=true;};
+    const finder=(x,y)=>{for(let dy=-1;dy<=7;dy++)for(let dx=-1;dx<=7;dx++){const xx=x+dx,yy=y+dy,inside=dx>=0&&dx<=6&&dy>=0&&dy<=6;setF(xx,yy,inside&&(dx===0||dx===6||dy===0||dy===6||(dx>=2&&dx<=4&&dy>=2&&dy<=4)));}};
+    const align=(cx,cy)=>{for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)setF(cx+dx,cy+dy,Math.max(Math.abs(dx),Math.abs(dy))!==1);};
+    const setFormat=bits=>{const bit=i=>((bits>>>i)&1)!==0;for(let i=0;i<=5;i++)setF(8,i,bit(i));setF(8,7,bit(6));setF(8,8,bit(7));setF(7,8,bit(8));for(let i=9;i<15;i++)setF(14-i,8,bit(i));for(let i=0;i<8;i++)setF(size-1-i,8,bit(i));for(let i=8;i<15;i++)setF(8,size-15+i,bit(i));setF(8,size-8,true);};
+    finder(0,0);finder(size-7,0);finder(0,size-7);
+    for(let i=8;i<size-8;i++){setF(i,6,i%2===0);setF(6,i,i%2===0);}
+    align(26,26);setFormat(qrFormatBits(0));
+    const bytes=utf8Bytes(text).slice(0,72),bits=[];
+    const append=(v,len)=>{for(let i=len-1;i>=0;i--)bits.push((v>>>i)&1);};
+    append(0x4,4);append(bytes.length,8);bytes.forEach(b=>append(b,8));
+    const maxBits=dataCodewords*8;
+    for(let i=0;i<4&&bits.length<maxBits;i++)bits.push(0);
+    while(bits.length%8)bits.push(0);
+    const data=[];for(let i=0;i<bits.length;i+=8)data.push(bits.slice(i,i+8).reduce((s,b)=>(s<<1)|b,0));
+    const pads=[0xEC,0x11];let pi=0;while(data.length<dataCodewords){data.push(pads[pi%2]);pi++;}
+    const codewords=data.concat(qrRsEcc(data,eccCodewords)),stream=[];
+    codewords.forEach(b=>{for(let i=7;i>=0;i--)stream.push((b>>>i)&1);});
+    let bi=0,up=true;
+    for(let right=size-1;right>=1;right-=2){
+      if(right===6)right--;
+      for(let vert=0;vert<size;vert++){const y=up?size-1-vert:vert;
+        for(let j=0;j<2;j++){const x=right-j;if(reserved[y][x])continue;let v=bi<stream.length?stream[bi++]:0;if(((x+y)&1)===0)v^=1;modules[y][x]=!!v;}}
+      up=!up;
+    }
+    setFormat(qrFormatBits(0));
+    return modules;
+  }
+  function qrSvgFragment(payload,x,y,sizePx){
+    const m=qrModules(payload||'FASTCNC'),quiet=4,n=m.length,scale=sizePx/(n+quiet*2);let cells='';
+    m.forEach((row,ri)=>{row.forEach((dark,ci)=>{if(dark)cells+=`<rect x="${ci+quiet}" y="${ri+quiet}" width="1" height="1"/>`;});});
+    return `<g class="qr-code" transform="translate(${x} ${y}) scale(${scale})" shape-rendering="crispEdges"><rect x="0" y="0" width="${n+quiet*2}" height="${n+quiet*2}" fill="#fff"/><g fill="#000">${cells}</g></g>`;
+  }
+  function qrSvgTag(payload,className){
+    const m=qrModules(payload||'FASTCNC'),quiet=4,n=m.length;let cells='';
+    m.forEach((row,ri)=>{row.forEach((dark,ci)=>{if(dark)cells+=`<rect x="${ci+quiet}" y="${ri+quiet}" width="1" height="1"/>`;});});
+    const size=n+quiet*2;
+    return `<svg class="${className||'inline-qr'}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" shape-rendering="crispEdges"><rect x="0" y="0" width="${size}" height="${size}" fill="#fff"/><g fill="#000">${cells}</g></svg>`;
+  }
+  // --- collect one label per physical piece, in global part-number order ---
+  function collectPartLabels(prebuilt){
+    const groups=prebuilt||buildSheetGroups();
+    const labels=[];let gNo=0,gTot=0;
+    groups.forEach(sheets=>gTot+=sheets.length);
+    const quote=project.number||'';
+    const dateCode=String(project.date||'').replace(/-/g,'').slice(2);
+    groups.forEach((sheets,mat)=>{
+      const th=parseMat(mat).th;
+      sheets.forEach((sh,si)=>{
+        gNo++;
+        sh.parts.forEach(p=>{
+          const itemIdx=parseInt(p.key,10);
+          const role=p.isInsert?'insert':'part';
+          const w=(p.origW!=null?p.origW:p.w),h=(p.origH!=null?p.origH:p.h);
+          const label={
+            uid:shortHash([quote,mat,p.key,si,role,w,h,Math.round(p.x||0),Math.round(p.y||0)].join('|')),
+            partNo:p.pnum||0,total:0,
+            code:String(p.text||p.name||'').replace(/\s+/g,' ').trim()||('Part '+(p.pnum||'')),
+            client:project.client||'Client name/job',
+            size:w+'x'+h,sizeFull:w+' x '+h+' x '+th,
+            material:mat,thickness:th,
+            sheet:'Sheet '+(si+1)+'/'+sheets.length,sheetShort:(si+1)+'/'+sheets.length,sheetNo:gNo,sheetTotal:0,
+            quote,dateCode,role,itemIdx,group:String(itemIdx),
+            fsc:/\bFSC\b/i.test(mat)?'FSC':'',p
+          };
+          label.matchKey=shortHash([role,w,h,mat,p.type||''].join('|'));
+          label.qrPayload=compactQrPayload(label);
+          labels.push(label);
+        });
+      });
+    });
+    labels.sort((a,b)=>(a.partNo||0)-(b.partNo||0));
+    labels.forEach(l=>{l.total=labels.length;l.sheetTotal=gTot;});
+    const totals=new Map(),seen=new Map();
+    labels.forEach(l=>{const k=l.role+'|'+l.itemIdx;totals.set(k,(totals.get(k)||0)+1);});
+    labels.forEach(l=>{const k=l.role+'|'+l.itemIdx;const t=totals.get(k)||1;const n=(seen.get(k)||0)+1;seen.set(k,n);l.copyText=t>1?n+' of '+t:'';});
+    return labels;
+  }
+  function collectLabelMapPages(){
+    const groups=buildSheetGroups();
+    const labels=collectPartLabels(groups);
+    const byP=new Map(labels.map(l=>[l.p,l]));
+    const pages=[];let gNo=0,gTot=0;
+    groups.forEach(sheets=>gTot+=sheets.length);
+    groups.forEach((sheets,mat)=>{
+      sheets.forEach((sh,si)=>{
+        gNo++;
+        const entries=sh.parts.map(p=>({p,label:byP.get(p)})).filter(e=>e.label);
+        if(entries.length)pages.push({mat,S:sh.S,si,groupTotal:sheets.length,globalNo:gNo,globalTotal:gTot,entries});
+      });
+    });
+    return pages;
+  }
+  // --- CNC labels (40x30mm) — ported layout ---
+  function cncLabelWrapText(text,maxChars){
+    const clean=String(text||'').replace(/\s+/g,' ').trim();if(!clean)return [];
+    const limit=Math.max(4,Math.floor(Number(maxChars||12)));const lines=[];
+    clean.split(' ').forEach(word=>{let rest=word;
+      while(rest.length>limit){const piece=rest.slice(0,limit);
+        if(lines.length&&lines[lines.length-1].length+1+piece.length<=limit)lines[lines.length-1]+=' '+piece;else lines.push(piece);
+        rest=rest.slice(limit);}
+      if(!rest)return;
+      if(lines.length&&lines[lines.length-1].length+1+rest.length<=limit)lines[lines.length-1]+=' '+rest;else lines.push(rest);});
+    return lines;
+  }
+  function cncLabelFitContent(label,boxW,boxH){
+    const sizeText=String(label.size||'').trim(),codeText=String(label.code||'').trim();
+    const metaText=[label.copyText||'',label.partNo?'#'+label.partNo:''].filter(Boolean).join('  ');
+    let fallback=null;
+    for(let font=30;font>=12;font-=0.5){
+      const sizeFont=Math.max(18,Math.min(42,font*1.18)),metaFont=Math.max(10,Math.min(17,font*0.58));
+      const maxChars=Math.max(4,Math.floor(boxW/Math.max(1,font*0.53)));
+      const codeLines=cncLabelWrapText(codeText,maxChars);
+      const lineHeight=font*1.06,sizeH=sizeText?sizeFont*1.05:0,metaH=metaText?metaFont*1.18:0;
+      const sizeGap=sizeText&&codeLines.length?Math.max(30,Math.min(42,Math.max(sizeFont*0.92,font*1.05))):0;
+      const totalH=sizeH+sizeGap+codeLines.length*lineHeight+(metaText?7+metaH:0);
+      const widestCode=codeLines.reduce((mx,l)=>Math.max(mx,l.length*font*0.53),0);
+      const widest=Math.max(sizeText.length*sizeFont*0.55,widestCode,metaText.length*metaFont*0.52);
+      const fit={font,sizeFont,metaFont,lineHeight,sizeText,codeLines,metaText,sizeGap,totalH};
+      fallback=fit;
+      if(totalH<=boxH&&widest<=boxW)return Object.assign({},fit,{ok:true});
+    }
+    return Object.assign({},fallback||{font:12,sizeFont:18,metaFont:10,lineHeight:13,sizeText,codeLines:cncLabelWrapText(codeText,18),metaText,sizeGap:30,totalH:0},{ok:false});
+  }
+  function cncLabelTextSvg(fit,x,y,boxW,boxH){
+    const totalH=fit.totalH||(fit.sizeFont+fit.codeLines.length*fit.lineHeight+(fit.metaText?fit.metaFont+7:0));
+    let cursor=y+Math.max(fit.sizeFont,(boxH-totalH)/2+fit.sizeFont),svg='';
+    if(fit.sizeText){svg+=`<text x="${x+boxW/2}" y="${cursor}" class="cnc-dim" text-anchor="middle" font-size="${fit.sizeFont.toFixed(1)}">${esc(fit.sizeText)}</text>`;cursor+=fit.codeLines.length?(fit.sizeGap||30):0;}
+    if(fit.codeLines.length){svg+=`<text x="${x+boxW/2}" y="${cursor}" class="cnc-code" text-anchor="middle" font-size="${fit.font.toFixed(1)}">`;fit.codeLines.forEach((line,i)=>{svg+=`<tspan x="${x+boxW/2}" dy="${i?fit.lineHeight:0}">${esc(line)}</tspan>`;});svg+='</text>';cursor+=fit.codeLines.length*fit.lineHeight;}
+    if(fit.metaText)svg+=`<text x="${x+boxW/2}" y="${cursor+fit.metaFont+6}" class="cnc-meta" text-anchor="middle" font-size="${fit.metaFont.toFixed(1)}">${esc(fit.metaText)}</text>`;
+    return svg;
+  }
+  function cncLabelSingleLineFont(text,maxW,startFont,minFont){
+    const clean=String(text||'').trim();
+    for(let font=(startFont||18);font>=(minFont||10);font-=0.5){if(clean.length*font*0.58<=maxW)return font;}
+    return minFont||10;
+  }
+  function cncLabelHeaderText(label){
+    const rawClient=String(label.client||'').replace(/\s+/g,' ').trim();
+    const quote=String(label.quote||'').replace(/\s+/g,' ').trim();
+    const dateCode=String(label.dateCode||'').trim();
+    const client=rawClient&&!/^client name\/job$/i.test(rawClient)?rawClient:'';
+    if(client&&dateCode)return client+' '+dateCode;
+    if(client)return client;
+    if(quote)return quote;
+    return 'FAST CNC';
+  }
+  function cncLabelSvg(label){
+    const sheetNo=String(label.sheetNo||'').trim();
+    const sheetText=sheetNo?'SHEET '+sheetNo:String(label.sheet||'');
+    const fscText=String(label.fsc||'').trim();
+    const headerText=cncLabelHeaderText(label);
+    const headerFont=cncLabelSingleLineFont(headerText,248,18,10);
+    const fullBox={x:24,y:70,w:352,h:166};
+    const qrBox={x:24,y:70,w:238,h:166,qrX:280,qrY:86,qrSize:82};
+    const fitWithQr=cncLabelFitContent(label,qrBox.w,qrBox.h);
+    const useQr=!!(fitWithQr.ok&&fitWithQr.font>=22&&fitWithQr.sizeFont>=26&&fitWithQr.codeLines.length<=4);
+    const textBox=useQr?qrBox:fullBox;
+    const fit=useQr?fitWithQr:cncLabelFitContent(label,fullBox.w,fullBox.h);
+    const websiteX=fscText?248:200;
+    const websiteFit=fscText?' textLength="230" lengthAdjust="spacingAndGlyphs"':'';
+    let svg=`<svg class="label-svg cnc-label" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FAST CNC CNC label">
+      <rect x="5" y="5" width="390" height="290" fill="#fff" stroke="#000" stroke-width="3"/>
+      <line x1="5" y1="52" x2="395" y2="52" stroke="#000" stroke-width="3"/>
+      <line x1="5" y1="246" x2="395" y2="246" stroke="#000" stroke-width="3"/>
+      <text x="22" y="34" class="cnc-top" font-size="${headerFont.toFixed(1)}" text-anchor="start">${esc(headerText)}</text>
+      <text x="378" y="34" class="cnc-sheet" font-size="20" text-anchor="end">${esc(sheetText)}</text>`;
+    svg+=cncLabelTextSvg(fit,textBox.x,textBox.y,textBox.w,textBox.h);
+    if(useQr)svg+=qrSvgFragment(label.qrPayload||compactQrPayload(label),qrBox.qrX,qrBox.qrY,qrBox.qrSize);
+    if(fscText)svg+=`<text x="22" y="278" class="cnc-fsc" font-size="15" text-anchor="start">${esc(fscText)}</text>`;
+    svg+=`<text x="${websiteX}" y="280" class="website" text-anchor="middle"${websiteFit}>www.fastcnc.co.uk</text></svg>`;
+    return svg;
+  }
+  function labelPrintHtml(labels){
+    const size={w:40,h:30},rotate=0,scale=0.92;
+    const body=labels.map(label=>`<section class="label"><div class="label-inner">${cncLabelSvg(label)}</div></section>`).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>FAST CNC CNC Labels</title><style>
+      @page{size:${size.w}mm ${size.h}mm;margin:0}
+      *{box-sizing:border-box}
+      html,body{width:${size.w}mm;margin:0;padding:0;background:#fff;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .print-toolbar{position:sticky;top:0;z-index:2;width:${size.w}mm;margin:0;padding:6px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:6px}
+      .print-toolbar button{font:900 12px Arial,Helvetica,sans-serif;padding:7px 10px;border:1px solid #111;border-radius:6px;background:#111;color:#fff;cursor:pointer}
+      .print-toolbar button.secondary{background:#fff;color:#111}
+      .label{position:relative;width:${size.w}mm;height:${size.h}mm;margin:0;padding:0;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;overflow:hidden;background:#fff;color:#000!important}
+      .label:last-child{page-break-after:auto;break-after:auto}
+      .label-inner{width:100%;height:100%;transform:rotate(${rotate}deg) scale(${scale});transform-origin:center center}
+      .label-svg{display:block;width:100%;height:100%;text-rendering:geometricPrecision}
+      .label-svg text{font-family:Arial,Helvetica,sans-serif;fill:#000}
+      .cnc-top,.cnc-sheet,.cnc-dim,.cnc-code,.cnc-meta{font-weight:900}
+      .cnc-dim,.cnc-code{font-weight:950}
+      .cnc-fsc{font-weight:900}
+      .website{font-size:29px;font-weight:400}
+      @media screen{body{background:#e5e7eb}.label{margin:8px;background:#fff;border:1px solid #ddd}}
+      @media print{.print-toolbar{display:none!important}body{background:#fff}.label{margin:0;border:0}}
+    </style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button class="secondary" onclick="window.close()">Close</button></div>${body}</body></html>`;
+  }
+  // --- Labels Map (A4 landscape, real nesting per sheet) — ported layout ---
+  function labelMapFitLines(label,copyText,boxW,boxH){
+    const sizeText=String(label.size||'').trim(),codeText=String(label.code||'').trim(),sheetText=String(label.sheet||'').trim();
+    const metaText=[copyText,sheetText].filter(Boolean).join(' - ');
+    const minFont=Math.max(7,Math.min(14,boxH/13));
+    const startFont=Math.max(minFont,Math.min(82,boxH/3.1,boxW/4.8));
+    let fallback=null;
+    for(let font=startFont;font>=minFont;font-=1){
+      const maxChars=Math.max(5,Math.floor(boxW/Math.max(1,font*0.54)));
+      const lines=[sizeText].concat(cncLabelWrapText(codeText,maxChars)).concat(metaText?[metaText]:[]).filter(Boolean);
+      const lineHeight=font*1.16,totalH=lines.length*lineHeight;
+      const widest=lines.reduce((mx,l)=>Math.max(mx,l.length*font*0.54),0);
+      fallback={font,lineHeight,lines};
+      if(totalH<=boxH&&widest<=boxW)return fallback;
+    }
+    return fallback||{font:minFont,lineHeight:minFont*1.16,lines:[sizeText,codeText,metaText].filter(Boolean)};
+  }
+  function labelMapTextSvg(lines,x,y,font,lineHeight){
+    if(!lines.length)return '';
+    let out='<text class="piece-label-text" x="'+x+'" y="'+y+'" text-anchor="middle" font-size="'+font+'">';
+    lines.forEach((line,i)=>{out+='<tspan x="'+x+'" dy="'+(i?lineHeight:0)+'">'+esc(line)+'</tspan>';});
+    return out+'</text>';
+  }
+  function labelMapTextBlockSvg(fitted,boxX,boxY,boxW,boxH,vertical){
+    if(!fitted.lines.length||boxW<=0||boxH<=0)return '';
+    const totalTextH=fitted.lines.length*fitted.lineHeight;
+    if(vertical){
+      const logicalH=boxW;
+      const firstY=-logicalH/2+Math.max(fitted.font,(logicalH-totalTextH)/2+fitted.font);
+      const cx=boxX+boxW/2,cy=boxY+boxH/2;
+      return '<g transform="translate('+cx+' '+cy+') rotate(-90)">'+labelMapTextSvg(fitted.lines,0,firstY,fitted.font,fitted.lineHeight)+'</g>';
+    }
+    const firstY=boxY+Math.max(fitted.font,(boxH-totalTextH)/2+fitted.font);
+    return labelMapTextSvg(fitted.lines,boxX+boxW/2,firstY,fitted.font,fitted.lineHeight);
+  }
+  function labelMapPlacementSvg(entry,index){
+    const p=entry.p,label=entry.label;
+    const x=Number(p.x||0),y=Number(p.y||0),w=Math.max(1,Number(p.w||0)),h=Math.max(1,Number(p.h||0));
+    const pad=Math.max(8,Math.min(34,Math.min(w,h)*0.07));
+    const fill=index%2?'#f8fafc':'#eef2f7';
+    let svg='<rect class="map-piece" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="'+fill+'" stroke="#111" stroke-width="4"/>';
+    const labelX=x+pad,labelY=y+pad,labelW=Math.max(1,w-pad*2),labelH=Math.max(1,h-pad*2);
+    svg+='<rect class="map-piece-label-bg" x="'+labelX+'" y="'+labelY+'" width="'+labelW+'" height="'+labelH+'" rx="'+Math.min(18,pad*0.8)+'" ry="'+Math.min(18,pad*0.8)+'"/>';
+    const mapIndex=String(label.partNo||(index+1));
+    const mapIndexSize=Math.max(12,Math.min(42,Math.min(w,h)*0.17));
+    const innerPad=Math.max(4,Math.min(16,pad*0.45));
+    const indexX=labelX+innerPad,indexY=labelY+innerPad+mapIndexSize;
+    svg+='<text class="map-piece-index" x="'+indexX+'" y="'+indexY+'" font-size="'+mapIndexSize+'">'+esc(mapIndex)+'</text>';
+    let headerBottom=indexY;
+    if(labelW>36&&labelH>36){
+      const estIndexW=Math.max(mapIndexSize*0.75,mapIndex.length*mapIndexSize*0.62);
+      const qrSize=Math.max(16,Math.min(72,mapIndexSize*1.2,labelW*0.3,labelH*0.28));
+      let qrX=indexX+estIndexW+innerPad,qrY=labelY+innerPad;
+      let canPlace=qrX+qrSize<=labelX+labelW-innerPad&&qrY+qrSize<=labelY+labelH-innerPad;
+      if(!canPlace&&labelW>=qrSize+innerPad*2&&labelH>=mapIndexSize+qrSize+innerPad*3){qrX=labelX+innerPad;qrY=indexY+innerPad;canPlace=true;}
+      if(canPlace){headerBottom=Math.max(headerBottom,qrY+qrSize);svg+=qrSvgFragment(label.qrPayload||compactQrPayload(label),qrX,qrY,qrSize);}
+    }
+    const reserveTop=Math.min(labelH*0.42,headerBottom-labelY+innerPad);
+    const textX=labelX+innerPad,textY=labelY+reserveTop;
+    const textW=Math.max(1,labelW-innerPad*2),textH=Math.max(1,labelH-reserveTop-innerPad);
+    const verticalText=h>w;
+    const fitted=labelMapFitLines(label,entry.copyText||label.copyText||'',verticalText?textH:textW,verticalText?textW:textH);
+    svg+=labelMapTextBlockSvg(fitted,textX,textY,textW,textH,verticalText);
+    return svg;
+  }
+  function labelMapSheetSvg(page){
+    const S=page.S;
+    const title='Sheet '+page.globalNo+'/'+page.globalTotal+' - '+parseMat(page.mat).name+' '+parseMat(page.mat).th+' - '+S.label;
+    let svg='<svg class="label-map-sheet" viewBox="0 0 '+S.w+' '+S.h+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+esc(title)+'">';
+    svg+='<rect x="4" y="4" width="'+(S.w-8)+'" height="'+(S.h-8)+'" fill="#fff" stroke="#111" stroke-width="8"/>';
+    svg+='<text class="label-map-title" x="24" y="58">'+esc(title)+'</text>';
+    if(S.uh&&S.uh<S.h){
+      svg+='<rect x="4" y="'+S.uh+'" width="'+(S.w-8)+'" height="'+Math.max(0,S.h-S.uh-4)+'" fill="rgba(220,38,38,.09)" stroke="none"/>';
+      svg+='<line x1="4" y1="'+S.uh+'" x2="'+(S.w-4)+'" y2="'+S.uh+'" stroke="#dc2626" stroke-width="7" stroke-dasharray="28 18"/>';
+    }
+    page.entries.forEach((entry,index)=>{svg+=labelMapPlacementSvg(entry,index);});
+    return svg+'</svg>';
+  }
+  function labelMapPrintHtml(pages){
+    const body=pages.map(page=>'<section class="label-map-page">'+labelMapSheetSvg(page)+'</section>').join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>FAST CNC Labels Map</title><style>
+      @page{size:A4 landscape;margin:5mm}
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:Arial,Helvetica,sans-serif}
+      .print-toolbar{position:sticky;top:0;z-index:5;margin:0;padding:7px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:7px}
+      .print-toolbar button{font:900 12px Arial,Helvetica,sans-serif;padding:8px 11px;border:1px solid #111;border-radius:6px;background:#111;color:#fff;cursor:pointer}
+      .print-toolbar button.secondary{background:#fff;color:#111}
+      .label-map-page{width:287mm;height:200mm;margin:0 auto;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+      .label-map-page:last-child{page-break-after:auto;break-after:auto}
+      .label-map-sheet{width:100%;height:100%;display:block}
+      .label-map-sheet text{font-family:Arial,Helvetica,sans-serif;fill:#000}
+      .label-map-title{font-size:44px;font-weight:900}
+      .map-piece-label-bg{fill:#fff;fill-opacity:.9;stroke:#111;stroke-width:2}
+      .map-piece-index{font-weight:900;fill:#555}
+      .piece-label-text{font-weight:900}
+      .qr-code rect{shape-rendering:crispEdges}
+      @media screen{body{background:#e5e7eb}.label-map-page{margin:10px auto;border:1px solid #cbd5e1;box-shadow:0 8px 24px rgba(15,23,42,.13)}}
+      @media print{.print-toolbar{display:none!important}body{background:#fff}.label-map-page{margin:0;border:0;box-shadow:none}}
+    </style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button class="secondary" onclick="window.close()">Close</button></div>${body}</body></html>`;
+  }
+  // --- A4 labels (uniform readable blocks per sheet) — ported layout ---
+  function a4LabelGrid(count){
+    const total=Math.max(1,Number(count||1));
+    const pageW=287,pageH=200,headerH=8,gap=total>45?1.3:2;
+    const gridW=pageW,gridH=pageH-headerH;
+    let best=null;
+    for(let cols=2;cols<=Math.max(2,total);cols++){
+      const rows=Math.max(2,Math.ceil(total/cols));
+      const cellW=(gridW-gap*(cols-1))/cols,cellH=(gridH-gap*(rows-1))/rows;
+      if(cellW<=0||cellH<=0)continue;
+      const empty=rows*cols-total;
+      const ratioScore=1/(1+Math.abs((cellW/cellH)-1.15));
+      const score=Math.min(cellW,cellH)*9+Math.sqrt(cellW*cellH)*3+ratioScore*12-empty*0.8;
+      if(!best||score>best.score)best={cols,rows,cellW,cellH,gap,headerH,score};
+    }
+    return best||{cols:2,rows:2,cellW:(gridW-gap)/2,cellH:(gridH-gap)/2,gap,headerH,score:0};
+  }
+  function a4LabelCellHtml(entry,grid,index){
+    const label=entry.label;
+    const copyText=entry.copyText||label.copyText||'';
+    const useQr=grid.cellW>=24&&grid.cellH>=22;
+    const qrSize=useQr?Math.max(6.5,Math.min(11,grid.cellW*0.18,grid.cellH*0.24)):0;
+    const contentHeight=grid.cellH-(useQr?qrSize+5.8:7);
+    const baseFont=Math.max(2.55,Math.min(5.0,grid.cellW*0.115,grid.cellH*0.15));
+    const maxChars=Math.max(6,Math.floor((grid.cellW-5)/Math.max(1,baseFont*0.48)));
+    const codeLines=cncLabelWrapText(label.code||'',maxChars);
+    const metaText=copyText||'';
+    const lineCount=1+codeLines.length+(metaText?1:0);
+    const fittedFont=Math.max(2.25,Math.min(baseFont,contentHeight/Math.max(1,lineCount*1.12)));
+    const dimFont=Math.min(5.4,fittedFont*1.12),metaFont=Math.max(2.05,fittedFont*0.74);
+    return '<article class="a4-label-cell'+(useQr?' has-qr':'')+'" style="--f:'+fittedFont.toFixed(2)+'mm;--dim:'+dimFont.toFixed(2)+'mm;--meta:'+metaFont.toFixed(2)+'mm;--qr:'+qrSize.toFixed(2)+'mm">'
+      +'<div class="a4-label-corner"><span class="a4-label-index">'+esc(String(label.partNo||(index+1)))+'</span>'+(useQr?qrSvgTag(label.qrPayload||compactQrPayload(label),'a4-label-qr'):'')+'</div>'
+      +'<div class="a4-label-dim">'+esc(label.size||'')+'</div>'
+      +'<div class="a4-label-code">'+codeLines.map(line=>'<span>'+esc(line)+'</span>').join('')+'</div>'
+      +(metaText?'<div class="a4-label-meta">'+esc(metaText)+'</div>':'')
+      +'</article>';
+  }
+  function a4LabelsPrintHtml(pages){
+    const pageSections=(pages||[]).map(page=>{
+      const entries=page.entries||[];
+      const grid=a4LabelGrid(entries.length);
+      const title='Sheet '+page.globalNo+' of '+page.globalTotal+' - A4 labels';
+      const cells=entries.map((entry,index)=>a4LabelCellHtml(entry,grid,index)).join('');
+      return '<section class="a4-label-page"><header class="a4-label-head"><span>'+esc(title)+'</span><small>'+entries.length+' label'+(entries.length===1?'':'s')+'</small></header><div class="a4-label-grid" style="--cols:'+grid.cols+';--rows:'+grid.rows+';--gap:'+grid.gap+'mm">'+cells+'</div></section>';
+    }).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>FAST CNC A4 Labels</title><style>
+      @page{size:A4 landscape;margin:5mm}
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:Arial,Helvetica,sans-serif}
+      .print-toolbar{position:sticky;top:0;z-index:5;margin:0;padding:7px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:7px}
+      .print-toolbar button{font:900 12px Arial,Helvetica,sans-serif;padding:8px 11px;border:1px solid #111;border-radius:6px;background:#111;color:#fff;cursor:pointer}
+      .print-toolbar button.secondary{background:#fff;color:#111}
+      .a4-label-page{width:287mm;height:200mm;margin:0 auto;background:#fff;display:flex;flex-direction:column;gap:1.5mm;overflow:hidden;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid}
+      .a4-label-page:last-child{page-break-after:auto;break-after:auto}
+      .a4-label-head{height:8mm;display:flex;align-items:center;justify-content:space-between;border-bottom:.35mm solid #111;font:900 2.8mm Arial,Helvetica,sans-serif;letter-spacing:.02em}
+      .a4-label-head small{font-size:2.15mm;font-weight:800;color:#111}
+      .a4-label-grid{flex:1;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);gap:var(--gap)}
+      .a4-label-cell{position:relative;min-width:0;min-height:0;border:.35mm solid #111;border-radius:1.6mm;padding:2.1mm 1.8mm 1.7mm;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}
+      .a4-label-cell.has-qr{padding-top:calc(var(--qr) + 3mm)}
+      .a4-label-corner{position:absolute;top:1mm;left:1.1mm;display:flex;align-items:flex-start;gap:.8mm;max-width:calc(100% - 2.2mm);pointer-events:none}
+      .a4-label-index{font:900 2mm Arial,Helvetica,sans-serif;color:#555;line-height:1}
+      .a4-label-qr{width:var(--qr);height:var(--qr);display:block;flex:0 0 auto}
+      .a4-label-dim{font-size:var(--dim);font-weight:950;line-height:1.05;margin-bottom:.8mm;white-space:nowrap}
+      .a4-label-code{font-size:var(--f);font-weight:950;line-height:1.08;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15mm;width:100%;overflow:hidden}
+      .a4-label-code span{display:block;max-width:100%;overflow:visible}
+      .a4-label-meta{font-size:var(--meta);font-weight:900;line-height:1.05;margin-top:.9mm;color:#111;white-space:nowrap}
+      @media screen{body{background:#e5e7eb}.a4-label-page{margin:10px auto;border:1px solid #cbd5e1;box-shadow:0 8px 24px rgba(15,23,42,.13);padding:0}}
+      @media print{.print-toolbar{display:none!important}body{background:#fff}.a4-label-page{margin:0;border:0;box-shadow:none}}
+    </style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button class="secondary" onclick="window.close()">Close</button></div>${pageSections}</body></html>`;
+  }
+  // --- print entry points ---
+  function openRawPrintHtml(html){
+    const w=window.open('','_blank');
+    if(!w){alert('Allow pop-ups to print.');return;}
+    w.document.open();w.document.write(html);w.document.close();w.focus();
+    setTimeout(()=>{try{w.print();}catch(e){}},450);
+  }
+  function printCncLabels(){const labels=collectPartLabels();if(!labels.length){alert('Add parts before printing labels.');return;}openRawPrintHtml(labelPrintHtml(labels));}
+  function printLabelsMap(){const pages=collectLabelMapPages();if(!pages.length){alert('Add parts before printing the labels map.');return;}openRawPrintHtml(labelMapPrintHtml(pages));}
+  function printA4Labels(){const pages=collectLabelMapPages();if(!pages.length){alert('Add parts before printing A4 labels.');return;}openRawPrintHtml(a4LabelsPrintHtml(pages));}
+  // --- Checklist: rich TSV (human-readable, Excel-friendly, Smart Takeoff can parse it back) + QR-app JSON ---
+  function checklistFrameText(it){const f=it.frame||{t:0,r:0,b:0,l:0};if(!f.t&&!f.r&&!f.b&&!f.l)return '';return (f.t===f.r&&f.t===f.b&&f.t===f.l)?String(f.t):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);}
+  function checklistHingesText(it){const h=it.hinges||{};if(!h.on)return '';return (h.side||'auto')+' '+(h.count||'auto')+' @'+(h.offset!=null?h.offset:100);}
+  function buildChecklistPayload(){
+    const groups=buildSheetGroups();
+    const labels=collectPartLabels(groups);
+    const pieces=labels.map(l=>({uid:l.uid,partNo:l.partNo,total:l.total,code:l.code,client:l.client,size:l.size,sizeFull:l.sizeFull,material:l.material,thickness:l.thickness,sheet:l.sheet,sheetNo:l.sheetNo,sheetShort:l.sheetShort,role:l.role,group:l.group,matchKey:l.matchKey,copyText:l.copyText,qrPayload:l.qrPayload}));
+    return {type:'fastcnc-checklist',version:2,app:'kabacal',quote:project.number||'',client:project.client||'',contact:project.phone||project.email||'',createdAt:new Date().toISOString(),pieces};
+  }
+  const CHECKLIST_COLS=['Part','Qty','Width','Height','Thickness','Material','Type','Sheet','Text','Frame','Offset','Hinges','Grain','Copy'];
+  function buildChecklistTsv(){
+    const labels=collectPartLabels();
+    if(!labels.length)return '';
+    const d=(project.date||new Date().toISOString().slice(0,10)).split('-');
+    const rows=labels.map(l=>{
+      const it=items[l.itemIdx]||{};
+      const sz=String(l.size||'').split('x');
+      const typeName=l.role==='insert'?'Insert':(TYPES[it.type]?TYPES[it.type].name:'Flat');
+      return [l.partNo,1,sz[0]||'',sz[1]||'',l.thickness,l.material,typeName,l.sheetNo,l.code,
+        l.role==='insert'?'':checklistFrameText(it),
+        l.role==='insert'?'':(it.offsetName&&it.offsetName!=='None'?it.offsetName:''),
+        l.role==='insert'?'':checklistHingesText(it),
+        (l.role!=='insert'&&it.grain)?'yes':'',
+        l.copyText].join('\t');
+    });
+    return ['FAST CNC CHECKLIST v2','Client: '+(project.client||''),'Order: '+(project.number||''),
+      'Date: '+(d.length===3?d[2]+'/'+d[1]+'/'+d[0]:project.date||''),
+      'Total pieces: '+labels.length,'Sheets: '+(labels[0]?labels[0].sheetTotal:0),'',
+      CHECKLIST_COLS.join('\t')].concat(rows).join('\r\n');
+  }
+  function dlBlob(content,mime,name){const b=new Blob([content],{type:mime});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
+  function openChecklist(){
+    const tsv=buildChecklistTsv();
+    if(!tsv){alert('Add parts before creating a checklist.');return;}
+    const html='<div class="sub">One row per physical piece — part numbers match the nesting preview, labels and DXF. Copy it, or paste it back into <b>Smart Takeoff</b> later to recreate the parts (size, qty, material, type, frame, hinges, grain).</div>'
+      +'<textarea id="ckText" readonly style="width:100%;min-height:300px;margin-top:8px;font:11px/1.5 Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;white-space:pre;overflow:auto"></textarea>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn primary" onclick="copyChecklist()">⧉ Copy</button>'
+      +'<button class="btn ghost" onclick="downloadChecklistTxt()">⤓ Download .txt</button>'
+      +'<button class="btn ghost" onclick="downloadChecklistJson()" title="Structured job file for the FastCNC checklist/QR app">⤓ Checklist app file (.json)</button>'
+      +'<span id="ckStatus" class="sub" style="align-self:center"></span></div>';
+    openModal('Checklist',html,true);
+    setTimeout(()=>{const t=document.getElementById('ckText');if(t)t.value=tsv;},20);
+  }
+  function copyChecklist(){const t=document.getElementById('ckText'),st=document.getElementById('ckStatus');if(!t)return;t.select();try{navigator.clipboard.writeText(t.value).then(()=>{if(st)st.textContent='Copied.';});}catch(e){document.execCommand('copy');if(st)st.textContent='Copied.';}}
+  function downloadChecklistTxt(){const tsv=buildChecklistTsv();if(!tsv)return;const name=(project.number||'FAST-CNC').replace(/[^A-Za-z0-9_-]/g,'_');dlBlob(tsv,'text/plain;charset=utf-8',name+'_checklist.txt');}
+  function downloadChecklistJson(){const p=buildChecklistPayload();if(!p.pieces.length)return;const name=(p.quote||'FAST-CNC').replace(/[^A-Za-z0-9_-]/g,'_');dlBlob(JSON.stringify(p,null,2),'application/json',name+'.fastcnc-checklist.json');}
+  // --- Smart Takeoff: parse a pasted checklist back into parts (aggregates identical rows into qty) ---
+  function parseChecklistPaste(text){
+    const raw=String(text||'');
+    if(!/FAST CNC CHECKLIST/i.test(raw)&&!/^part\tqty\twidth\theight/im.test(raw))return null;
+    const lines=raw.replace(/\r/g,'').split('\n');
+    const hi=lines.findIndex(l=>/^part\tqty\twidth\theight/i.test(l.trim()));
+    if(hi<0)return [];
+    const cols=lines[hi].split('\t').map(c=>c.trim().toLowerCase());
+    const ix=n=>cols.indexOf(n);
+    const nameToType={};Object.keys(TYPES).forEach(k=>{nameToType[TYPES[k].name.toLowerCase()]=k;});
+    const agg=new Map();
+    for(let k=hi+1;k<lines.length;k++){
+      if(!lines[k].trim())continue;
+      const c=lines[k].split('\t');
+      const w=+c[ix('width')],h=+c[ix('height')];
+      if(!(w>0&&h>0))continue;
+      const typeRaw=String((ix('type')>=0?c[ix('type')]:'')||'').trim();
+      if(/^insert$/i.test(typeRaw))continue;                       // inserts regenerate from the door type
+      const typeKey=nameToType[typeRaw.toLowerCase()]||'flat';
+      const mat=String((ix('material')>=0?c[ix('material')]:'')||'').trim();
+      const text2=String((ix('text')>=0?c[ix('text')]:'')||'').trim();
+      const frameRaw=String((ix('frame')>=0?c[ix('frame')]:'')||'').trim();
+      let frame={t:0,r:0,b:0,l:0};
+      if(/^\d+$/.test(frameRaw)){const f=+frameRaw;frame={t:f,r:f,b:f,l:f};}
+      else{const m=frameRaw.match(/T(\d+)\s*R(\d+)\s*B(\d+)\s*L(\d+)/i);if(m)frame={t:+m[1],r:+m[2],b:+m[3],l:+m[4]};}
+      const hingesRaw=String((ix('hinges')>=0?c[ix('hinges')]:'')||'').trim();
+      let hinges={on:false};
+      if(hingesRaw){const m=hingesRaw.match(/^(\S+)\s+(\S+)\s+@(\d+)/);hinges=m?{on:true,side:m[1],count:(m[2]==='auto'?'auto':(+m[2]||'auto')),offset:+m[3]||100}:{on:true,side:'auto',count:'auto',offset:100};}
+      const offsetName=String((ix('offset')>=0?c[ix('offset')]:'')||'').trim();
+      const grain=/^y/i.test(String((ix('grain')>=0?c[ix('grain')]:'')||'').trim());
+      const qty=Math.max(1,Math.round(+(c[ix('qty')]||1)));
+      const key=[w,h,text2,mat,typeKey,frameRaw,hingesRaw,offsetName,grain?1:0].join('|');
+      if(agg.has(key))agg.get(key).quantity+=qty;
+      else agg.set(key,{width:w,height:h,quantity:qty,text:text2,mat,typeKey,frame,hinges,offsetName,grain});
+    }
+    return [...agg.values()];
+  }
 
   // ===== DXF Templates (door + offcut), saved locally =====
   let customDoorTemplates=[],customOffcutTemplates=[];
