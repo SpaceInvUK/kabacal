@@ -13,7 +13,6 @@
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:Inter,Segoe UI,system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
-  .proto-banner{background:#fef3c7;border-bottom:1px solid #fcd34d;color:#92400e;padding:6px 14px;font-size:12px;font-weight:700;text-align:center}
   .topbar{background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:8px 14px;position:sticky;top:0;z-index:30}
   .menus{display:flex;gap:6px;color:var(--muted);font-size:13px}
   .menu{position:relative;cursor:pointer;padding:3px 8px;border-radius:7px}
@@ -155,10 +154,11 @@
   .sheet-svg{width:100%;height:auto;background:#fff;border:1px solid var(--line);border-radius:6px;display:block;user-select:none;-webkit-user-select:none}
   #nest,#zoomInner,.zoomscroll{user-select:none;-webkit-user-select:none}
   #list{user-select:none;-webkit-user-select:none}
-  .grp-head{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:4px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-size:13px}
-  .grp-head .dot{width:12px;height:12px;border-radius:4px;display:inline-block;flex:none}
-  .grp-head .caret{color:#94a3b8;font-size:11px;width:12px;flex:none}
-  .grp-head .gcount{margin-left:auto;color:var(--muted);font-size:12px;font-weight:600}
+  .grp-head{display:flex;align-items:center;gap:8px;padding:8px 11px;margin-top:6px;border:1px solid transparent;border-radius:10px;cursor:pointer;font-size:13px;color:#fff;box-shadow:0 2px 8px rgba(15,23,42,.14)}
+  .grp-head b{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18);letter-spacing:.2px}
+  .grp-head .caret{color:rgba(255,255,255,.85);font-size:11px;width:12px;flex:none}
+  .grp-head .gcount{margin-left:auto;color:rgba(255,255,255,.92);font-size:12px;font-weight:700}
+  .grp-head .selcb{accent-color:#fff}
   .selcb{width:15px;height:15px;accent-color:#2563eb;cursor:pointer;flex:none;margin:0}
   /* floating selection button (appears when 2+ parts are selected) — follows the page, never blocks content */
   #selFab{position:fixed;right:18px;bottom:18px;z-index:45;width:54px;height:54px}
@@ -172,6 +172,14 @@
   .npart.sel>rect:first-of-type{stroke:#2563eb;stroke-width:1.7;fill:#3b82f645}
   .npart.sel{filter:drop-shadow(0 0 1.6px #2563eb88)}
   .multinote{background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:10px;font-size:12px;color:#713f12}
+  .ic{display:inline-block;vertical-align:-3px;flex:none}
+  .dd-item .ic{margin-right:8px;color:#475569}
+  .appicons button .ic{vertical-align:-3.5px}
+  .iconbtn .ic{vertical-align:-2.5px}
+  .btn .ic{margin-right:6px;vertical-align:-3px}
+  .splitbtn .ic{margin-right:4px;vertical-align:-2px}
+  .fab-sat .ic{width:19px;height:19px;vertical-align:middle}
+  .fab-main .ic{width:20px;height:20px;vertical-align:middle}
   .nlabel{font-size:5px;font-family:Arial;fill:#1e3a8a;font-weight:700;text-anchor:middle}
   .sheet-svg.editing{cursor:default}
   .sheet-svg.editing .npart{cursor:move}
@@ -208,7 +216,6 @@
 </style>
 </head>
 <body>
-  <div class="proto-banner">⚠ VISUAL MOCKUP — not the production app. Reads/writes the same <b>.fastcnc.json</b> so it stays 100% compatible. Nothing here touches the live app.</div>
 
   <div class="topbar">
     <strong style="color:#2563eb;font-size:16px;letter-spacing:.2px">Kabacal</strong>
@@ -244,6 +251,7 @@
           <div class="dd-item" onclick="event.stopPropagation();printLabelsMap();closeMenus()">Print Labels Map</div>
           <div class="dd-item" onclick="event.stopPropagation();printCncLabels();closeMenus()">Print CNC Labels</div>
           <div class="dd-item" onclick="event.stopPropagation();printA4Labels();closeMenus()">Print A4 Labels</div>
+          <div class="dd-item" onclick="event.stopPropagation();printSprayLabels();closeMenus()">Print Spray Labels</div>
           <div class="dd-sep"></div>
           <div class="dd-item" onclick="event.stopPropagation();openCutList();closeMenus()">Cut list</div>
         </div>
@@ -397,6 +405,56 @@
   ];
   const OFFCOL={A:'#b45309',B:'#dc2626',C:'#2563eb',D:'#7c3aed',E:'#0f766e',F:'#f97316',G:'#a16207'};
   const DXFC={OUT:'#111827'};
+  // ---- inline SVG icon set (Lucide-style, single-file, no external deps) ----
+  const ICON_PATHS={
+    open:'<path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 21h16"/>',
+    save:'<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/>',
+    saveas:'<path d="M5 3h11l5 5v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8 3v5h7V3"/><path d="M8 21v-7h8v7"/>',
+    export:'<path d="M15 3h6v6"/><path d="M21 3l-9 9"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    layers:'<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5"/>',
+    undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+    redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+    swatch:'<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 17h6"/><path d="M17 14v6"/>',
+    sliders:'<path d="M4 6h7"/><circle cx="14" cy="6" r="2.2"/><path d="M17 6h3"/><path d="M4 12h2"/><circle cx="9" cy="12" r="2.2"/><path d="M12 12h8"/><path d="M4 18h9"/><circle cx="16" cy="18" r="2.2"/><path d="M19 18h1"/>',
+    palette:'<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.8 0-1.5 1-2.2 2.2-2.2h1.5A3.5 3.5 0 0 0 21 13.5C21 7.7 17 3 12 3z"/><circle cx="7.8" cy="10.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="11" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="8.6" r="1.1" fill="currentColor" stroke="none"/>',
+    eye:'<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/>',
+    pdf:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>',
+    map:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14"/><path d="M15 6v14"/>',
+    tag:'<path d="M20.6 12.6l-8 8L3 11V3h8z"/><circle cx="7.5" cy="7.5" r="1.4"/>',
+    grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    list:'<path d="M9 6h12"/><path d="M9 12h12"/><path d="M9 18h12"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/>',
+    check:'<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12.5l3 3 5.5-7"/>',
+    pencil:'<path d="M17 3l4 4L8 20l-5 1 1-5z"/>',
+    copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    trash:'<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 14h10l1-14"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    scissors:'<circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 19"/><path d="M8 16.5L20 5"/>',
+    plus:'<path d="M12 5v14"/><path d="M5 12h14"/>',
+    x:'<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    xcircle:'<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6"/><path d="M15 9l-6 6"/>',
+    foldermove:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13h6"/><path d="M12.5 10.5L15 13l-2.5 2.5"/>',
+    spray:'<rect x="6" y="9" width="9" height="12" rx="2"/><path d="M8.5 9V6h4v3"/><path d="M17.5 4h.01"/><path d="M20.5 6h.01"/><path d="M19.5 9h.01"/><path d="M17.5 6.5h.01"/>',
+    camera:'<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="14" r="3.5"/>',
+    reset:'<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>'
+  };
+  function ic(name,sz){const p=ICON_PATHS[name];if(!p)return '';const s=sz||15;return '<svg class="ic" width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+p+'</svg>';}
+  // inject icons into the static menus / appicons once at boot
+  function decorateMenus(){
+    const map=[[/^Open \/ Load/,'open'],[/^Save \.fastcnc/,'save'],[/^Save As/,'saveas'],[/^Export DXF/,'export'],[/^DXF Templates/,'layers'],
+      [/^Undo/,'undo'],[/^Redo/,'redo'],[/^Quick materials/,'swatch'],[/^Pricing settings/,'sliders'],[/^Material colours/,'palette'],
+      [/Hide values/,'eye'],[/^Save PDF/,'pdf'],[/^Print Labels Map/,'map'],[/^Print CNC Labels/,'tag'],[/^Print A4 Labels/,'grid'],
+      [/^Print Spray Labels/,'spray'],[/^Cut list/,'list'],[/^Create Checklist/,'check'],[/^Checklist app file/,'save']];
+    document.querySelectorAll('.dd-item').forEach(el=>{
+      if(el.querySelector('.ic'))return;
+      const t=(el.textContent||'').trim();
+      const hit=map.find(m=>m[0].test(t));
+      if(hit)el.insertAdjacentHTML('afterbegin',ic(hit[1]));
+    });
+    document.querySelectorAll('.appicons button').forEach(b=>{
+      const t=b.getAttribute('title')||'';
+      if(/^Open/.test(t))b.innerHTML=ic('open',16);
+      else if(/^Save/.test(t))b.innerHTML=ic('save',16);
+    });
+  }
   const BLOCK_PALETTE=['#2563eb','#16a34a','#9333ea','#0891b2','#d97706','#db2777','#0d9488','#7c3aed','#ca8a04','#dc2626'];
   function blockColor(mat,size){const key=(mat||'')+'|'+(size||'8x4');let h=0;for(let i=0;i<key.length;i++)h=(h*31+key.charCodeAt(i))>>>0;return BLOCK_PALETTE[h%BLOCK_PALETTE.length];}
   // editable per-material background colour (item 4): hash colour by default, override + save locally
@@ -814,8 +872,24 @@
   function sheetDef(sz){if(sz==='custom')return {w:customSheet.w,h:customSheet.h,label:'Custom '+customSheet.w+'×'+customSheet.h};return SHEETS[sz]||SHEETS['8x4'];}
   const SHEET_ORDER=['8x4','10x4','10x5','jumbo','custom'];
   function sheetSizeOptions(sel){return SHEET_ORDER.map(k=>`<option value="${k}" ${k===sel?'selected':''}>${k==='custom'?'Custom…':sheetDef(k).label}</option>`).join('');}
-  function priceForSheet(combined,size){const ov=(typeof priceOverrides!=='undefined')?priceOverrides['mat:'+combined]:null;let base;if(ov!=null)base=ov;else{const m=parseMat(combined);base=(PRICES[m.name]&&PRICES[m.name][m.th])||55;}const S=sheetDef(size),B=SHEETS['8x4'];const ratio=(size==='8x4')?1:(S.w*S.h)/(B.w*B.h);return Math.round(base*ratio);}
-  function cncForThickness(combined){const ov=(typeof priceOverrides!=='undefined')?priceOverrides['cnc:'+combined]:null;if(ov!=null)return ov;const th=parseMat(combined).th;if(th==='18mm'||th==='22mm')return 85;const n=parseInt(th)||18;if(n<=12)return 65;if(n<=15)return 95;return 120;}
+  function priceForSheet(combined,size){
+    const ov=(typeof priceOverrides!=='undefined')?priceOverrides['mat:'+combined]:null;
+    const m=parseMat(combined);
+    if(ov==null&&(m.name==='MDF'||m.name==='Standard MDF')&&m.th==='18mm'&&size==='10x4')return 75;   // production rule: exact special price
+    let base;if(ov!=null)base=ov;else base=(PRICES[m.name]&&PRICES[m.name][m.th])||55;
+    const S=sheetDef(size),B=SHEETS['8x4'];const ratio=(size==='8x4')?1:(S.w*S.h)/(B.w*B.h);
+    return Math.round(base*ratio);
+  }
+  // production cncPriceTables.small: MDF family <=12:65 · 15:95 · 25/30:120 — 18/22 use the direct 85 rule.
+  // Birch/plywood family: <=12:65 · 15/18:95 · 24:100.
+  function cncForThickness(combined){
+    const ov=(typeof priceOverrides!=='undefined')?priceOverrides['cnc:'+combined]:null;if(ov!=null)return ov;
+    const m=parseMat(combined),th=m.th,n=parseInt(th)||18;
+    const birch=/birch|plywood/i.test(m.name);
+    if(birch){if(n<=12)return 65;if(n<=18)return 95;return 100;}
+    if(th==='18mm'||th==='22mm')return 85;
+    if(n<=12)return 65;if(n<=15)return 95;return 120;
+  }
   function matOptionsHtml(sel){const all=[];Object.keys(PRICES).forEach(n=>Object.keys(PRICES[n]).forEach(t=>all.push(n+' '+t)));if(sel&&all.indexOf(sel)<0)all.unshift(sel);return all.map(c=>`<option ${c===sel?'selected':''}>${esc(c)}</option>`).join('');}
   function buildMatUI(){const qm=document.getElementById('qaMat');if(qm)qm.innerHTML=matOptionsHtml(orderMaterial);const fc=document.getElementById('favChips');if(fc)fc.innerHTML=favMats.map(f=>`<span class="pchip" onclick="setQaMat('${esc(f)}')" title="${esc(f)}"><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${matColor(f)};margin-right:5px;vertical-align:middle"></i>${esc(f)}</span>`).join('');const dl=document.getElementById('matList');if(dl){const all=[];Object.keys(PRICES).forEach(n=>Object.keys(PRICES[n]).forEach(t=>all.push(n+' '+t)));dl.innerHTML=all.map(c=>`<option value="${esc(c)}">`).join('');}}
   function allMats(){const all=[];Object.keys(PRICES).forEach(n=>Object.keys(PRICES[n]).forEach(t=>all.push(n+' '+t)));return all;}
@@ -897,8 +971,9 @@
     const grp=new Map();items.forEach((it,i)=>{if(!grp.has(it.mat))grp.set(it.mat,[]);grp.get(it.mat).push(i);});
     grp.forEach((idxs,mat)=>{
       const col=matColor(mat),pcs=idxs.reduce((s,k)=>s+(+items[k].q||1),0),collapsed=!!collapsedGroups[mat];
-      const gh=document.createElement('div');gh.className='grp-head';gh.dataset.mat=mat;gh.style.borderLeft='3px solid '+col;
-      gh.innerHTML=`<input type="checkbox" class="selcb" title="Select the whole group"> <span class="caret">${collapsed?'▸':'▾'}</span><i class="dot" style="background:${col}"></i><b>${esc(mat)}</b><span class="gcount">${idxs.length} line${idxs.length===1?'':'s'} · ${pcs} pc${pcs===1?'':'s'}</span>`;
+      const gh=document.createElement('div');gh.className='grp-head';gh.dataset.mat=mat;
+      gh.style.background=col;gh.style.borderColor=col;                     // vivid solid bar = everything below belongs to this group
+      gh.innerHTML=`<input type="checkbox" class="selcb" title="Select the whole group"> <span class="caret">${collapsed?'▸':'▾'}</span><b>${esc(mat)}</b><span class="gcount">${idxs.length} line${idxs.length===1?'':'s'} · ${pcs} pc${pcs===1?'':'s'}</span>`;
       const gcb=gh.querySelector('.selcb');
       const all=idxs.every(k=>selSet.has(k));gcb.checked=all;gcb.indeterminate=!all&&idxs.some(k=>selSet.has(k));
       gcb.addEventListener('click',e=>e.stopPropagation());
@@ -909,7 +984,7 @@
       idxs.forEach(i=>{const it=items[i];
       const d=TYPES[it.type],c=d.color;
       const el=document.createElement('div');el.className='item'+(selSet.has(i)||(!selSet.size&&i===selItem)?' sel':'');el.dataset.idx=i;
-      el.style.borderLeft='3px solid '+matColor(it.mat);el.style.background=matColor(it.mat)+'08';
+      el.style.borderLeft='4px solid '+matColor(it.mat);el.style.background=matColor(it.mat)+'10';
       const offc=offsetChip(it),hc=hingeChip(it);
       el.innerHTML=`
         <div class="item-row" onclick="sel(${i},event)">
@@ -928,9 +1003,9 @@
           </div>
           <div class="qtycell" onclick="event.stopPropagation()">
             <div class="qstep"><button class="iconbtn" onclick="qtyAdd(${i},-1)">−</button><input type="number" class="qinput" value="${it.q}" onchange="qtySet(${i},this.value)"><button class="iconbtn" onclick="qtyAdd(${i},1)">+</button></div>
-            ${(+it.q>1)?`<button class="splitbtn" title="Separate 1 piece to edit on its own" onclick="splitOne(${i})">✂ edit 1</button>`:''}
+            ${(+it.q>1)?`<button class="splitbtn" title="Separate 1 piece to edit on its own" onclick="splitOne(${i})">${ic('scissors',12)} edit 1</button>`:''}
           </div>
-          <div class="pricecell" onclick="event.stopPropagation()"><div class="actions"><button class="iconbtn" title="Edit details" onclick="sel(${i})">✎</button><button class="iconbtn" title="Duplicate" onclick="dup(${i})">⧉</button><button class="iconbtn" title="Remove" onclick="del(${i})">✕</button></div></div>
+          <div class="pricecell" onclick="event.stopPropagation()"><div class="actions"><button class="iconbtn" title="Edit details" onclick="sel(${i})">${ic('pencil',14)}</button><button class="iconbtn" title="Duplicate" onclick="dup(${i})">${ic('copy',14)}</button><button class="iconbtn" title="Remove" onclick="del(${i})">${ic('trash',14)}</button></div></div>
         </div>`;
       L.appendChild(el);
       });
@@ -967,12 +1042,12 @@
     let fab=document.getElementById('selFab');
     if(selSet.size<2){if(fab)fab.remove();fabOpen=false;return;}
     if(!fab){fab=document.createElement('div');fab.id='selFab';document.body.appendChild(fab);}
-    const sats=[['✎','Edit selected','edit'],['＋','New group','new'],['⇄','Move to group','move'],['⊘','Clear selection','clear']];
+    const sats=[['pencil','Edit selected','edit'],['plus','New group','new'],['foldermove','Move to group','move'],['xcircle','Clear selection','clear']];
     const R=78;
     fab.className=fabOpen?'open':'';
     fab.innerHTML=sats.map((s,k)=>{const th=k*Math.PI/6,dx=-R*Math.sin(th),dy=-R*Math.cos(th);   // quarter arc: up -> left
-      return `<button class="fab-sat" style="--tx:${dx.toFixed(0)}px;--ty:${dy.toFixed(0)}px" title="${s[1]}" onclick="fabAct('${s[2]}')">${s[0]}</button>`;}).join('')
-      +`<button class="fab-main" title="${fabOpen?'Close menu':selSet.size+' selected — actions'}" onclick="fabToggle()">${fabOpen?'✕':selSet.size}</button>`
+      return `<button class="fab-sat" style="--tx:${dx.toFixed(0)}px;--ty:${dy.toFixed(0)}px" title="${s[1]}" onclick="fabAct('${s[2]}')">${ic(s[0],19)}</button>`;}).join('')
+      +`<button class="fab-main" title="${fabOpen?'Close menu':selSet.size+' selected — actions'}" onclick="fabToggle()">${fabOpen?ic('x',20):selSet.size}</button>`
       +(fabOpen?`<span class="fab-badge">${selSet.size}</span>`:'');
   }
   function fabToggle(){fabOpen=!fabOpen;renderSelBar();}
@@ -1120,6 +1195,7 @@
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}
+    ${it.spray?`<div class="ed-field" style="margin-top:8px"><label>Spray profile (rate)</label><select onchange="setSprayProfile(${i},this.value)">${Object.keys(SPRAY_RATES).map(p=>`<option ${sprayProfileOf(it)===p?'selected':''}>${p}</option>`).join('')}</select><div class="sub" style="margin-top:3px">≈ ${sprayAreaOf(it).toFixed(2)} m² × £${SPRAY_RATES[sprayProfileOf(it)]}/m² = <b>£${Math.round(sprayAreaOf(it)*SPRAY_RATES[sprayProfileOf(it)]*(+it.q||1))}</b> (×${+it.q||1})</div></div>`:''}
     ${it.spray?sprayEditorHtml(i,it):'<div class="sub" style="margin-top:8px">Standard = no spray. Turn on to mark which faces/edges get painted.</div>'}`;}
 
   // preview box matches the part's real W×H aspect (landscape parts draw landscape)
@@ -1488,9 +1564,9 @@
     render();
   }
   function nestToolbar(){
-    return `<button class="btn ${editMode?'primary':'ghost'} tiny" onclick="toggleEdit()">✎ Edit mode: ${editMode?'ON':'OFF'}</button>`
-      +(editMode?` <button class="btn ghost tiny" onclick="reNest()">⟲ Re-nest (keep sheets)</button>`:'')
-      +` <button class="btn ghost tiny" onclick="resetNest()">↺ Reset nesting</button>`
+    return `<button class="btn ${editMode?'primary':'ghost'} tiny" onclick="toggleEdit()">${ic('pencil',13)} Edit mode: ${editMode?'ON':'OFF'}</button>`
+      +(editMode?` <button class="btn ghost tiny" onclick="reNest()">${ic('reset',13)} Re-nest (keep sheets)</button>`:'')
+      +` <button class="btn ghost tiny" onclick="resetNest()">${ic('reset',13)} Reset nesting</button>`
       +(editMode?` <span class="sub">drag a part · drop on a same-group sheet · click to select then <b>9</b>/<b>0</b> rotate · hover-zoom off</span>`:` <span class="sub">turn on Edit mode to drag &amp; rotate parts</span>`);
   }
   function renderNest(){
@@ -1707,15 +1783,38 @@
     return list.reduce((s,p)=>s+Math.max(1,+p.quantity||1),0);
   }
   function openTakeoff(){
-    const html='<div class="sub">Paste measurements (one per line) — e.g. <code>3 x 600 x 400</code>, <code>600x400</code>, or <code>D 450x900</code> (D/E/P/W/G = label). Or drop a <b>.dxf</b> / <b>.txt</b> file. Parts are added in the current material ('+esc(orderMaterial)+'). Image OCR — coming soon.</div>'
+    const html='<div class="sub">Paste measurements (one per line) — e.g. <code>3 x 600 x 400</code>, <code>600x400</code>, <code>D 450x900</code> — or paste a <b>Kabacal checklist</b> to recreate its parts. Drop a <b>.dxf</b> / <b>.txt</b> / <b>image</b> file (images are read with OCR). Parts are added in the current material ('+esc(orderMaterial)+').</div>'
       +'<textarea id="tkText" class="tkText" placeholder="3 x 600 x 400&#10;500 x 720&#10;D 450 x 900"></textarea>'
-      +'<div id="tkDrop" class="tkDrop">⤓ Drop a .dxf or .txt file here</div>'
-      +'<div class="tk-actions"><button class="btn primary" onclick="tkAddText()">Add parts</button> <button class="btn ghost" onclick="(document.getElementById(\'tkText\').value=\'\')">Clear</button> <span id="tkStatus" class="sub"></span></div>';
+      +'<div id="tkDrop" class="tkDrop">⤓ Drop a .dxf, .txt or image file here</div>'
+      +'<input id="tkImg" type="file" accept="image/*" style="display:none" onchange="if(this.files[0])tkOcr(this.files[0]);this.value=\'\'">'
+      +'<div class="tk-actions"><button class="btn primary" onclick="tkAddText()">Add parts</button> <button class="btn ghost" onclick="tkPickImage()">'+ic('camera',14)+' Read image (OCR)</button> <button class="btn ghost" onclick="(document.getElementById(\'tkText\').value=\'\')">Clear</button> <span id="tkStatus" class="sub"></span></div>';
     openModal('Smart Takeoff',html);
     setTimeout(()=>{const d=document.getElementById('tkDrop');if(d){d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('over');});d.addEventListener('dragleave',()=>d.classList.remove('over'));d.addEventListener('drop',tkDrop);}},30);
   }
   function tkAddText(){const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');const n=addTakeoffItems(parseTakeoffText(t.value));st.textContent=n?('Added '+n+' part(s).'):'No dimensions found.';if(n)t.value='';}
-  function tkDrop(e){e.preventDefault();const d=e.currentTarget;d.classList.remove('over');const files=Array.from((e.dataTransfer&&e.dataTransfer.files)||[]);files.forEach(async f=>{const st=document.getElementById('tkStatus');try{if(/\.dxf$/i.test(f.name)){const n=addTakeoffItems(dxfTakeoffRects(await f.text()));st.textContent=n?('Added '+n+' part(s) from DXF.'):'No closed rectangles found in the DXF.';}else{const ta=document.getElementById('tkText');ta.value+=(ta.value?'\n':'')+await f.text();st.textContent='File loaded — review then press Add parts.';}}catch(err){st.textContent='Error: '+err.message;}});}
+  // OCR: tesseract.js is loaded on demand from the CDN only when an image is used (app stays a single file)
+  let _tessP=null;
+  function loadTesseract(){
+    if(window.Tesseract)return Promise.resolve();
+    if(_tessP)return _tessP;
+    _tessP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';s.onload=()=>res();s.onerror=()=>{_tessP=null;rej(new Error('could not load the OCR engine — check the internet connection.'));};document.head.appendChild(s);});
+    return _tessP;
+  }
+  async function tkOcr(file){
+    const st=document.getElementById('tkStatus');
+    try{
+      if(st)st.textContent='Loading OCR engine…';
+      await loadTesseract();
+      if(st)st.textContent='Reading image…';
+      const r=await Tesseract.recognize(file,'eng',{logger:m=>{if(st&&m.status==='recognizing text')st.textContent='Reading image… '+Math.round((m.progress||0)*100)+'%';}});
+      const text=((r&&r.data&&r.data.text)||'').trim();
+      const ta=document.getElementById('tkText');
+      if(ta&&text)ta.value+=(ta.value?'\n':'')+text;
+      if(st)st.textContent=text?'Image read — review the text, fix anything odd, then press Add parts.':'No text found in the image.';
+    }catch(e){if(st)st.textContent='OCR error: '+e.message;}
+  }
+  function tkPickImage(){const inp=document.getElementById('tkImg');if(inp)inp.click();}
+  function tkDrop(e){e.preventDefault();const d=e.currentTarget;d.classList.remove('over');const files=Array.from((e.dataTransfer&&e.dataTransfer.files)||[]);files.forEach(async f=>{const st=document.getElementById('tkStatus');try{if(/\.dxf$/i.test(f.name)){const n=addTakeoffItems(dxfTakeoffRects(await f.text()));st.textContent=n?('Added '+n+' part(s) from DXF.'):'No closed rectangles found in the DXF.';}else if(/^image\//.test(f.type)||/\.(png|jpe?g|webp|bmp|gif)$/i.test(f.name)){tkOcr(f);}else{const ta=document.getElementById('tkText');ta.value+=(ta.value?'\n':'')+await f.text();st.textContent='File loaded — review then press Add parts.';}}catch(err){st.textContent='Error: '+err.message;}});}
 
   // ===== Labels + Checklist (adapted from the production CNC Calculator) =====
   // Part numbers = p.pnum (the SAME global numbers as the nesting preview and the DXF). Sheets are numbered
@@ -1723,12 +1822,13 @@
   function utf8Bytes(text){const v=String(text||'');if(window.TextEncoder)return Array.from(new TextEncoder().encode(v));return unescape(encodeURIComponent(v)).split('').map(ch=>ch.charCodeAt(0));}
   function shortHash(value){let h=2166136261;String(value||'').split('').forEach(ch=>{h^=ch.charCodeAt(0);h=Math.imul(h,16777619)>>>0;});return h.toString(36).toUpperCase();}
   function compactQrPayload(label){
+    const sides=(label.spraySides||[]).map(s=>String(s).charAt(0).toUpperCase()).join('');
     const quote=String(label.quote||'').replace(/[^A-Za-z0-9]/g,'').slice(-12);
     const role=String(label.role||'part').replace(/[^A-Za-z0-9]/g,'').slice(0,5).toUpperCase()||'PART';
-    const fields=['FC',quote,label.uid?'U'+String(label.uid):'','P'+String(label.partNo||''),'T'+String(label.total||''),'S'+String(label.size||''),'SH'+String(label.sheetShort||''),'R'+role,(label.group!=null&&label.group!=='')?'G'+shortHash(String(label.group)):'',label.matchKey?'K'+String(label.matchKey):''].filter(Boolean);
+    const fields=['FC',quote,label.uid?'U'+String(label.uid):'','P'+String(label.partNo||''),'T'+String(label.total||''),'S'+String(label.size||''),'SH'+String(label.sheetShort||''),'R'+role,(label.group!=null&&label.group!=='')?'G'+shortHash(String(label.group)):'',label.matchKey?'K'+String(label.matchKey):'',sides?'SF'+sides:''].filter(Boolean);
     const raw=fields.join('|');
     if(utf8Bytes(raw).length<=72)return raw;
-    return ['FC',quote,'H'+shortHash(raw),'P'+String(label.partNo||''),'S'+String(label.size||'')].filter(Boolean).join('|');
+    return ['FC',quote,'H'+shortHash(raw),'P'+String(label.partNo||''),'S'+String(label.size||''),sides?'SF'+sides:''].filter(Boolean).join('|');
   }
   // --- QR encoder (version 4, EC L, mask 0) — ported from the production app ---
   function qrGfTables(){if(qrGfTables.cache)return qrGfTables.cache;const exp=new Array(512),log=new Array(256).fill(0);let x=1;for(let i=0;i<255;i++){exp[i]=x;log[x]=i;x<<=1;if(x&0x100)x^=0x11D;}for(let i=255;i<512;i++)exp[i]=exp[i-255];qrGfTables.cache={exp,log};return qrGfTables.cache;}
@@ -1912,10 +2012,10 @@
     svg+=`<text x="${websiteX}" y="280" class="website" text-anchor="middle"${websiteFit}>www.fastcnc.co.uk</text></svg>`;
     return svg;
   }
-  function labelPrintHtml(labels){
+  function labelPrintHtml(labels,type){
     const size={w:40,h:30},rotate=0,scale=0.92;
-    const body=labels.map(label=>`<section class="label"><div class="label-inner">${cncLabelSvg(label)}</div></section>`).join('');
-    return `<!doctype html><html><head><meta charset="utf-8"><title>FAST CNC CNC Labels</title><style>
+    const body=labels.map(label=>`<section class="label"><div class="label-inner">${type==='spray'?sprayLabelSvg(label):cncLabelSvg(label)}</div></section>`).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${type==='spray'?'FAST CNC Spray Finish Labels':'FAST CNC CNC Labels'}</title><style>
       @page{size:${size.w}mm ${size.h}mm;margin:0}
       *{box-sizing:border-box}
       html,body{width:${size.w}mm;margin:0;padding:0;background:#fff;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -1930,11 +2030,47 @@
       .cnc-top,.cnc-sheet,.cnc-dim,.cnc-code,.cnc-meta{font-weight:900}
       .cnc-dim,.cnc-code{font-weight:950}
       .cnc-fsc{font-weight:900}
+      .job{font-size:28px;font-weight:400}
+      .size{font-size:38px;font-weight:400}
+      .part{font-size:33px;font-weight:400}
+      .sheet{font-size:23px;font-weight:400}
       .website{font-size:29px;font-weight:400}
       @media screen{body{background:#e5e7eb}.label{margin:8px;background:#fff;border:1px solid #ddd}}
       @media print{.print-toolbar{display:none!important}body{background:#fff}.label{margin:0;border:0}}
     </style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button class="secondary" onclick="window.close()">Close</button></div>${body}</body></html>`;
   }
+  // --- Spray finish labels (arrows mark the painted sides) — ported layout ---
+  function sprayArrowsSvg(sides,x,y,w,h){
+    const set=new Set(sides||[]);
+    const cx=x+w/2,cy=y+h/2,arrow=[];
+    if(set.has('top'))arrow.push(`<path d="M ${cx} ${y-14} L ${cx-16} ${y+10} L ${cx+16} ${y+10} Z"/>`);
+    if(set.has('right'))arrow.push(`<path d="M ${x+w+14} ${cy} L ${x+w-10} ${cy-16} L ${x+w-10} ${cy+16} Z"/>`);
+    if(set.has('bottom'))arrow.push(`<path d="M ${cx} ${y+h+14} L ${cx-16} ${y+h-10} L ${cx+16} ${y+h-10} Z"/>`);
+    if(set.has('left'))arrow.push(`<path d="M ${x-14} ${cy} L ${x+10} ${cy-16} L ${x+10} ${cy+16} Z"/>`);
+    return `<g class="spray-diagram" fill="none" stroke="#000" stroke-width="2.4" stroke-linejoin="miter"><rect x="${x}" y="${y}" width="${w}" height="${h}"/>${arrow.join('')}</g>`;
+  }
+  function sprayLabelSvg(label){
+    const qr=qrSvgFragment(label.qrPayload||compactQrPayload(label),274,72,112);
+    const headerRaw=String(label.quote||label.client||'QUOTE NUMBER');
+    const headerFit=headerRaw.length>22?' textLength="350" lengthAdjust="spacingAndGlyphs"':'';
+    return `<svg class="label-svg spray-label" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FAST CNC spray finish label">
+      <rect x="5" y="5" width="390" height="290" fill="#fff" stroke="#000" stroke-width="3"/>
+      <line x1="5" y1="58" x2="395" y2="58" stroke="#000" stroke-width="3"/>
+      <text x="200" y="40" class="job" text-anchor="middle"${headerFit}>${esc(headerRaw)}</text>
+      <text x="24" y="112" class="size">${esc(label.size||'')}</text>
+      <text x="24" y="168" class="part">${esc('PART  '+String(label.partNo||''))}</text>
+      <text x="24" y="220" class="sheet">${esc('Sheet '+(label.sheetShort||'1/1'))}</text>
+      ${qr}
+      ${sprayArrowsSvg(label.spraySides,194,90,58,156)}
+    </svg>`;
+  }
+  function spraySidesOf(it){const c=(it&&it.sprayCfg)||{};return [c.eT&&'top',c.eR&&'right',c.eB&&'bottom',c.eL&&'left'].filter(Boolean);}
+  function collectSprayLabels(){
+    const labels=collectPartLabels().filter(l=>l.role==='part'&&items[l.itemIdx]&&items[l.itemIdx].spray);
+    labels.forEach(l=>{l.spraySides=spraySidesOf(items[l.itemIdx]);l.qrPayload=compactQrPayload(l);});
+    return labels.filter(l=>l.spraySides.length);            // only prints when spray is ON and sides are marked
+  }
+  function printSprayLabels(){const labels=collectSprayLabels();if(!labels.length){alert('Turn Spray Finish on and mark at least one edge before printing spray labels.');return;}openRawPrintHtml(labelPrintHtml(labels,'spray'));}
   // --- Labels Map (A4 landscape, real nesting per sheet) — ported layout ---
   function labelMapFitLines(label,copyText,boxW,boxH){
     const sizeText=String(label.size||'').trim(),codeText=String(label.code||'').trim(),sheetText=String(label.sheet||'').trim();
@@ -2151,9 +2287,9 @@
     if(!tsv){alert('Add parts before creating a checklist.');return;}
     const html='<div class="sub">One row per physical piece — part numbers match the nesting preview, labels and DXF. Copy it, or paste it back into <b>Smart Takeoff</b> later to recreate the parts (size, qty, material, type, frame, hinges, grain).</div>'
       +'<textarea id="ckText" readonly style="width:100%;min-height:300px;margin-top:8px;font:11px/1.5 Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;white-space:pre;overflow:auto"></textarea>'
-      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn primary" onclick="copyChecklist()">⧉ Copy</button>'
-      +'<button class="btn ghost" onclick="downloadChecklistTxt()">⤓ Download .txt</button>'
-      +'<button class="btn ghost" onclick="downloadChecklistJson()" title="Structured job file for the FastCNC checklist/QR app">⤓ Checklist app file (.json)</button>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn primary" onclick="copyChecklist()">'+ic('copy',14)+' Copy</button>'
+      +'<button class="btn ghost" onclick="downloadChecklistTxt()">'+ic('save',14)+' Download .txt</button>'
+      +'<button class="btn ghost" onclick="downloadChecklistJson()" title="Structured job file for the FastCNC checklist/QR app">'+ic('save',14)+' Checklist app file (.json)</button>'
       +'<span id="ckStatus" class="sub" style="align-self:center"></span></div>';
     openModal('Checklist',html,true);
     setTimeout(()=>{const t=document.getElementById('ckText');if(t)t.value=tsv;},20);
@@ -2284,6 +2420,37 @@
   function pctTxt(p){return p?('+'+Math.round(p*100)+'%'):'';}
   let machine={};   // material key -> {extra, timeMin, discPct}  (manual per-group fields)
   let services={design:0,cutting:0,assembly:0};   // global job hours
+  // ---- spray pricing (production rules: profiles £/m², add-ons, area by part type) ----
+  const SPRAY_RATES={'End Panels':50,'With Plastic Edge':45,'Shaker':65,'Shaker with Cock Bead':75,'V Groove on Flat Panel':55,'Profiled Shaker':75,'Profiled Shaker & Cock Bead':85,'Fluted and Ribbed':140};
+  let sprayAddons={sq:false,hg:false,gg:false,prep:0};
+  function setSprayAddon(k,v){sprayAddons[k]=(k==='prep')?Math.max(0,+v||0):!!v;openQuote();}
+  function sprayProfileOf(it){return (it.sprayCfg&&it.sprayCfg.profile&&SPRAY_RATES[it.sprayCfg.profile]!=null)?it.sprayCfg.profile:'Shaker';}
+  function setSprayProfile(i,v){const it=items[i];it.sprayCfg=it.sprayCfg||{};it.sprayCfg.profile=v;render();}
+  // area rules: flat (no frame/pocket) = face + 4 edges×thickness · framed/shaker = 10 sides
+  // (front + back + 4 outside edges + 4 inner cavity edges) + insert front+back
+  function sprayAreaOf(it){
+    const w=+it.w||0,h=+it.h||0,t=parseInt(parseMat(it.mat).th)||18;
+    const framed=(it.type!=='flat')||enabledLines(it).length>0;
+    let a;
+    if(!framed)a=w*h+2*(w+h)*t;
+    else{
+      const c=cavityOf(it);
+      a=2*w*h+2*(w+h)*t+2*(Math.max(0,c.w)+Math.max(0,c.h))*t;
+      const s=insertSpecFor(it);if(s)a+=2*s.w*s.h;
+    }
+    return a/1e6;
+  }
+  function sprayCalc(){
+    const byProf={};let area=0,base=0,n=0;
+    items.forEach(it=>{if(!it.spray)return;const q=+it.q||0;if(!q)return;
+      const prof=sprayProfileOf(it),a=sprayAreaOf(it)*q;area+=a;n+=q;
+      const r=byProf[prof]||(byProf[prof]={profile:prof,rate:SPRAY_RATES[prof],area:0});
+      r.area+=a;base+=a*SPRAY_RATES[prof];
+    });
+    const add={sq:sprayAddons.sq?base*0.10:0,hg:sprayAddons.hg?area*100:0,gg:sprayAddons.gg?area*50:0,prep:(sprayAddons.prep||0)*area};
+    const total=Math.round(base+add.sq+add.hg+add.gg+add.prep);
+    return {rows:Object.values(byProf),area,base:Math.round(base),add,total,parts:n};
+  }
   function machOf(mat){return machine[mat]||{extra:0,timeMin:0,discPct:0};}
   function setMach(mat,k,v){const m=machine[mat]||(machine[mat]={extra:0,timeMin:0,discPct:0});m[k]=Math.max(0,+v||0);openQuote();}
   function setSvc(k,v){services[k]=Math.max(0,+v||0);openQuote();}
@@ -2313,8 +2480,9 @@
     });
     const svc={design:Math.round(services.design*35),cutting:Math.round(services.cutting*25),assembly:Math.round(services.assembly*50)};
     const svcTot=svc.design+svc.cutting+svc.assembly;
-    const sub=bodyTot+svcTot,vat=Math.round(sub*0.2),total=sub+(vatOn?vat:0);
-    return {rows,sheetN,partN,matTot,cncTot,bodyTot,svc,svcTot,sub,vat,total};
+    const spray=sprayCalc();                                   // spray never enters the group discount base (production rule)
+    const sub=bodyTot+svcTot+spray.total,vat=Math.round(sub*0.2),total=sub+(vatOn?vat:0);
+    return {rows,sheetN,partN,matTot,cncTot,bodyTot,svc,svcTot,spray,sub,vat,total};
   }
   function svcInput(label,key,cost,rate){return '<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><b>'+label+'</b><input type="number" min="0" step="0.5" value="'+(services[key]||0)+'" onchange="setSvc(\''+key+'\',this.value)" style="width:52px;padding:3px;border:1px solid var(--line);border-radius:6px">h <span style="color:#64748b">'+rate+'</span>'+(cost?' = <b>'+money(cost)+'</b>':'')+'</label>';}
   function openQuote(){
@@ -2336,7 +2504,15 @@
       +'<table class="ptbl"><thead><tr><th>Material / sheet type</th><th style="text-align:center">Sheets</th><th style="text-align:right">Material</th><th style="text-align:right">CNC/svc</th><th style="text-align:center" title="Extra processes (+10% each)">Extra</th><th style="text-align:center" title="min/sheet @ £250/hr">Time</th><th style="text-align:center" title="Quantity discount %">Disc%</th><th style="text-align:right">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>'
       +'<div class="sub" style="margin:8px 0 3px;font-weight:700">Additional services</div>'
       +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">'+svcInput('Design','design',d.svc.design,'£35/hr')+svcInput('Cutting list','cutting',d.svc.cutting,'£25/hr')+svcInput('Assembly','assembly',d.svc.assembly,'£50/hr')+'</div>'
-      +'<div class="q-tot"><div class="sumrow"><span class="k">Parts</span><span>'+d.partN+'</span></div><div class="sumrow"><span class="k">Sheets</span><span>'+d.sheetN+'</span></div><div class="sumrow"><span class="k">Material</span><span>'+money(d.matTot)+'</span></div><div class="sumrow"><span class="k">CNC + machining</span><span>'+money(d.cncTot)+'</span></div>'+(d.svcTot?'<div class="sumrow"><span class="k">Additional services</span><span>'+money(d.svcTot)+'</span></div>':'')+'<div class="sumrow"><span class="k">Subtotal ex VAT</span><span>'+money(d.sub)+'</span></div>'+(vatOn?'<div class="sumrow"><span class="k">VAT 20%</span><span>'+money(d.vat)+'</span></div>':'')+'<div class="sumrow"><span class="k">Total'+(vatOn?' inc VAT':'')+'</span><span class="total">'+money(d.total)+'</span></div></div>'
+      +(d.spray.parts?('<div class="sub" style="margin:8px 0 3px;font-weight:700">Spray finish</div>'
+        +'<div class="sub">'+d.spray.parts+' part'+(d.spray.parts===1?'':'s')+' · '+d.spray.area.toFixed(2)+' m² — '+d.spray.rows.map(r=>esc(r.profile)+' '+r.area.toFixed(2)+'m² × £'+r.rate).join(' · ')+' = <b>'+money(d.spray.base)+'</b></div>'
+        +'<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:4px 0 6px">'
+        +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(sprayAddons.sq?'checked':'')+' onchange="setSprayAddon(\'sq\',this.checked)"> Additional squares +10%</label>'
+        +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(sprayAddons.hg?'checked':'')+' onchange="setSprayAddon(\'hg\',this.checked)"> High gloss £100/m²</label>'
+        +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(sprayAddons.gg?'checked':'')+' onchange="setSprayAddon(\'gg\',this.checked)"> Gun gloss £50/m²</label>'
+        +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center">Extra prep £<input type="number" min="0" value="'+(sprayAddons.prep||0)+'" onchange="setSprayAddon(\'prep\',this.value)" style="width:46px;padding:3px;border:1px solid var(--line);border-radius:6px">/m²</label>'
+        +'<b>Spray total '+money(d.spray.total)+'</b></div>'):'')
+      +'<div class="q-tot"><div class="sumrow"><span class="k">Parts</span><span>'+d.partN+'</span></div><div class="sumrow"><span class="k">Sheets</span><span>'+d.sheetN+'</span></div><div class="sumrow"><span class="k">Material</span><span>'+money(d.matTot)+'</span></div><div class="sumrow"><span class="k">CNC + machining</span><span>'+money(d.cncTot)+'</span></div>'+(d.svcTot?'<div class="sumrow"><span class="k">Additional services</span><span>'+money(d.svcTot)+'</span></div>':'')+(d.spray.parts?'<div class="sumrow"><span class="k">Spray finish</span><span>'+money(d.spray.total)+'</span></div>':'')+'<div class="sumrow"><span class="k">Subtotal ex VAT</span><span>'+money(d.sub)+'</span></div>'+(vatOn?'<div class="sumrow"><span class="k">VAT 20%</span><span>'+money(d.vat)+'</span></div>':'')+'<div class="sumrow"><span class="k">Total'+(vatOn?' inc VAT':'')+'</span><span class="total">'+money(d.total)+'</span></div></div>'
       +'<label class="sub" style="display:inline-flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" '+(vatOn?'checked':'')+' onchange="toggleVat(this.checked)"> Include VAT 20%</label>'
       +'<div class="sub" style="margin-top:4px">Machining = % of CNC base · Pocket/Reeded by area (1m²=12min), Drilling +5%, Extra +10% each.'+(hideValues?' Values hidden on screen — they still print.':'')+'</div>'
       +'</div>'
@@ -2388,6 +2564,7 @@
       return '<tr><td>'+esc(r.mat)+'</td><td class="c">'+r.sheets+'</td><td class="c">'+r.parts+'</td><td class="r">'+moneyP(r.mc)+'</td><td class="r">'+moneyP(r.cncEff+r.timeCost)+'</td><td class="r">'+moneyP(r.total)+'</td></tr>'+brk;
     }).join('')||'<tr><td colspan="6">No parts.</td></tr>';
     const svcRows=[];if(d.svc.design)svcRows.push(['Design',d.svc.design]);if(d.svc.cutting)svcRows.push(['Cutting list',d.svc.cutting]);if(d.svc.assembly)svcRows.push(['Assembly',d.svc.assembly]);
+    if(d.spray&&d.spray.parts)svcRows.push(['Spray finish — '+d.spray.parts+' part'+(d.spray.parts===1?'':'s')+' · '+d.spray.area.toFixed(2)+' m²',d.spray.total]);
     const svcTable=svcRows.length?'<div class="qsec">Additional services</div><table class="msum"><tbody>'+svcRows.map(s=>'<tr><td>'+s[0]+'</td><td class="r">'+moneyP(s[1])+'</td></tr>').join('')+'</tbody></table>':'';
     const totals='<div class="qtot"><div><div class="qtot-lab">TOTAL EX VAT</div>'+(vatOn?'<div class="qtot-sub">Plus VAT '+moneyP(d.vat)+'</div>':'')+'</div><div style="text-align:right"><div class="qtot-big">'+moneyP(d.sub)+'</div>'+(vatOn?'<div class="qtot-inc">Inc VAT '+moneyP(d.total)+'</div>':'')+'</div></div>';
     return '<div class="qhead"><div class="qbrand">FAST CNC</div><div class="qtag">CUTTING SERVICE · Upminster Lodge Farm, Tomkyns Ln, Upminster RM14 1TP · 01708 349993 · @fastcncservices</div></div>'
@@ -2421,6 +2598,7 @@
   buildMatUI();
   genOrderNumber();
   syncClientBar();
+  decorateMenus();
   render();
 </script>
 </body>
