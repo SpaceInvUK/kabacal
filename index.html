@@ -196,6 +196,9 @@
   .segbtn:last-child{border-right:0}
   .segbtn.on{background:#2563eb;color:#fff}
   .ins-card{display:flex;gap:7px;align-items:center;padding:7px 9px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;font-size:12px;margin-bottom:4px}
+  /* BACK SHEET card: unmistakably not a production sheet */
+  .back-card{border-left:5px solid #dc2626!important;background:#fff1f2;border-color:#fecaca}
+  .back-card .sheet-head{color:#b91c1c;border-bottom-color:#fecaca}
   .nlabel{font-size:5px;font-family:Arial;fill:#1e3a8a;font-weight:700;text-anchor:middle}
   .sheet-svg.editing{cursor:default}
   .sheet-svg.editing .npart{cursor:move}
@@ -258,6 +261,7 @@
       <span class="menu" onclick="toggleMenu(this,event)">View
         <div class="dd">
           <div class="dd-item" onclick="event.stopPropagation();toggleHideValues();closeMenus()"><span id="hvCheck">☐</span> Hide values (prices)</div>
+          <div class="dd-item" onclick="event.stopPropagation();toggleBackSheets();closeMenus()"><span id="bsCheck">☑</span> Show back sheets</div>
           <div class="dd-item" onclick="event.stopPropagation();openDxfTemplates();closeMenus()">DXF Templates…</div>
         </div>
       </span>
@@ -797,14 +801,16 @@
   function dxfForThickness(th,list){
     const SHEETGAP=250;let body='';const layers=new Set(['0','text']);let yOrigin=0,sheetNo=0;
     list.forEach(entry=>{
-      const sh=entry.sh,mat=entry.mat,S=sh.S;sheetNo++;
+      const sh=entry.sh,mat=entry.mat,S=sh.S,isB=!!entry.isBackSheet;
+      if(!isB)sheetNo++;
+      const capNo=isB?(entry.capNo||sheetNo):sheetNo;
       const Wn=S.w,Hn=S.h,Wp=Hn,Hp=Wn,oy=yOrigin;       // portrait sheet (Hn wide x Wn tall); sheet 1 at the BOTTOM
       // rotate each sheet's content so it lands the way Ednei needs: landscape-local (x,y,y-up) -> (Hn-y, x)
       const rRectD=(x,y,w,h)=>({x:Hn-(y+h),y:oy+x,w:h,h:w});
       const rPtD=(x,y)=>({x:Hn-y,y:oy+x});
       layers.add('SHEET');
       body+=dxfRect('SHEET',0,oy,Wp,Hp);                 // ONE consistent layer name everywhere: SHEET (never BOARD)
-      body+=dxfText('text',40,oy+Hp-28,20,'SHEET '+sheetNo+' '+(parseMat(mat).name)+' '+th,false);   // caption INSIDE the sheet (top-left) so it moves with the sheet
+      body+=dxfText('text',40,oy+Hp-28,20,'SHEET '+capNo+(isB?' BACK':'')+' '+(parseMat(mat).name)+' '+th+(isB?' - MACHINING ONLY':''),false);   // caption INSIDE the sheet (top-left) so it moves with the sheet
       sh.parts.forEach(p=>{
         const bx=p.x,by=Hn-(p.y+p.h);                    // landscape-local, y-up
         const f=p.frame||{t:0,r:0,b:0,l:0};
@@ -871,7 +877,14 @@
   }
   function buildDxfByThickness(){
     const groups=buildSheetGroups(),byTh=new Map();
-    groups.forEach((sheets,mat)=>{const th=parseMat(mat).th;sheets.forEach(sh=>{if(!byTh.has(th))byTh.set(th,[]);byTh.get(th).push({mat,sh});});});
+    groups.forEach((sheets,mat)=>{const th=parseMat(mat).th;sheets.forEach(sh=>{
+      if(!byTh.has(th))byTh.set(th,[]);
+      const arr=byTh.get(th);
+      arr.push({mat,sh});
+      const fno=arr.filter(e=>!e.isBackSheet).length;                 // this front sheet's number within the file
+      const bps=backPartsOf(sh);
+      if(bps.length)arr.push({mat,isBackSheet:true,capNo:fno,sh:{S:sh.S,sz:sh.sz,g:sh.g,margin:sh.margin,parts:bps.map(p=>mirrorBackPart(p,sh.S))}});
+    });});
     const files={};byTh.forEach((list,th)=>{files[th]=dxfForThickness(th,list);});return files;
   }
   function downloadDxf(){
@@ -1032,7 +1045,7 @@
     renderSelBar();
     renderInspector();
     renderProfiles();renderNest();updateMatPricing();summary();
-    renderWarn();updateHVCheck();captureHistory();
+    renderWarn();updateHVCheck();updateBSCheck();captureHistory();
   }
   // plain click = single select · Ctrl/Cmd+click = add/remove · Shift+click = range (list order)
   function sel(i,ev){
@@ -1593,6 +1606,22 @@
     });
     render();
   }
+  // ---- Back Sheets: parts pocketed Front+Back get a mirrored "machining only" back view (production behaviour) ----
+  let showBackSheets=true;
+  function toggleBackSheets(){showBackSheets=!showBackSheets;render();}
+  function updateBSCheck(){const c=document.getElementById('bsCheck');if(c)c.textContent=showBackSheets?'☑':'☐';}
+  function backPartsOf(sh){
+    return (sh.parts||[]).filter(p=>{
+      if(p.isInsert)return false;
+      const it=items[parseInt(p.key,10)];
+      return !!(it&&it.pocketSide==='front-back'&&enabledLines(it).length>0);
+    });
+  }
+  // mirrored copy for the back view: X flipped on the sheet, frame left/right swapped, hinges hidden
+  function mirrorBackPart(p,S){
+    const f=p.frame||{t:0,r:0,b:0,l:0};
+    return Object.assign({},p,{x:S.w-(p.x+p.w),frame:{t:f.t,b:f.b,l:f.r,r:f.l},hinge:{on:false},isBack:true,text:'BACK'});
+  }
   function nestToolbar(){
     return `<button class="btn ${editMode?'primary':'ghost'} tiny" onclick="toggleEdit()">${ic('pencil',13)} Edit mode: ${editMode?'ON':'OFF'}</button>`
       +(editMode?` <button class="btn ghost tiny" onclick="reNest()">${ic('reset',13)} Re-nest (keep sheets)</button>`:'')
@@ -1625,6 +1654,17 @@
         svg+='</svg>';
         nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg});
         html+=`<div class="sheet-card" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span>${matInp} ${sizeSel} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
+        // paired BACK SHEET right below its front sheet — visual only (no material, no sheet count)
+        const bps=showBackSheets?backPartsOf(sh):[];
+        if(bps.length){
+          const backNo=nSheets;
+          let bsvg=`<svg class="sheet-svg back-sheet" viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff1f2" stroke="#fca5a5" stroke-width="0.5"/>`;
+          bsvg+=`<text x="${(vbW/2).toFixed(1)}" y="${(vbH/2+9).toFixed(1)}" font-size="26" font-family="Arial" font-weight="900" text-anchor="middle" fill="#dc26261f">BACK</text>`;
+          bps.forEach(p=>{bsvg+=drawPart(mirrorBackPart(p,S),false);});
+          bsvg+='</svg>';
+          nestSvgs.push({label:'BACK of Sheet '+backNo+' · '+parseMat(mat).name+' · machining only',svg:bsvg});
+          html+=`<div class="sheet-card back-card"><div class="sheet-head"><span><b style="color:#dc2626">⬒ BACK SHEET — back of Sheet ${backNo}</b> <span style="color:#ef4444">· machining only, no material charged · mirrored view</span></span><span style="color:#dc2626">${bps.length} part${bps.length===1?'':'s'}</span></div>${bsvg}</div>`;
+        }
       });
     });
     nestMatCost=nMat;nestCncCost=nCnc;nestSheets=nSheets;
