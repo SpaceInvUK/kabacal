@@ -504,19 +504,27 @@
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
   function cavityOf(it){const f=resolveFrame(it);return {w:Math.max(1,(+it.w||0)-f.l-f.r),h:Math.max(1,(+it.h||0)-f.t-f.b)};}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
+  // Recipe VERIFIED against the production app (getSecondaryThickness + panelOverlayForFrame):
+  // traditional -> insert 9mm (18mm door) / 12mm (22mm door), overlay 12/side (=+24 total);
+  // flushback & reeded -> 12mm / 15mm, overlay 14/side (=+28 total). Size = cavity + overlay.
+  // Material: MR MDF by default (Ednei's rule; production inherits the door material) — editable per item via insOv.
   function insertSpecFor(it){
     if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return null;
     const m=parseMat(it.mat),mainTh=parseInt(m.th)||0;
-    const insTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
-    if(!insTh)return null;
+    const autoTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
+    if(!autoTh)return null;
+    const ov=it.insOv||{};
+    const insTh=(+ov.th>0)?+ov.th:autoTh;
+    const matName=ov.matName||'MR MDF';
     const overlay=it.type==='trad'?24:28;
     const cav=cavityOf(it);
     // Reeded lines on the insert: from the overlay toggle (trad/flush) OR the Reeded door type.
     const r=it.reed||{},reedOn=!!r.on||it.type==='reeded';
     const reed=reedOn?{dir:r.dir||'vertical',spacing:(+r.spacing>=1?+r.spacing:12.5),depth:(r.depth!=null?+r.depth:3)}:null;
-    // Inserts are always MR MDF (Ednei's rule), keeping the computed insert thickness.
-    return {mat:'MR MDF '+insTh+'mm',w:cav.w+overlay,h:cav.h+overlay,insTh,kind:it.type,reed,color:TYPES[it.type].color};
+    return {mat:matName+' '+insTh+'mm',w:cav.w+overlay,h:cav.h+overlay,insTh,autoTh,matName,kind:it.type,reed,color:TYPES[it.type].color};
   }
+  function setInsOv(i,k,v){const it=items[i];it.insOv=it.insOv||{};if(k==='th')it.insOv.th=parseInt(v)||0;else it.insOv.matName=v;render();}
+  function clearInsOv(i){delete items[i].insOv;render();}
   // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4. Side auto: H>=W -> left, else top.
   // Hinges ALWAYS run along the LONGEST side. raw = 'auto' | first | second long edge.
   // Resolved from the given w,h so it follows the part's real orientation (entered or placed).
@@ -621,7 +629,8 @@
           spray:(part.sprayFinish||'No')==='Yes',
           sprayCfg:c,
           grain:(part.grainAxis==='short')?'short':(((part.grainDirection||block.grainDirectionEnabled||'No')==='Yes')?'long':'off'),
-          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100)},
+          insOv:part.kabInsOv||undefined,
+          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
         };
@@ -659,6 +668,8 @@
     o.width=String(it.w); o.height=String(it.h); o.doorType=(it.type==='flat'?'no':doorFromType(it.type));
     o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=1; o.panelSize='';
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
+    if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
+    if(it.hinges&&Array.isArray(it.hinges.custom)&&it.hinges.custom.length)o.kabHingeCustom=it.hinges.custom.slice();
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
     o.hinges=hi.on?'Yes':'No'; o.hingeSide=hi.side||'auto'; o.hingeOffset=num(hi.offset,100); o.hingeSpacing='';
@@ -1119,7 +1130,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1198,7 +1209,15 @@
     </div>`;
   }
   function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);return `
-    ${ins?`<div class="ins-card">${ic('layers',13)} Creates insert: <b>${esc(ins.mat)}</b> · ${ins.w}×${ins.h}mm${ins.reed?' · reeded':''}<span class="sub" style="margin-left:auto">auto — nests on its own sheet</span></div>`:''}
+    ${ins?(function(){
+      const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
+      const ths=Object.keys(PRICES[ins.matName]||{}).map(t=>parseInt(t));if(ths.indexOf(ins.insTh)<0)ths.unshift(ins.insTh);
+      return `<div class="ins-card">${ic('layers',13)} Insert:
+        <select onchange="setInsOv(${i},'matName',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px;max-width:130px">${names.map(n=>`<option ${n===ins.matName?'selected':''}>${esc(n)}</option>`).join('')}</select>
+        <select onchange="setInsOv(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px">${ths.map(t=>`<option value="${t}" ${t===ins.insTh?'selected':''}>${t}mm${t===ins.autoTh?' (auto)':''}</option>`).join('')}</select>
+        <b>· ${ins.w}×${ins.h}mm</b>${ins.reed?' · reeded':''}
+        ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
+        <span class="sub" style="margin-left:auto">nests on its own sheet</span></div>`;})():''}
     <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <span class="sub" style="font-weight:700">Frame:</span>
       ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','r','b','l'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
