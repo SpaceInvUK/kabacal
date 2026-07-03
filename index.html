@@ -7,7 +7,9 @@
 <style>
   :root{
     --bg:#f1f5f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
-    --blue:#2563eb; --blue-soft:#eff6ff;
+    --line-strong:#cbd5e1; --surface:#f8fafc; --chip:#f1f5f9; --input:#fff;
+    --head:#eaeff6; --head-open:#dbe9ff; --acc-accent:#2563eb; --shadow:rgba(15,23,42,.14);
+    --blue:#2563eb; --blue-soft:#eff6ff; --blue-border:#bfdbfe;
     --flat:#2563eb; --trad:#9333ea; --flush:#0891b2; --reeded:#d97706;
     --radius:12px;
   }
@@ -248,14 +250,16 @@
   .insp-body .ed-field{gap:4px}
   .insp-empty{padding:26px 14px;color:var(--muted);font-size:13px;text-align:center}
   /* vertical editing accordion */
-  .acc{border-bottom:1px solid var(--line)}
-  .acc-h{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
-  .acc-h:hover{background:#f8fafc}
-  .acc.open .acc-h{background:#eff6ff}
-  .acc-t{font-weight:800;font-size:12.5px;color:var(--ink);letter-spacing:.01em}
-  .acc-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;background:#f1f5f9;border-radius:5px;padding:1px 6px}
-  .acc-c{margin-left:auto;color:#94a3b8;font-size:12px}
-  .acc-b{padding:6px 12px 14px;display:flex;flex-direction:column;gap:10px}
+  .acc{border-bottom:1px solid var(--line-strong)}
+  .acc:first-child{border-top:1px solid var(--line-strong)}
+  .acc-h{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 13px;cursor:pointer;user-select:none;background:var(--head);border-left:3px solid transparent;transition:background .12s,border-color .12s}
+  .acc-h:hover{background:var(--head-open)}
+  .acc.open .acc-h{background:var(--head-open);border-left-color:var(--acc-accent);box-shadow:inset 0 -1px 0 var(--line-strong)}
+  .acc.open .acc-t,.acc.open .acc-c{color:var(--blue)}
+  .acc-t{font-weight:800;font-size:12.5px;color:var(--ink);letter-spacing:.02em}
+  .acc-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:var(--chip);border-radius:5px;padding:1px 6px}
+  .acc-c{margin-left:auto;color:var(--muted);font-size:12px}
+  .acc-b{padding:10px 12px 14px 13px;display:flex;flex-direction:column;gap:10px;background:var(--card)}
   .acc-b .ed-field{gap:4px}
   /* saved offset/frame presets */
   .preset-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
@@ -264,6 +268,36 @@
   .preset-chip.on{background:#2563eb;color:#fff;border-color:#2563eb}
   .preset-chip .pdel{opacity:.6;font-weight:900}
   .preset-chip .pdel:hover{opacity:1;color:#dc2626}
+  /* ===== Dark mode ===== */
+  body.dark{
+    --bg:#0f151d; --card:#161d27; --ink:#e6edf5; --muted:#93a1b3; --line:#2a333f;
+    --line-strong:#3a4552; --surface:#1b232e; --chip:#232c38; --input:#1c242f;
+    --head:#1b232e; --head-open:#243244; --acc-accent:#3b82f6; --shadow:rgba(0,0,0,.55);
+    --blue:#60a5fa; --blue-soft:#17263d; --blue-border:#2b4d78;
+  }
+  body.dark .topbar, body.dark .menu .dd{background:var(--card);border-color:var(--line)}
+  body.dark .menu:hover, body.dark .appicons button:hover{background:var(--head);color:var(--ink)}
+  body.dark .dd-item:hover{background:var(--head-open)}
+  body.dark .dd-item .ic{color:var(--muted)}
+  body.dark .appicons button{background:var(--input);border-color:var(--line);color:var(--ink)}
+  body.dark input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]),
+  body.dark select, body.dark textarea{background:var(--input);color:var(--ink);border-color:var(--line)}
+  body.dark .card, body.dark .item, body.dark .quote, body.dark .sheet-card, body.dark .offset-wrap,
+  body.dark .spray-edit, body.dark .zoombox, body.dark .tpl-item{background:var(--card);border-color:var(--line)}
+  body.dark .client-bar, body.dark .matbar, body.dark .nest-rules, body.dark .nest-controls,
+  body.dark .insp-mat, body.dark .insp-tabs, body.dark .ins-card{background:var(--head);border-color:var(--line)}
+  body.dark .quickadd{background:var(--blue-soft);border-color:var(--blue-border)}
+  body.dark .btn.ghost, body.dark .splitbtn, body.dark .iconbtn, body.dark .typebtn, body.dark .segbtn,
+  body.dark .preset-chip, body.dark .pchip, body.dark .pricechip{background:var(--input);color:var(--ink);border-color:var(--line)}
+  body.dark .btn.ghost:hover, body.dark .splitbtn:hover, body.dark .iconbtn:hover, body.dark .preset-chip:hover, body.dark .pchip:hover, body.dark .insp-mat:hover{background:var(--head-open)}
+  body.dark .chip{background:var(--chip);color:var(--ink);border-color:var(--line)}
+  body.dark .matbar .mode{background:#0b1118}
+  body.dark .matbar .mode button.on, body.dark .insp-tab.on{background:var(--card);color:var(--ink)}
+  body.dark .editor{background:#12181f;border-top-color:var(--line)}
+  body.dark .zoomscroll{background:var(--bg)}
+  body.dark .switch.off{background:var(--input);color:var(--ink)}
+  body.dark .tk-mini:focus{background:var(--input)}
+  body.dark .tab.active{background:#334155;color:#fff}
 </style>
 </head>
 <body>
@@ -294,6 +328,8 @@
         <div class="dd">
           <div class="dd-item" onclick="event.stopPropagation();toggleHideValues();closeMenus()"><span id="hvCheck">☐</span> Hide values (prices)</div>
           <div class="dd-item" onclick="event.stopPropagation();toggleBackSheets();closeMenus()"><span id="bsCheck">☑</span> Show back sheets</div>
+          <div class="dd-sep"></div>
+          <div class="dd-item" onclick="event.stopPropagation();toggleTheme();closeMenus()"><span id="dmCheck">☐</span> Dark mode</div>
           <div class="dd-item" onclick="event.stopPropagation();openDxfTemplates();closeMenus()">DXF Templates…</div>
         </div>
       </span>
@@ -2745,6 +2781,9 @@
   let priceOverrides={};try{priceOverrides=JSON.parse(localStorage.getItem('kab_prices')||'{}');}catch(e){priceOverrides={};}
   function money(n){return hideValues?'•••':('£'+Math.round(+n||0));}
   function toggleHideValues(){hideValues=!hideValues;render();}
+  function applyTheme(dark){document.body.classList.toggle('dark',!!dark);var c=document.getElementById('dmCheck');if(c)c.textContent=dark?'☑':'☐';try{localStorage.setItem('kab_theme',dark?'dark':'light');}catch(e){}}
+  function toggleTheme(){applyTheme(!document.body.classList.contains('dark'));}
+  (function(){try{if(localStorage.getItem('kab_theme')==='dark')applyTheme(true);}catch(e){}})();
   function updateHVCheck(){const c=document.getElementById('hvCheck');if(c)c.textContent=hideValues?'☑':'☐';}
   function setProject(k,v){project[k]=v;}
   function syncClientBar(){const m={cbClient:'client',cbPhone:'phone',cbEmail:'email',cbNum:'number',cbDate:'date',cbNotes:'notes'};for(const id in m){const el=document.getElementById(id);if(el)el.value=project[m[id]]||'';}}

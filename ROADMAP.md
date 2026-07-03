@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 — Dark mode + mais contraste no acordeão
+
+- **Mais contraste entre as seções do painel** (a queixa: "muito claro, quase não vejo onde estou"). Cada header do acordeão agora é uma **barra cinza** com **divisória mais forte** (`--line-strong` #cbd5e1); a seção **aberta** ganha **tinta azul + acento de 3px na borda esquerda + título/seta em azul**. Dá pra ver exatamente onde cada seção começa e termina.
+- **Dark mode** (toggle em **View → Dark mode**, com ☐/☑). Tema por **variáveis CSS**: `:root` ganhou vars semânticas (`--surface --chip --input --head --head-open --line-strong --blue-border --shadow`) e um bloco `body.dark` que as inverte + regras direcionadas pras superfícies hardcoded (topbar, menus, cards, itens, inputs/selects via blanket, matbar/client-bar/nest, chips, botões, abas, editor, zoom).
+- **Persistência**: a escolha fica no `localStorage` (`kab_theme`) e é **restaurada no load** (não vai no `.fastcnc` — é preferência de UI, não do job).
+- As **chapas do nesting continuam brancas** (papel) no dark — padrão "UI escura, tela clara", mais legível pras peças/labels; o color-coding por material dos itens continua funcionando (borda + wash da cor).
+
+### Testado
+Toggle aplica classe + glyph + localStorage + inverte `--bg/--ink` ✓ · 9 seções renderizam nos 2 temas ✓ · contraste header fechado/aberto/divisória medido (light #eaeff6 / #dbe9ff / #cbd5e1; dark escuro equivalente) ✓ · topbar/card/inputs/matbar/client-bar escurecem no dark ✓ · texto legível (ink claro) ✓ · sem erros no console ✓ · screenshots dos 2 temas conferidos ✓.
+
 ## 2026-07-03 (d) — Painel de edição vertical (acordeão) + Groove/LED + zoom-nav
 
 - **Painel esquerdo virou acordeão vertical** (adeus tabs horizontais): seções colapsáveis, uma embaixo da outra, na ordem exata — **Parts · Door Type · Offset · Hinges · Spray · Grain · Groove · Nesting · Sheet Layout**. Cada header abre/fecha; lembra o que está aberto.
