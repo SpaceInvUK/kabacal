@@ -520,12 +520,28 @@
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
   function cavityOf(it){const f=resolveFrame(it);return {w:Math.max(1,(+it.w||0)-f.l-f.r),h:Math.max(1,(+it.h||0)-f.t-f.b)};}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
+  // ---- Glass / Beading (production rules): the word GLASS in the part text turns a framed door into a
+  // glass frame — NO insert; instead a BEADING picture-frame piece is generated on a thin block.
+  // Defaults: beading size 19.85mm · thickness 3mm (or 6mm) · fit clearance 0.15mm (guide = size+clear) · round corners ON.
+  function isGlassItem(it){return /\bGLASS\b/i.test(String(it&&it.text||''))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
+  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false};}
+  function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else it.beading[k]=Math.max(0,+v||0);render();}
+  // beading piece = cavity + size per side, nests on "<material name> 3mm/6mm"
+  function beadingSpecFor(it){
+    if(!isGlassItem(it))return null;
+    const b=beadingOf(it),cav=cavityOf(it);
+    if(cav.w<=0||cav.h<=0)return null;
+    return {mat:parseMat(it.mat).name+' '+b.th+'mm',w:Math.round((cav.w+b.size*2)*100)/100,h:Math.round((cav.h+b.size*2)*100)/100,size:b.size,guide:b.size+b.clear,clear:b.clear,round:b.round};
+  }
+  // 'G' + Enter in a text field becomes the word Glass (production shortcut)
+  function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
   // Recipe VERIFIED against the production app (getSecondaryThickness + panelOverlayForFrame):
   // traditional -> insert 9mm (18mm door) / 12mm (22mm door), overlay 12/side (=+24 total);
   // flushback & reeded -> 12mm / 15mm, overlay 14/side (=+28 total). Size = cavity + overlay.
   // Material: MR MDF by default (Ednei's rule; production inherits the door material) — editable per item via insOv.
   function insertSpecFor(it){
     if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return null;
+    if(isGlassItem(it))return null;                                   // glass doors don't generate inserts (production rule)
     const m=parseMat(it.mat),mainTh=parseInt(m.th)||0;
     const autoTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
     if(!autoTh)return null;
@@ -646,6 +662,7 @@
           sprayCfg:c,
           grain:(part.grainAxis==='short')?'short':(((part.grainDirection||block.grainDirectionEnabled||'No')==='Yes')?'long':'off'),
           insOv:part.kabInsOv||undefined,
+          beading:part.kabBeading||undefined,
           hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
@@ -694,6 +711,7 @@
     o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=1; o.panelSize='';
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
+    if(it.beading)o.kabBeading=JSON.parse(JSON.stringify(it.beading));
     if(it.hinges&&Array.isArray(it.hinges.custom)&&it.hinges.custom.length)o.kabHingeCustom=it.hinges.custom.slice();
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
@@ -765,7 +783,7 @@
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -880,8 +898,22 @@
         const round=(p.lines||[]).some(l=>l.rd);
         layers.add('OUT');
         var o=rRectD(bx,by,p.w,p.h);
-        if(round)body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
-        if(framed&&!(p.lines&&p.lines.length)){const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;if(iw>1&&ih>1){layers.add('OFFSET_A');var fr=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}}
+        if(round||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        if(p.isBeading){
+          // beading piece: INSIDE = glass opening; BEADING = cut guide clearance mm OUTSIDE the outline
+          const bs=p.beadSize||19.85,bc=(p.beadClear!=null?p.beadClear:0.15);
+          if(p.w-2*bs>1&&p.h-2*bs>1){layers.add('INSIDE');var bi=rRectD(bx+bs,by+bs,p.w-2*bs,p.h-2*bs);body+=dxfRect('INSIDE',bi.x,bi.y,bi.w,bi.h);}
+          layers.add('BEADING');var bo=rRectD(bx-bc,by-bc,p.w+2*bc,p.h+2*bc);body+=(p.beadRound!==false?dxfRoundRect('BEADING',bo.x,bo.y,bo.w,bo.h,2.5):dxfRect('BEADING',bo.x,bo.y,bo.w,bo.h));
+        }
+        if(p.glass){
+          // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
+          const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b,gg=(p.glass.guide||20);
+          if(iw>1&&ih>1){
+            layers.add('INSIDE');var gi=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('INSIDE',gi.x,gi.y,gi.w,gi.h);
+            layers.add('BEADING');var gb=rRectD(bx+f.l-gg,by+f.b-gg,iw+2*gg,ih+2*gg);body+=(p.glass.round?dxfRoundRect('BEADING',gb.x,gb.y,gb.w,gb.h,2.5):dxfRect('BEADING',gb.x,gb.y,gb.w,gb.h));
+          }
+        }
+        else if(framed&&!(p.lines&&p.lines.length)){const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;if(iw>1&&ih>1){layers.add('OFFSET_A');var fr=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}}
         (p.lines||[]).forEach(l=>{const lyr='OFFSET_'+l.L;layers.add(lyr);const iw=p.w-f.l-f.r-2*l.mm,ih=p.h-f.t-f.b-2*l.mm;if(iw>1&&ih>1){var rr=rRectD(bx+f.l+l.mm,by+f.b+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});
         if(p.isInsert){
           layers.add('IN');
@@ -957,7 +989,7 @@
   }
 
   // ---- pricing tables (sample of the production book) ----
-  const PRICES={'MDF':{'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
+  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
   const FAVS_DEFAULT=['MDF 18mm','MDF Hidrofugo Plus 18mm','MR MDF 18mm','Veneered Chipboard 18mm','MFC 18mm'];
   let favMats=(function(){try{const s=JSON.parse(localStorage.getItem('kab_favs'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return FAVS_DEFAULT.slice();})();
   function saveFavs(){try{localStorage.setItem('kab_favs',JSON.stringify(favMats));}catch(e){}}
@@ -1018,13 +1050,13 @@
     for(let k=idxs.length-1;k>=0;k--)items.splice(idxs[k],1);
     resetSel(0);placements=null;render();
   }
-  function upd(i,k,v){items[i][k]=v;render();}
+  function upd(i,k,v){items[i][k]=(k==='text')?normPartText(v):v;render();}
   function addItem(){
     const qt=document.getElementById('qaText'),qm=document.getElementById('qaMat'),qf=document.getElementById('qaFrame');
     const mat=qm&&qm.value?qm.value:orderMaterial;const f=Math.max(0,Math.round(+(qf?qf.value:50)||0));
     const w=+qaW.value,h=+qaH.value;
     if(!w||!h||w<=0||h<=0||isNaN(w)||isNaN(h)){alert('Enter a valid width and height first.');const ww=document.getElementById('qaW');if(ww){ww.focus();ww.select();}return;}
-    const it=mkItem(qaType.value,w,h,+qaQ.value,mat,nestSize,{t:f,r:f,b:f,l:f},null,qt?qt.value:'',{on:false},{offsetName:'None'});
+    const it=mkItem(qaType.value,w,h,+qaQ.value,mat,nestSize,{t:f,r:f,b:f,l:f},null,normPartText(qt?qt.value:''),{on:false},{offsetName:'None'});
     items.push(it);orderMaterial=mat;resetSel(items.length-1);if(qt)qt.value='';
     if(oversizeOf(it)){const k=smallestSheetFor(w,h);if(k&&k!==nestSize){if(confirm('This part ('+w+'×'+h+') does not fit the current sheet ('+sheetDef(nestSize).label+').\nUse a larger sheet ('+sheetDef(k).label+')?')){nestSize=k;sheetSizeOv={};const ns=document.getElementById('nestSizeSel');if(ns)ns.value=k;}}else if(!k){alert('Warning: this part ('+w+'×'+h+') is bigger than any available sheet size.');}}
     render();
@@ -1064,7 +1096,7 @@
   function render(){
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
-    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it)].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
+    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
     if(sig!==lastSig){placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}
     if(selItem>=items.length)selItem=items.length-1;
     if(selItem<0&&items.length)selItem=0;
@@ -1176,7 +1208,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1255,7 +1287,15 @@
       ${on?ctrls:''}
     </div>`;
   }
-  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);return `
+  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);return `
+    ${bead?`<div class="ins-card" style="border-color:#b45309;background:#fffbeb;flex-wrap:wrap">
+      <b style="color:#92400e">GLASS</b> — no insert; creates beading frame <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
+      <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="sub">size <input type="number" step="0.01" value="${bcfg.size}" onchange="setBeading(${i},'size',this.value)" style="width:62px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
+        <label class="sub">th <select onchange="setBeading(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px"><option value="3" ${bcfg.th===3?'selected':''}>3mm</option><option value="6" ${bcfg.th===6?'selected':''}>6mm</option></select></label>
+        <label class="sub">fit gap <input type="number" step="0.01" value="${bcfg.clear}" onchange="setBeading(${i},'clear',this.value)" style="width:56px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
+        <label class="tg" style="font-size:11px"><input type="checkbox" ${bcfg.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
+      </span></div>`:''}
     ${ins?(function(){
       const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
       const ths=Object.keys(PRICES[ins.matName]||{}).map(t=>parseInt(t));if(ths.indexOf(ins.insTh)<0)ths.unshift(ins.insTh);
@@ -1498,12 +1538,14 @@
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
-      const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);const el=enabledLines(it);
+      const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
+      const bead=beadingSpecFor(it);const el=bead?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
+        if(bead) add(bead.mat,{key:i+'_'+n+'_b',w:bead.w,h:bead.h,origW:bead.w,origH:bead.h,color:'#b45309',name:'Beading',isBeading:true,beadSize:bead.size,beadClear:bead.clear,beadRound:bead.round,text:(it.text||'Glass')+' Beading '+bead.size+'mm',grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
       }
     });
     return groups;
@@ -1853,10 +1895,30 @@
       if(p.pnum&&W>=3.6&&H>=3){const ns=Math.max(1.3,Math.min(3.2,Math.min(W*0.3,H*0.32)));s+=`<text x="${(X+W-0.7).toFixed(2)}" y="${(Y+0.5+ns).toFixed(2)}" font-size="${ns.toFixed(2)}" font-family="Arial" font-weight="800" text-anchor="end" fill="#2563eb">#${p.pnum}</text>`;}
       s+='</g>';return s;
     }
+    if(p.isBeading){
+      // picture-frame beading piece: outline (rounded when round corners) + INSIDE cut line
+      const bs=(p.beadSize||19.85)/10,rx=p.beadRound!==false?0.25:0;
+      s+=`<rect x="${(X+0.2).toFixed(1)}" y="${(Y+0.2).toFixed(1)}" width="${(W-0.4).toFixed(1)}" height="${(H-0.4).toFixed(1)}" rx="${rx}" fill="none" stroke="#b45309" stroke-width="0.35"/>`;
+      const iw=W-2*bs,ih=H-2*bs;
+      if(iw>0.6&&ih>0.6)s+=`<rect x="${(X+bs).toFixed(1)}" y="${(Y+bs).toFixed(1)}" width="${iw.toFixed(1)}" height="${ih.toFixed(1)}" fill="none" stroke="#2563eb" stroke-width="0.3"/>`;
+      if(p.pnum&&W>=3.6&&H>=3){const ns=Math.max(1.3,Math.min(3.2,Math.min(W*0.3,H*0.32)));s+=`<text x="${(X+W-0.7).toFixed(2)}" y="${(Y+0.5+ns).toFixed(2)}" font-size="${ns.toFixed(2)}" font-family="Arial" font-weight="800" text-anchor="end" fill="#2563eb">#${p.pnum}</text>`;}
+      if(p.text)s+=svgLabel(p.text,X,Y,W,Math.min(H,2*bs)+1.2,'#92400e',2.6);
+      s+='</g>';return s;
+    }
     const f=p.frame||{t:0,r:0,b:0,l:0};
     const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
+    if(p.glass){
+      // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
+      const g10=(p.glass.guide||20)/10;
+      const ix=X+f.l/10,iy=Y+f.t/10,iw=W-(f.l+f.r)/10,ih=H-(f.t+f.b)/10;
+      if(iw>0.6&&ih>0.6){
+        s+=`<rect x="${ix.toFixed(1)}" y="${iy.toFixed(1)}" width="${iw.toFixed(1)}" height="${ih.toFixed(1)}" fill="#dbeafe66" stroke="#2563eb" stroke-width="0.35"/>`;
+        const bx=ix-g10,by=iy-g10,bw=iw+2*g10,bh=ih+2*g10;
+        if(bx>X&&by>Y)s+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${p.glass.round?0.25:0}" fill="none" stroke="#b45309" stroke-width="0.3"/>`;
+      }
+    }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
-    if(framed&&!(p.lines&&p.lines.length)){const lx=X+f.l/10,ty=Y+f.t/10,rw=W-(f.l+f.r)/10,rh=H-(f.t+f.b)/10;if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;}
+    else if(framed&&!(p.lines&&p.lines.length)){const lx=X+f.l/10,ty=Y+f.t/10,rw=W-(f.l+f.r)/10,rh=H-(f.t+f.b)/10;if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;}
     (p.lines||[]).forEach(l=>{
       const lx=X+(f.l+l.mm)/10, ty=Y+(f.t+l.mm)/10, rw=W-(f.l+f.r+2*l.mm)/10, rh=H-(f.t+f.b+2*l.mm)/10;
       if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;
@@ -2079,7 +2141,7 @@
         gNo++;
         sh.parts.forEach(p=>{
           const itemIdx=parseInt(p.key,10);
-          const role=p.isInsert?'insert':'part';
+          const role=p.isInsert?'insert':(p.isBeading?'beading':'part');
           const w=(p.origW!=null?p.origW:p.w),h=(p.origH!=null?p.origH:p.h);
           const label={
             uid:shortHash([quote,mat,p.key,si,role,w,h,Math.round(p.x||0),Math.round(p.y||0)].join('|')),
@@ -2456,12 +2518,12 @@
     const rows=labels.map(l=>{
       const it=items[l.itemIdx]||{};
       const sz=String(l.size||'').split('x');
-      const typeName=l.role==='insert'?'Insert':(TYPES[it.type]?TYPES[it.type].name:'Flat');
+      const typeName=l.role==='insert'?'Insert':(l.role==='beading'?'Beading':(TYPES[it.type]?TYPES[it.type].name:'Flat'));
       return [l.partNo,1,sz[0]||'',sz[1]||'',l.thickness,l.material,typeName,l.sheetNo,l.code,
-        l.role==='insert'?'':checklistFrameText(it),
-        l.role==='insert'?'':(it.offsetName&&it.offsetName!=='None'?it.offsetName:''),
-        l.role==='insert'?'':checklistHingesText(it),
-        (l.role!=='insert'&&grainOf(it)!=='off')?grainOf(it):'',
+        l.role!=='part'?'':checklistFrameText(it),
+        l.role!=='part'?'':(it.offsetName&&it.offsetName!=='None'?it.offsetName:''),
+        l.role!=='part'?'':checklistHingesText(it),
+        (l.role==='part'&&grainOf(it)!=='off')?grainOf(it):'',
         l.copyText].join('\t');
     });
     return ['FAST CNC CHECKLIST v2','Client: '+(project.client||''),'Order: '+(project.number||''),
@@ -2503,7 +2565,7 @@
       const w=+c[ix('width')],h=+c[ix('height')];
       if(!(w>0&&h>0))continue;
       const typeRaw=String((ix('type')>=0?c[ix('type')]:'')||'').trim();
-      if(/^insert$/i.test(typeRaw))continue;                       // inserts regenerate from the door type
+      if(/^(insert|beading)$/i.test(typeRaw))continue;             // inserts/beading regenerate from the door type + Glass text
       const typeKey=nameToType[typeRaw.toLowerCase()]||'flat';
       const mat=String((ix('material')>=0?c[ix('material')]:'')||'').trim();
       const text2=String((ix('text')>=0?c[ix('text')]:'')||'').trim();

@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-03 (c) — Glass / Beading (portado da produção)
+
+- **Porta de vidro**: a palavra **GLASS** no texto da peça (atalho: digitar só `G` vira `Glass`) transforma a porta com frame (Traditional/Flushback/Reeded) em **glass frame** — **não gera insert**; gera uma **peça de beading** (moldura) em bloco fino.
+- **Receita (verificada na fonte)**: beading = cavidade + **19.85mm** por lado · espessura **3mm** (default) ou 6mm, mesmo material da porta · fit gap **0.15mm** (guia = 20.0mm) · **round corners ON** por default. Texto: "Glass Beading 19.85mm".
+- **DXF**: porta de vidro = só 3 linhas — OUT + **INSIDE** (cavidade) + **BEADING** (rebate a 20mm, arredondado 2.5 quando round); peça de beading = OUT arredondado + INSIDE (abertura do vidro) + BEADING 0.15mm FORA do contorno (folga de corte). Layers em MAIÚSCULAS, como manda a regra; sai um arquivo DXF `3mm` próprio.
+- **Editável por item** no Door set (card GLASS): size, espessura 3/6, fit gap, round corners; persiste no `.fastcnc` (`kabBeading`) e propaga no multi-edit.
+- Checklist ganha linhas `Beading` (o parse de volta pula — regeneram do texto Glass); preview mostra INSIDE azul + guia âmbar na porta e a moldura na chapa fina; preços 3mm adicionados (MDF 15 / MR MDF 25).
+
+### Testado (12 checagens)
+g→Glass ✓ · insert some ✓ · beading cavidade+39.7 e guia 20.0 exatos ✓ · nesta no grupo 3mm ✓ · DXF 18mm com INSIDE/BEADING + arquivo 3mm ✓ · checklist/parse ✓ · card GLASS ✓ · sem erros no console ✓.
+
 ## 2026-07-03 (b) — Persistência do orçamento, woodgrain, preço por chapa
 
 - **`.fastcnc` agora carrega o lado do orçamento** (`kabacalQuote`): horas de serviços, machining por material (Extra/Time/Disc%), spray add-ons, VAT on/off, board margin e overrides de preço por chapa. Salvar → reabrir → orçamento igual. Undo (Ctrl+Z) também restaura esse estado. Arquivos antigos continuam abrindo.
