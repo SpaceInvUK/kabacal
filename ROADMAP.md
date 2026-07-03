@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (b) — Ajustes: parts no dark + alinhamento do menu View
+
+- **Parts/groups mantêm a distinção visual no dark** (pedido do user). Antes o item usava `cor+'10'` (wash 6%), que sobre o fundo escuro sumia e os itens ficavam "flat". Agora, **no dark** o item usa **base opaca (card) + tinta de material ~15%** (`linear-gradient(cor26,cor26), var(--card)`), mantendo a **barra lateral colorida de 4px** e a legibilidade. **No light nada muda** (continua o wash 6% sobre branco que o user gosta). Cores ajustadas pro escuro, não copiadas. Os **group bars** já eram cor sólida vívida (ok nos 2 temas).
+- `applyTheme()` agora **re-renderiza** ao trocar de tema, pra tinta dos itens ser recalculada na hora (antes só atualizava no próximo render).
+- **Menu View — ícone duplicado + desalinhamento corrigidos**: "Hide values" recebia um ícone (eye) **injetado por cima** do checkbox ☐ → dois ícones lado a lado. Agora os toggles usam `.dchk` (slot fixo de 15px, igual ao ícone) e o injetor **pula itens com `.dchk`**. Resultado: em todos os itens do menu o texto começa no mesmo x (medido: leads de 15px, borda direita idêntica em x=208).
+
+### Testado (b)
+Menu View: "Hide values" sem ícone duplo (hasIcon=false, hasChk=true), "DXF Templates" mantém ícone, texto alinhado (15px / x=208) ✓ · item no dark = gradiente 15% sobre card #161d27 + borda 4px da cor do material ✓ · item no light inalterado (rgba .063 sobre branco) ✓ · toggle re-renderiza ✓ · sem erros no console ✓. (Screenshot da ferramenta travou de novo nesta sessão — verificado por DOM/computed styles.)
+
 ## 2026-07-04 — Dark mode + mais contraste no acordeão
 
 - **Mais contraste entre as seções do painel** (a queixa: "muito claro, quase não vejo onde estou"). Cada header do acordeão agora é uma **barra cinza** com **divisória mais forte** (`--line-strong` #cbd5e1); a seção **aberta** ganha **tinta azul + acento de 3px na borda esquerda + título/seta em azul**. Dá pra ver exatamente onde cada seção começa e termina.

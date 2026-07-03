@@ -176,6 +176,7 @@
   .multinote{background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:10px;font-size:12px;color:#713f12}
   .ic{display:inline-block;vertical-align:-3px;flex:none}
   .dd-item .ic{margin-right:8px;color:#475569}
+  .dchk{flex:none;width:15px;margin-right:8px;text-align:center;font-size:13px}
   .appicons button .ic{vertical-align:-3.5px}
   .iconbtn .ic{vertical-align:-2.5px}
   .btn .ic{margin-right:6px;vertical-align:-3px}
@@ -326,10 +327,10 @@
       </span>
       <span class="menu" onclick="toggleMenu(this,event)">View
         <div class="dd">
-          <div class="dd-item" onclick="event.stopPropagation();toggleHideValues();closeMenus()"><span id="hvCheck">☐</span> Hide values (prices)</div>
-          <div class="dd-item" onclick="event.stopPropagation();toggleBackSheets();closeMenus()"><span id="bsCheck">☑</span> Show back sheets</div>
+          <div class="dd-item" onclick="event.stopPropagation();toggleHideValues();closeMenus()"><span class="dchk" id="hvCheck">☐</span>Hide values (prices)</div>
+          <div class="dd-item" onclick="event.stopPropagation();toggleBackSheets();closeMenus()"><span class="dchk" id="bsCheck">☑</span>Show back sheets</div>
           <div class="dd-sep"></div>
-          <div class="dd-item" onclick="event.stopPropagation();toggleTheme();closeMenus()"><span id="dmCheck">☐</span> Dark mode</div>
+          <div class="dd-item" onclick="event.stopPropagation();toggleTheme();closeMenus()"><span class="dchk" id="dmCheck">☐</span>Dark mode</div>
           <div class="dd-item" onclick="event.stopPropagation();openDxfTemplates();closeMenus()">DXF Templates…</div>
         </div>
       </span>
@@ -522,7 +523,7 @@
       [/Hide values/,'eye'],[/^Save PDF/,'pdf'],[/^Print Labels Map/,'map'],[/^Print CNC Labels/,'tag'],[/^Print A4 Labels/,'grid'],
       [/^Print Spray Labels/,'spray'],[/^Cut list/,'list'],[/^Create Checklist/,'check'],[/^Checklist app file/,'save']];
     document.querySelectorAll('.dd-item').forEach(el=>{
-      if(el.querySelector('.ic'))return;
+      if(el.querySelector('.ic')||el.querySelector('.dchk'))return;
       const t=(el.textContent||'').trim();
       const hit=map.find(m=>m[0].test(t));
       if(hit)el.insertAdjacentHTML('afterbegin',ic(hit[1]));
@@ -1190,7 +1191,9 @@
       idxs.forEach(i=>{const it=items[i];
       const d=TYPES[it.type],c=d.color;
       const el=document.createElement('div');el.className='item'+(selSet.has(i)||(!selSet.size&&i===selItem)?' sel':'');el.dataset.idx=i;
-      el.style.borderLeft='4px solid '+matColor(it.mat);el.style.background=matColor(it.mat)+'10';
+      el.style.borderLeft='4px solid '+matColor(it.mat);
+      // light: soft tint over white. dark: same material hue but over an opaque card base + a bit stronger, so groups stay distinct and readable
+      el.style.background=document.body.classList.contains('dark')?('linear-gradient(0deg,'+matColor(it.mat)+'26,'+matColor(it.mat)+'26),var(--card)'):(matColor(it.mat)+'10');
       const offc=offsetChip(it),hc=hingeChip(it);
       el.innerHTML=`
         <div class="item-row" onclick="sel(${i},event)">
@@ -2781,7 +2784,7 @@
   let priceOverrides={};try{priceOverrides=JSON.parse(localStorage.getItem('kab_prices')||'{}');}catch(e){priceOverrides={};}
   function money(n){return hideValues?'•••':('£'+Math.round(+n||0));}
   function toggleHideValues(){hideValues=!hideValues;render();}
-  function applyTheme(dark){document.body.classList.toggle('dark',!!dark);var c=document.getElementById('dmCheck');if(c)c.textContent=dark?'☑':'☐';try{localStorage.setItem('kab_theme',dark?'dark':'light');}catch(e){}}
+  function applyTheme(dark){document.body.classList.toggle('dark',!!dark);var c=document.getElementById('dmCheck');if(c)c.textContent=dark?'☑':'☐';try{localStorage.setItem('kab_theme',dark?'dark':'light');}catch(e){}if(typeof render==='function')render();}
   function toggleTheme(){applyTheme(!document.body.classList.contains('dark'));}
   (function(){try{if(localStorage.getItem('kab_theme')==='dark')applyTheme(true);}catch(e){}})();
   function updateHVCheck(){const c=document.getElementById('hvCheck');if(c)c.textContent=hideValues?'☑':'☐';}
