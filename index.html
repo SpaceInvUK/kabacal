@@ -199,6 +199,17 @@
   /* BACK SHEET card: unmistakably not a production sheet */
   .back-card{border-left:5px solid #dc2626!important;background:#fff1f2;border-color:#fecaca}
   .back-card .sheet-head{color:#b91c1c;border-bottom-color:#fecaca}
+  /* inline Smart Takeoff strip (Order entry) */
+  .tk-inline{display:flex;gap:8px;align-items:stretch;margin:10px 0 4px}
+  .tk-mini{flex:1;min-height:46px;height:46px;font:12px/1.45 Consolas,monospace;padding:8px 10px;border:1.5px dashed #cbd5e1;border-radius:9px;resize:none;background:#f8fafc;color:var(--ink);transition:height .15s ease,background .15s}
+  .tk-mini:focus{height:130px;background:#fff;border-style:solid;border-color:#93c5fd;outline:none}
+  .tk-mini.over{border-color:#2563eb;border-style:solid;background:#eff6ff}
+  .tk-inline-side{display:flex;flex-direction:column;gap:5px;justify-content:flex-start;min-width:92px}
+  /* divider between part settings and sizes in the add row */
+  .qa-div{width:1px;align-self:stretch;background:var(--line);margin:0 12px}
+  /* group delete trash on the coloured group bar */
+  .grp-head .ghd{margin-left:8px;background:transparent;border:0;color:#fff;opacity:.8;cursor:pointer;padding:3px 4px;border-radius:6px;flex:none;line-height:0}
+  .grp-head .ghd:hover{opacity:1;background:rgba(255,255,255,.2)}
   .nlabel{font-size:5px;font-family:Arial;fill:#1e3a8a;font-weight:700;text-anchor:middle}
   .sheet-svg.editing{cursor:default}
   .sheet-svg.editing .npart{cursor:move}
@@ -287,15 +298,17 @@
       <button title="Open / Load .fastcnc" onclick="document.getElementById('fileIn').click()">⤒</button>
       <button title="Save .fastcnc" onclick="downloadFastCnc()">⤓</button>
       <button title="Export DXF" onclick="downloadDxf()" style="width:auto;padding:0 8px;font-size:11px;font-weight:800">DXF</button>
+      <div class="mode" style="margin-left:6px"><button class="on">Doors</button><button onclick="openPanelling()" title="Opens the existing panelling app in a new tab">Panelling ↗</button></div>
     </div>
     <div class="tabs">
-      <span class="tab alt" onclick="openQuote()" title="Customer / quote view">Calculate</span>
-      <span class="tab active">Order entry</span>
-      <span class="tab" onclick="openTakeoff()">Takeoff</span>
+      <span class="tab active" id="tabOrder" onclick="setView('order')" title="Add and edit parts">Order entry</span>
+      <span class="tab" id="tabQuote" onclick="setView('quote')" title="Customer, pricing and totals">Quote</span>
       <span class="tab" onclick="comingSoon('Toolpaths')">Toolpaths <span class="soon">soon</span></span>
     </div>
   </div>
 
+  <!-- QUOTE view: customer, pricing and totals live here (Order entry stays parts-only) -->
+  <div id="viewQuote" style="display:none">
   <div class="clientstrip">
     <div class="card" style="padding:10px 14px">
       <div class="client-bar" style="margin:0">
@@ -311,21 +324,13 @@
   <div class="topstrip">
     <div class="card">
       <h2>Material pricing</h2>
-      <div class="hint">Separate, clear area — not buried inside each part.</div>
       <div class="mp-row"><span>Material</span><b id="mpMat">MDF 18mm</b></div>
       <div class="mp-row"><span>£ / sheet (auto)</span><b id="mpSheet">£55</b></div>
       <div class="mp-row"><span>£ / CNC per sheet</span><b id="mpCnc">£85</b></div>
       <div style="margin-top:8px"><span class="link" onclick="openPricing()">⚙ Pricing settings…</span></div>
     </div>
     <div class="card">
-      <h2>Offset profiles</h2>
-      <div class="hint">Reusable. Save once (lines A–G + Front/Back), apply with one click on any item.</div>
-      <div id="profList"></div>
-      <div style="margin-top:8px"><span class="link" onclick="newProfile()">＋ New profile…</span></div>
-    </div>
-    <div class="card">
       <h2>Order summary</h2>
-      <div class="sub" style="margin:-4px 0 8px">Live totals. Open <b>Calculate</b> for the customer quote view.</div>
       <div class="sumrow"><span class="k">Line items</span><span id="sItems">0</span></div>
       <div class="sumrow"><span class="k">Parts (total)</span><span id="sDoors">0</span></div>
       <div class="sumrow"><span class="k">Sheets (est.)</span><span id="sSheets">0</span></div>
@@ -334,22 +339,34 @@
       <div class="sumrow" style="margin-top:6px"><span class="k">Total ex VAT</span><span class="total" id="sTotal">£0</span></div>
     </div>
   </div>
+  <div class="clientstrip">
+    <div class="card" id="quoteBody" style="padding:14px"></div>
+  </div>
+  </div>
 
+  <!-- ORDER ENTRY view: parts only -->
+  <div id="viewOrder">
   <div class="wrap">
     <div class="applayout">
       <aside class="card inspector-card"><div id="inspector"></div></aside>
       <div class="maincol">
       <div class="card">
         <h2>New order — add the customer's items</h2>
-        <div class="hint">One list. Each line is a door/part with its own type, size, finish and offset. Mix Flat / Traditional / Flushback / Reeded in the same list — no separate blocks.</div>
+        <div class="hint">Each line is a door/part with its own type, size and settings — mix types freely in one list.</div>
+
+        <div class="tk-inline">
+          <textarea id="tkText" class="tkText tk-mini" placeholder="Smart Takeoff — paste sizes here (3 x 600 x 400 · 600x400 · D 450x900 · a Kabacal checklist) or drop a .dxf / .txt / image file"></textarea>
+          <div class="tk-inline-side">
+            <button class="btn primary tiny" onclick="tkAddText()">Add parts</button>
+            <button class="btn ghost tiny" onclick="tkPickImage()" title="Read a photo/screenshot of a cutting list with OCR">📷 OCR</button>
+            <span id="tkStatus" class="sub"></span>
+          </div>
+          <input id="tkImg" type="file" accept="image/*" style="display:none" onchange="if(this.files[0])tkOcr(this.files[0]);this.value=''">
+        </div>
 
         <div class="matbar">
-          <span class="sub" style="font-weight:700">Quick material:</span>
           <span class="favs" id="favChips" style="display:inline-flex;gap:5px;flex-wrap:wrap"></span>
-          <span class="sub">— or pick per item.</span>
-          <span class="link" onclick="openMatColors()" style="font-size:12px">🎨 Material colours</span>
           <input type="file" id="fileIn" accept=".json,.fastcnc.json" style="display:none" onchange="onFile(event)">
-          <div class="mode" style="margin-left:auto"><button class="on">Doors</button><button onclick="openPanelling()" title="Opens the existing panelling app in a new tab">Panelling ↗</button></div>
         </div>
         <datalist id="matList"></datalist>
 
@@ -358,24 +375,18 @@
           <div class="qa-field"><label>Part Type</label>
             <select id="qaType">
               <option value="flat">Flat</option>
-              <option value="trad">Insert Traditional</option>
-              <option value="flush">Insert Flushback</option>
+              <option value="trad">Traditional</option>
+              <option value="flush">Flushback</option>
               <option value="reeded">Reeded</option>
             </select>
           </div>
           <div class="qa-field"><label>Frame (mm)</label><input id="qaFrame" type="number" value="50" style="width:74px"></div>
+          <div class="qa-div"></div>
           <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600"></div>
           <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400"></div>
           <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" value="1"></div>
           <div class="qa-field"><label>Text</label><input id="qaText" type="text" placeholder="optional" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:120px"></div>
           <button class="btn primary" onclick="addItem()">+ Add to order</button>
-        </div>
-
-        <div class="legend">
-          <span><i style="background:var(--flat)"></i>Flat</span>
-          <span><i style="background:var(--trad)"></i>Traditional</span>
-          <span><i style="background:var(--flush)"></i>Flushback</span>
-          <span><i style="background:var(--reeded)"></i>Reeded</span>
         </div>
 
         <div id="orderWarn"></div>
@@ -404,6 +415,7 @@
       </div>
       </div>
     </div>
+  </div>
   </div>
 
 <script>
@@ -974,6 +986,15 @@
   function splitOne(i){const it=items[i];if((+it.q||1)<=1)return;it.q=(+it.q)-1;const copy=JSON.parse(JSON.stringify(it));copy.q=1;items.splice(i+1,0,copy);resetSel(i+1);render();}
   function dup(i){items.splice(i+1,0,JSON.parse(JSON.stringify(items[i])));resetSel(selItem>i?selItem+1:selItem);render();}
   function del(i){items.splice(i,1);resetSel(selItem>=items.length?items.length-1:selItem);render();}
+  // delete a whole material group — always confirms, saying how many lines/parts go (Ctrl+Z undoes)
+  function delGroup(mat){
+    const idxs=[];items.forEach((it,i)=>{if(it.mat===mat)idxs.push(i);});
+    if(!idxs.length)return;
+    const pcs=idxs.reduce((s,k)=>s+(+items[k].q||1),0);
+    if(!confirm('Delete the group "'+mat+'" and its '+idxs.length+' line'+(idxs.length===1?'':'s')+' ('+pcs+' part'+(pcs===1?'':'s')+')?\n\nCtrl+Z undoes this.'))return;
+    for(let k=idxs.length-1;k>=0;k--)items.splice(idxs[k],1);
+    resetSel(0);placements=null;render();
+  }
   function upd(i,k,v){items[i][k]=v;render();}
   function addItem(){
     const qt=document.getElementById('qaText'),qm=document.getElementById('qaMat'),qf=document.getElementById('qaFrame');
@@ -1032,11 +1053,12 @@
       const col=matColor(mat),pcs=idxs.reduce((s,k)=>s+(+items[k].q||1),0),collapsed=!!collapsedGroups[mat];
       const gh=document.createElement('div');gh.className='grp-head';gh.dataset.mat=mat;
       gh.style.background=col;gh.style.borderColor=col;                     // vivid solid bar = everything below belongs to this group
-      gh.innerHTML=`<input type="checkbox" class="selcb" title="Select the whole group"> <span class="caret">${collapsed?'▸':'▾'}</span><b>${esc(mat)}</b><span class="gcount">${idxs.length} line${idxs.length===1?'':'s'} · ${pcs} pc${pcs===1?'':'s'}</span>`;
+      gh.innerHTML=`<input type="checkbox" class="selcb" title="Select the whole group"> <span class="caret">${collapsed?'▸':'▾'}</span><b>${esc(mat)}</b><span class="gcount">${idxs.length} line${idxs.length===1?'':'s'} · ${pcs} pc${pcs===1?'':'s'}</span><button class="ghd" title="Delete this whole group">${ic('trash',13)}</button>`;
       const gcb=gh.querySelector('.selcb');
       const all=idxs.every(k=>selSet.has(k));gcb.checked=all;gcb.indeterminate=!all&&idxs.some(k=>selSet.has(k));
       gcb.addEventListener('click',e=>e.stopPropagation());
       gcb.addEventListener('change',()=>selGroup(mat,gcb.checked));
+      gh.querySelector('.ghd').addEventListener('click',e=>{e.stopPropagation();delGroup(mat);});
       gh.addEventListener('click',()=>toggleGroup(mat));
       L.appendChild(gh);
       if(collapsed)return;
@@ -1064,14 +1086,15 @@
             <div class="qstep"><button class="iconbtn" onclick="qtyAdd(${i},-1)">−</button><input type="number" class="qinput" value="${it.q}" onchange="qtySet(${i},this.value)"><button class="iconbtn" onclick="qtyAdd(${i},1)">+</button></div>
             ${(+it.q>1)?`<button class="splitbtn" title="Separate 1 piece to edit on its own" onclick="splitOne(${i})">${ic('scissors',12)} edit 1</button>`:''}
           </div>
-          <div class="pricecell" onclick="event.stopPropagation()"><div class="actions"><button class="iconbtn" title="Edit details" onclick="sel(${i})">${ic('pencil',14)}</button><button class="iconbtn" title="Duplicate" onclick="dup(${i})">${ic('copy',14)}</button><button class="iconbtn" title="Remove" onclick="del(${i})">${ic('trash',14)}</button></div></div>
+          <div class="pricecell" onclick="event.stopPropagation()"><div class="actions"><button class="iconbtn" title="Edit details" onclick="sel(${i})">${ic('pencil',14)}</button><button class="iconbtn" title="Remove" onclick="del(${i})">${ic('trash',14)}</button></div></div>
         </div>`;
       L.appendChild(el);
       });
     });
     renderSelBar();
     renderInspector();
-    renderProfiles();renderNest();updateMatPricing();summary();
+    renderNest();updateMatPricing();summary();
+    if(curView==='quote')renderQuoteView();
     renderWarn();updateHVCheck();updateBSCheck();captureHistory();
   }
   // plain click = single select · Ctrl/Cmd+click = add/remove · Shift+click = range (list order)
@@ -1182,7 +1205,8 @@
     groupSnap={mat:src.mat,size:src.size,type:src.type};
     render();
   }
-  function ap(i,field){return `<span class="apf"><span class="t">→</span><span class="aplink" onclick="applyField(${i},'${field}','group')" title="Apply this value to every part in the same group (same material, sheet size and type — any part size)">group</span><span class="aplink" onclick="applyField(${i},'${field}','all')" title="Apply this value to every part in the order">all</span></span>`;}
+  // group/all links retired: edits now follow the SELECTION (1 selected = that part; several = all selected via multi-edit)
+  function ap(){return '';}
   function tabPart(i,it){const M=selSet.size>1;const g=grainOf(it);return `
     <div style="display:flex;gap:8px">
       <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)">${M?'':ap(i,'w')}</div>
@@ -1301,7 +1325,7 @@
   }
 
   function renderProfiles(){
-    const P=document.getElementById('profList');P.innerHTML='';
+    const P=document.getElementById('profList');if(!P)return;P.innerHTML='';
     Object.keys(profiles).forEach(name=>{
       const used=items.filter(i=>i.offsetName===name).length;
       const n=profiles[name].lines.filter(l=>l.en).length;
@@ -1902,15 +1926,7 @@
     resetSel(items.length-1);render();
     return list.reduce((s,p)=>s+Math.max(1,+p.quantity||1),0);
   }
-  function openTakeoff(){
-    const html='<div class="sub">Paste measurements (one per line) — e.g. <code>3 x 600 x 400</code>, <code>600x400</code>, <code>D 450x900</code> — or paste a <b>Kabacal checklist</b> to recreate its parts. Drop a <b>.dxf</b> / <b>.txt</b> / <b>image</b> file (images are read with OCR). Parts are added in the current material ('+esc(orderMaterial)+').</div>'
-      +'<textarea id="tkText" class="tkText" placeholder="3 x 600 x 400&#10;500 x 720&#10;D 450 x 900"></textarea>'
-      +'<div id="tkDrop" class="tkDrop">⤓ Drop a .dxf, .txt or image file here</div>'
-      +'<input id="tkImg" type="file" accept="image/*" style="display:none" onchange="if(this.files[0])tkOcr(this.files[0]);this.value=\'\'">'
-      +'<div class="tk-actions"><button class="btn primary" onclick="tkAddText()">Add parts</button> <button class="btn ghost" onclick="tkPickImage()">'+ic('camera',14)+' Read image (OCR)</button> <button class="btn ghost" onclick="(document.getElementById(\'tkText\').value=\'\')">Clear</button> <span id="tkStatus" class="sub"></span></div>';
-    openModal('Smart Takeoff',html);
-    setTimeout(()=>{const d=document.getElementById('tkDrop');if(d){d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('over');});d.addEventListener('dragleave',()=>d.classList.remove('over'));d.addEventListener('drop',tkDrop);}},30);
-  }
+  // Smart Takeoff lives inline in Order entry (below "New order") — no modal, no separate tab.
   function tkAddText(){const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');const n=addTakeoffItems(parseTakeoffText(t.value));st.textContent=n?('Added '+n+' part(s).'):'No dimensions found.';if(n)t.value='';}
   // OCR: tesseract.js is loaded on demand from the CDN only when an image is used (app stays a single file)
   let _tessP=null;
@@ -2611,8 +2627,23 @@
     return {rows,sheetN,partN,matTot,cncTot,bodyTot,svc,svcTot,spray,sub,vat,total};
   }
   function svcInput(label,key,cost,rate){return '<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><b>'+label+'</b><input type="number" min="0" step="0.5" value="'+(services[key]||0)+'" onchange="setSvc(\''+key+'\',this.value)" style="width:52px;padding:3px;border:1px solid var(--line);border-radius:6px">h <span style="color:#64748b">'+rate+'</span>'+(cost?' = <b>'+money(cost)+'</b>':'')+'</label>';}
-  function openQuote(){
-    const v=validateOrder();if(v.errs.length){alert('Fix invalid parts before the quote:\n'+v.errs.map(e=>'• item '+(e.i+1)+': '+e.b.join(', ')).join('\n'));return;}
+  // ---- main views: Order entry (parts) <-> Quote (customer + pricing + totals) ----
+  let curView='order';
+  function setView(v){
+    curView=v;
+    const o=document.getElementById('viewOrder'),q=document.getElementById('viewQuote');
+    if(o)o.style.display=v==='order'?'':'none';
+    if(q)q.style.display=v==='quote'?'':'none';
+    const to=document.getElementById('tabOrder'),tq=document.getElementById('tabQuote');
+    if(to)to.classList.toggle('active',v==='order');
+    if(tq)tq.classList.toggle('active',v==='quote');
+    if(v==='quote')renderQuoteView();
+  }
+  function openQuote(){setView('quote');}
+  function renderQuoteView(){
+    const box=document.getElementById('quoteBody');if(!box)return;
+    const v=validateOrder();
+    if(v.errs.length){box.innerHTML='<div class="warn err">⚠ Fix invalid parts in <b>Order entry</b> first: '+v.errs.map(e=>'#'+(e.i+1)+' '+e.b.join('/')).join(', ')+'</div>';return;}
     const d=calcQuote();
     const matRows=d.rows.map(r=>{
       const brk='base '+money(r.base)+(r.pocketPct?' · Pocket '+pctTxt(r.pocketPct):'')+(r.reedPct?' · Reeded '+pctTxt(r.reedPct):'')+(r.drillPct?' · Drilling +5%':'')+(r.extraPct?' · Extra '+pctTxt(r.extraPct):'')+' → '+money(r.cncEff)+(r.timeCost?' +time '+money(r.timeCost):'')+(r.disc?' −disc '+money(r.disc):'');
@@ -2643,7 +2674,7 @@
       +'<div class="sub" style="margin-top:4px">Machining = % of CNC base · Pocket/Reeded by area (1m²=12min), Drilling +5%, Extra +10% each.'+(hideValues?' Values hidden on screen — they still print.':'')+'</div>'
       +'</div>'
       +'<div style="margin-top:10px;text-align:right"><button class="btn primary" onclick="openQuoteDoc()">Print / Save as PDF</button> <button class="btn ghost" onclick="openCutList()">Cut list</button></div>';
-    openModal('Calculate — customer quote view',html,true);
+    box.innerHTML=html;
   }
 
   // ---- printable documents (new window → Print or Save as PDF) ----
@@ -2725,6 +2756,12 @@
   genOrderNumber();
   syncClientBar();
   decorateMenus();
+  // inline Smart Takeoff: the textarea itself is the drop target (.dxf / .txt / image)
+  (function(){const t=document.getElementById('tkText');if(!t)return;
+    t.addEventListener('dragover',e=>{e.preventDefault();t.classList.add('over');});
+    t.addEventListener('dragleave',()=>t.classList.remove('over'));
+    t.addEventListener('drop',e=>{t.classList.remove('over');tkDrop(e);});
+  })();
   render();
 </script>
 </body>

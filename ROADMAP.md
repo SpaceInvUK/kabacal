@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-03 — Layout v3: Order Entry × Quote separados
+
+- **Duas vistas de verdade** (troca por tabs, sem modal): **Order entry** (padrão) só para peças; **Quote** (ex-"Calculate", renomeado) com: faixa do cliente (Client/Phone/Email/Order#/Date/Notes), card Material pricing + Pricing settings, card Order summary e o corpo do orçamento (tabela por material, serviços, spray, VAT, totais, Print/Save PDF, Cut list). Se houver peça inválida, a vista Quote mostra banner em vez de alert.
+- **Smart Takeoff embutido** no topo do Order entry (abaixo de "New order"): textarea compacto que cresce ao focar, aceita colar texto/checklist e **arrastar .dxf/.txt/imagem** (OCR), botões Add parts + 📷 OCR. **Tab Takeoff removida** (decisão do Ednei); o modal antigo foi apagado.
+- **Linha de add**: Frame afastado do Width/Height com divisor visual — `Material · Part Type · Frame ┃ Width · Height · Qty · Text`.
+- **Removidos**: legenda de tipos (Flat/Traditional/…), botão duplicar da linha (qty +/− cobre), links "→ group/all" do painel (a edição segue a SELEÇÃO: 1 ou várias via multi-edit), card **Offset profiles** da topstrip (o seletor Profile + ＋ Save dentro do Door set CONTINUA — nada de produção quebrou; funções ficam dormentes com guarda), label "Quick material:" e link 🎨 Material colours da barra (segue em Edit → Material colours…).
+- **Doors/Panelling** subiram pro topbar ao lado do DXF; **Doors é o default** (Panelling abre o app externo).
+- **Lixeira no header do grupo** (barra colorida, extremo direito): confirma citando linhas E peças ("Delete the group \"X\" and its 3 lines (5 parts)?"), não recolhe o grupo ao clicar, Ctrl+Z desfaz.
+
+### Testado (22 checagens ao vivo)
+Vista inicial Order/Quote ✓ · tabs novas ✓ · cliente/pricing/summary dentro da Quote ✓ · quote renderiza tabela+totais+botões ✓ · takeoff inline adiciona (2×500×300 → qty 2) ✓ · legenda/label/link/duplicar/group-all fora ✓ · divisor no add ✓ · mode no topbar ✓ · lixeira de grupo: cancela mantém, confirma apaga, mensagem cita contagens ✓ · profiles do Door set intactos ✓ · sem erros no console ✓.
+
 ## 2026-07-02 (c) — Painel de edição v2, Back Sheets, hinges individuais, inserts editáveis
 
 Commits: `ff87189` (fase 1) · `9496d77` (fase 2) · `0d8fe4a` (fase 3) · fase 4 no commit desta entrada.
