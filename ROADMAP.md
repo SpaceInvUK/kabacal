@@ -2,6 +2,24 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-03 (d) — Painel de edição vertical (acordeão) + Groove/LED + zoom-nav
+
+- **Painel esquerdo virou acordeão vertical** (adeus tabs horizontais): seções colapsáveis, uma embaixo da outra, na ordem exata — **Parts · Door Type · Offset · Hinges · Spray · Grain · Groove · Nesting · Sheet Layout**. Cada header abre/fecha; lembra o que está aberto.
+- **Door Type**: os 4 botões de tipo (Flat/Traditional/Flushback/Reeded — nomes mantidos; "Rabbeted" = Reeded) + **presets salvos como chips clicáveis**.
+- **"Door set" renomeado para "Offset"**.
+- **Grain** virou seção própria (Off · ↔ Longest · ↕ Shortest), fora de Parts.
+- **Presets de frame+offset**: o ＋ Save agora guarda **frame + linhas + pocket side**; aparecem em Door Type e Offset; **persistem no `.fastcnc`** (`kabacalQuote.profiles`); dá pra apagar (✕).
+- **Nesting** (margem/gap) e **Sheet Layout** (tamanho da chapa + custom) **movidos pro painel esquerdo** (tag "whole job", sempre disponíveis mesmo sem peça selecionada); o card do meio saiu.
+- **Groove (novo)**: liga/desliga, direção Horizontal/Vertical, **spacing-alvo (default 10mm)** que encaixa nas bordas — `n=round(L/t)` vãos, primeira e última linha tocam as bordas (ex.: 500/105 → 6 linhas de 100mm). Desenha na chapa (roxo) e no DXF (layer **GROOVE**).
+- **LED Channel** dentro do Groove: um **retângulo** de largura editável (**default 4mm**) começando na posição escolhida, atravessando a peça inteira na direção do groove (preview âmbar + DXF layer **LED_CHANNEL**).
+- **Zoom — navegação entre chapas**: **◀ ▶** no cabeçalho + **← →** do teclado + **Esc** pra fechar, com contador "n / total" e fit automático a cada troca.
+
+### Testado (22 checagens)
+Ordem das 9 seções ✓ · tabs antigas e card de chapa fora ✓ · groove 500/105 = [0,100,200,300,400,500] ✓ · linhas roxas + retângulo LED no preview ✓ · DXF GROOVE + LED_CHANNEL ✓ · preset vira chip no Door Type ✓ · zoom next/prev/setas/Esc ✓ · save→load restaura groove e preset ✓ · sem erros no console ✓.
+
+### Pendente
+Groove/LED não entram no preço (via Extra processes por enquanto); groove pensado pra painel flat (funciona em qualquer tipo, mas cruza o frame em portas).
+
 ## 2026-07-03 (c) — Glass / Beading (portado da produção)
 
 - **Porta de vidro**: a palavra **GLASS** no texto da peça (atalho: digitar só `G` vira `Glass`) transforma a porta com frame (Traditional/Flushback/Reeded) em **glass frame** — **não gera insert**; gera uma **peça de beading** (moldura) em bloco fino.

@@ -247,6 +247,23 @@
   .insp-body{padding:12px;max-height:74vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
   .insp-body .ed-field{gap:4px}
   .insp-empty{padding:26px 14px;color:var(--muted);font-size:13px;text-align:center}
+  /* vertical editing accordion */
+  .acc{border-bottom:1px solid var(--line)}
+  .acc-h{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
+  .acc-h:hover{background:#f8fafc}
+  .acc.open .acc-h{background:#eff6ff}
+  .acc-t{font-weight:800;font-size:12.5px;color:var(--ink);letter-spacing:.01em}
+  .acc-hint{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;background:#f1f5f9;border-radius:5px;padding:1px 6px}
+  .acc-c{margin-left:auto;color:#94a3b8;font-size:12px}
+  .acc-b{padding:6px 12px 14px;display:flex;flex-direction:column;gap:10px}
+  .acc-b .ed-field{gap:4px}
+  /* saved offset/frame presets */
+  .preset-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
+  .preset-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:20px;background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:#334155}
+  .preset-chip:hover{border-color:#93c5fd;background:#eff6ff}
+  .preset-chip.on{background:#2563eb;color:#fff;border-color:#2563eb}
+  .preset-chip .pdel{opacity:.6;font-weight:900}
+  .preset-chip .pdel:hover{opacity:1;color:#dc2626}
 </style>
 </head>
 <body>
@@ -399,19 +416,8 @@
 
       <div class="card nesting-card" style="margin-top:16px">
         <h2>Nesting — sheet layout</h2>
-        <div class="hint">How the parts pack onto sheets. Inserts go on their own thickness sheet; Front+Back parts add a back sheet — same as the production export.</div>
+        <div class="hint">How the parts pack onto sheets. Sheet size, margin and gap now live in the <b>Nesting</b> / <b>Sheet Layout</b> sections of the left panel. Inserts go on their own thickness sheet; Front+Back parts add a back sheet.</div>
         <div class="nest-controls">
-        <div class="grp-h">Sheet &amp; layout options</div>
-        <div class="nest-rules">
-          <div class="qa-field"><label>Sheet size</label><span style="display:inline-flex;align-items:center"><select id="nestSizeSel" onchange="setNestSize(this.value)"><option value="8x4">8x4 — 2440×1220</option><option value="10x4">10x4 — 3050×1220</option><option value="10x5">10x5 — 3050×1525</option><option value="jumbo">Jumbo — 2800×2070</option><option value="custom">Custom…</option></select><span id="customSheetWrap" style="display:none;align-items:center;gap:4px;margin-left:6px"><input type="number" id="csW" value="2440" onchange="setCustomSheet('w',this.value)" style="width:72px" title="Custom width (mm)"><span class="sub">×</span><input type="number" id="csH" value="1220" onchange="setCustomSheet('h',this.value)" style="width:72px" title="Custom height (mm)"><span class="sub">mm</span></span></span></div>
-          <div class="qa-field"><label>Board margin (mm)</label><input type="number" id="nestMarginIn" value="7" min="0" style="width:70px" onchange="setNestMargin(this.value)"></div>
-          <div class="qa-field"><label>Spacing (mm)</label><input type="number" id="nestGapIn" value="7" min="0" style="width:70px" onchange="setNestGap(this.value)"></div>
-          <div class="qa-field"><label>Respect grain</label><select><option>On</option><option>Off</option></select></div>
-          <div class="qa-field"><label>Allow 90° rotate</label><select><option>On</option><option>Off</option></select></div>
-          <div class="qa-field"><label>Offcuts</label><select><option>Normal offcut</option><option>Save largest offcut</option><option>Ignore</option></select></div>
-        </div>
-
-        <div class="hint" style="margin:0 0 10px"><b>Sheet rule:</b> a sheet only holds parts with the same <b>Material + Thickness + Sheet size</b>. Change <b>Material</b> and <b>Size</b> right on each sheet header below.</div>
         <div id="nestTools" style="margin:8px 0 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
         </div>
         <div id="nest"></div>
@@ -535,6 +541,18 @@
   }
   // 'G' + Enter in a text field becomes the word Glass (production shortcut)
   function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
+
+  // ---- Groove / LED Channel: decorative grooves drawn across a flat part; optional rectangular LED channel ----
+  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:!!g.on,dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:10),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
+  function ensureGroove(i){const it=items[i];it.groove=it.groove||{on:false,dir:'vertical',spacing:10};it.groove.led=it.groove.led||{on:false,width:4,start:100};return it.groove;}
+  function setGrooveOn(i,v){ensureGroove(i).on=!!v;render();}
+  function setGrooveDir(i,v){ensureGroove(i).dir=(v==='horizontal'?'horizontal':'vertical');render();}
+  function setGrooveSpacing(i,v){const g=ensureGroove(i);const x=+v;g.spacing=(x>=1)?x:10;render();}
+  function setGrooveLedOn(i,v){ensureGroove(i).led.on=!!v;render();}
+  function setGrooveLedWidth(i,v){const g=ensureGroove(i);const x=+v;g.led.width=(x>0)?x:4;render();}
+  function setGrooveLedStart(i,v){ensureGroove(i).led.start=Math.max(0,+v||0);render();}
+  // target-spacing fitted to the edges: first line at 0, last at L, intermediates even, gap as close to target as possible
+  function groovePositions(L,spacing){const t=Math.max(1,+spacing||10);const n=Math.max(1,Math.round(L/t));const step=L/n,out=[];for(let k=0;k<=n;k++)out.push(Math.round(k*step*100)/100);return out;}
   // Recipe VERIFIED against the production app (getSecondaryThickness + panelOverlayForFrame):
   // traditional -> insert 9mm (18mm door) / 12mm (22mm door), overlay 12/side (=+24 total);
   // flushback & reeded -> 12mm / 15mm, overlay 14/side (=+28 total). Size = cavity + overlay.
@@ -594,7 +612,8 @@
     'Shaker':{side:'front',lines:mkLines({A:{mm:0}})},
     'All offsets':{side:'front-back',lines:mkLines({A:{mm:0},B:{mm:10},C:{mm:20},D:{mm:30},E:{mm:40},F:{mm:50},G:{mm:60}})}
   };
-  function applyProfile(i,name){const p=profiles[name];if(!p)return;items[i].lines=JSON.parse(JSON.stringify(p.lines));items[i].pocketSide=p.side||'front';items[i].offsetName=name;render();}
+  function applyProfile(i,name){const p=profiles[name];if(!p)return;const it=items[i];it.lines=JSON.parse(JSON.stringify(p.lines));it.pocketSide=p.side||'front';if(p.frame){it.frame=JSON.parse(JSON.stringify(p.frame));it.frameLink=(p.frame.t===p.frame.r&&p.frame.r===p.frame.b&&p.frame.b===p.frame.l);}it.offsetName=name;render();}
+  function applyPresetSel(i){const s=event.target;applyProfile(i,s.value);}
 
   let orderMaterial='MDF Hidrofugo Plus 18mm';
   let rawDoc=null;           // last imported .fastcnc.json (kept for 100% round-trip)
@@ -614,6 +633,8 @@
     ];
   }
   let selItem=0, inspTab='part', groupSnap=null, lastInspected=-1;
+  let inspOpen={part:true};   // which vertical editing sections are expanded
+  function toggleSec(k){inspOpen[k]=!inspOpen[k];renderInspector();}
   // multi-select: selSet = selected item indices (selItem stays the "primary" that feeds the inspector)
   let selSet=new Set([0]), multiBase=null, collapsedGroups={}, marqJustEnded=false;
   function resetSel(i){selItem=items.length?Math.max(0,Math.min(i,items.length-1)):-1;selSet=new Set(items.length?[selItem]:[]);multiBase=null;}
@@ -663,6 +684,7 @@
           grain:(part.grainAxis==='short')?'short':(((part.grainDirection||block.grainDirectionEnabled||'No')==='Yes')?'long':'off'),
           insOv:part.kabInsOv||undefined,
           beading:part.kabBeading||undefined,
+          groove:part.kabGroove||undefined,
           hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
@@ -696,6 +718,7 @@
       if(typeof kq.vatOn==='boolean')vatOn=kq.vatOn;
       if(kq.nestMargin!=null&&!isNaN(+kq.nestMargin)){nestMargin=Math.max(0,+kq.nestMargin);const mi=document.getElementById('nestMarginIn');if(mi)mi.value=nestMargin;}
       if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
+      if(kq.profiles&&typeof kq.profiles==='object')profiles=Object.assign({},profiles,kq.profiles);   // keep built-ins, add saved presets
     }
     if(!project.number)genOrderNumber();
     syncClientBar();
@@ -712,6 +735,7 @@
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
     if(it.beading)o.kabBeading=JSON.parse(JSON.stringify(it.beading));
+    if(it.groove)o.kabGroove=JSON.parse(JSON.stringify(it.groove));
     if(it.hinges&&Array.isArray(it.hinges.custom)&&it.hinges.custom.length)o.kabHingeCustom=it.hinges.custom.slice();
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
@@ -776,14 +800,15 @@
       sprayAddons:JSON.parse(JSON.stringify(sprayAddons)),
       vatOn:vatOn,
       nestMargin:nestMargin,
-      sheetPriceOv:JSON.parse(JSON.stringify(sheetPriceOv))
+      sheetPriceOv:JSON.parse(JSON.stringify(sheetPriceOv)),
+      profiles:JSON.parse(JSON.stringify(profiles))
     };
     return base;
   }
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -925,6 +950,14 @@
           }
         }
         if(p.hinge&&p.hinge.on){layers.add('hinges');hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);});}
+        if(p.groove){const gr=p.groove;layers.add('GROOVE');
+          if(gr.dir==='vertical'){groovePositions(p.w,gr.spacing).forEach(pos=>{var a=rPtD(bx+pos,by),b2=rPtD(bx+pos,by+p.h);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
+          else{groovePositions(p.h,gr.spacing).forEach(pos=>{var a=rPtD(bx,by+pos),b2=rPtD(bx+p.w,by+pos);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
+          if(gr.led&&gr.led.on){layers.add('LED_CHANNEL');const wd=gr.led.width,st=gr.led.start;
+            if(gr.dir==='vertical'){if(st>=0&&st+wd<=p.w+0.01){var lr=rRectD(bx+st,by,wd,p.h);body+=dxfRect('LED_CHANNEL',lr.x,lr.y,lr.w,lr.h);}}
+            else{if(st>=0&&st+wd<=p.h+0.01){var lr2=rRectD(bx,by+st,p.w,wd);body+=dxfRect('LED_CHANNEL',lr2.x,lr2.y,lr2.w,lr2.h);}}
+          }
+        }
         // text = SIZE + label, reading along the part's long side (0deg wide / 90deg tall), starting from the
         // left (wide) / bottom (tall); part number on its own layer in a reserved corner — production rules.
         var R=o,partNo=p.pnum?String(p.pnum):'';
@@ -1081,7 +1114,8 @@
   function setHingeCount(i,v){items[i].hinges.count=v;render();}
   function setHingeOffset(i,v){v=(''+v).trim();const x=Math.round(+v);items[i].hinges.offset=(v===''||isNaN(x)||x<0)?100:x;render();}
   function newProfile(){const n=prompt('New offset profile name:');if(n){profiles[n]={side:'front',lines:mkLines({A:{mm:0}})};render();}}
-  function saveAsProfile(i){const n=prompt('Save this item’s offset lines as a profile named:');if(n){profiles[n]={side:items[i].pocketSide,lines:JSON.parse(JSON.stringify(items[i].lines))};items[i].offsetName=n;render();}}
+  function saveAsProfile(i){const n=(prompt('Save these frame + offset settings as a reusable preset — name:')||'').trim();if(n){profiles[n]={side:items[i].pocketSide,lines:JSON.parse(JSON.stringify(items[i].lines)),frame:JSON.parse(JSON.stringify(resolveFrame(items[i])))};items[i].offsetName=n;render();}}
+  function delProfile(name){if(['None'].indexOf(name)>=0)return;if(!confirm('Delete the preset "'+name+'"?'))return;delete profiles[name];items.forEach(it=>{if(it.offsetName===name)it.offsetName='Custom';});render();}
 
   // ---- chips / labels ----
   function frameLabel(it){
@@ -1208,7 +1242,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1218,23 +1252,94 @@
   }
   function setInspTab(t){inspTab=t;renderInspector();}
   // ---- right docked inspector (tabbed) ----
+  // one collapsible section in the vertical editing panel
+  function accSection(k,title,body,hint){
+    const open=(inspOpen[k]!==undefined)?inspOpen[k]:false;
+    return `<div class="acc ${open?'open':''}"><div class="acc-h" onclick="toggleSec('${k}')"><span class="acc-t">${title}</span>${hint?`<span class="acc-hint">${hint}</span>`:''}<span class="acc-c">${open?'▾':'▸'}</span></div>${open?`<div class="acc-b">${body}</div>`:''}</div>`;
+  }
   function renderInspector(){
     const box=document.getElementById('inspector');if(!box)return;
-    if(selItem<0||selItem>=items.length){box.innerHTML='<div class="insp-empty">Click an item in the list — or a part in the nesting — to edit it here.</div>';return;}
-    const i=selItem,it=items[i],d=TYPES[it.type];
-    if(lastInspected!==selItem){groupSnap={mat:it.mat,size:it.size,type:it.type};lastInspected=selItem;}
-    const M=selSet.size>1;
+    const has=selItem>=0&&selItem<items.length;
+    const i=has?selItem:-1,it=has?items[i]:null,d=has?TYPES[it.type]:null;
+    if(has&&lastInspected!==selItem){groupSnap={mat:it.mat,size:it.size,type:it.type};lastInspected=selItem;}
+    const M=has&&selSet.size>1;
     if(M&&!multiBase)multiBase=JSON.parse(JSON.stringify(it));   // baseline for change detection
     if(!M)multiBase=null;
-    const tabs=[['part','Part'],['offset','Door set'],['hinges','Hinges'],['spray','Spray']];
-    box.innerHTML=`
-      <div class="insp-head">${d.icon(d.color)}<span class="insp-title">${M?selSet.size+' parts selected · base item '+(i+1):'Item '+(i+1)+' · '+it.w+'×'+it.h+' mm'}</span></div>
-      <div class="insp-type"><span class="tlab">Part type</span>${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
-      <div class="insp-mat" title="Click to move this part to another material group" onclick="openGroupPicker('move')"><i style="background:${matColor(it.mat)}"></i><b>${esc(it.mat)}</b><span class="sub">click to change</span></div>
-      ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}
-      <div class="insp-tabs">${tabs.map(([k,lbl])=>`<span class="insp-tab ${inspTab===k?'on':''}" onclick="setInspTab('${k}')">${lbl}</span>`).join('')}</div>
-      <div class="insp-body">${inspTab==='part'?tabPart(i,it):inspTab==='offset'?tabOffset(i,it):inspTab==='hinges'?tabHinges(i,it):tabSpray(i,it)}</div>`;
+    let html='';
+    if(has){
+      html+=`<div class="insp-head">${d.icon(d.color)}<span class="insp-title">${M?selSet.size+' parts selected · base item '+(i+1):'Item '+(i+1)+' · '+it.w+'×'+it.h+' mm'}</span></div>
+        <div class="insp-mat" title="Click to move this part to another material group" onclick="openGroupPicker('move')"><i style="background:${matColor(it.mat)}"></i><b>${esc(it.mat)}</b><span class="sub">click to change</span></div>
+        ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}`;
+    }else{
+      html+=`<div class="insp-empty" style="padding:14px 12px">No part selected — click one in the list or nesting to edit it. The <b>Nesting</b> and <b>Sheet Layout</b> sections below apply to the whole job.</div>`;
+    }
+    const secs=[];
+    if(has){
+      secs.push(['part','Parts',secParts(i,it)]);
+      secs.push(['doortype','Door Type',secDoorType(i,it)]);
+      secs.push(['offset','Offset',tabOffset(i,it)]);
+      secs.push(['hinges','Hinges',tabHinges(i,it)]);
+      secs.push(['spray','Spray',tabSpray(i,it)]);
+      secs.push(['grain','Grain',secGrain(i,it)]);
+      secs.push(['groove','Groove',secGroove(i,it)]);
+    }
+    secs.push(['nesting','Nesting',secNesting(),'whole job']);
+    secs.push(['sheetlayout','Sheet Layout',secSheetLayout(),'whole job']);
+    html+=secs.map(s=>accSection(s[0],s[1],s[2],s[3])).join('');
+    box.innerHTML=html;
   }
+  function secDoorType(i,it){
+    const presets=Object.keys(profiles).filter(n=>n!=='None');
+    return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
+      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Saved presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span></button>`).join('')}</div><div class="sub" style="margin-top:3px">Save presets from the <b>Offset</b> section (＋ Save).</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
+  }
+  function secParts(i,it){const M=selSet.size>1;return `
+    <div style="display:flex;gap:8px">
+      <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
+      <div class="ed-field" style="flex:1"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
+    </div>
+    <div class="ed-field"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
+    <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row.</div>`;}
+  function secGrain(i,it){const g=grainOf(it);return `
+    <div class="seg3">
+      <button class="segbtn ${g==='off'?'on':''}" onclick="upd(${i},'grain','off')">Off</button>
+      <button class="segbtn ${g==='long'?'on':''}" title="Grain runs along the LONGEST side — part lies long-side along the sheet" onclick="upd(${i},'grain','long')">↔ Longest side</button>
+      <button class="segbtn ${g==='short'?'on':''}" title="Grain runs along the SHORTEST side — part stands long-side across the sheet" onclick="upd(${i},'grain','short')">↕ Shortest side</button>
+    </div>
+    <div class="sub" style="margin-top:6px">Grain on = the part never rotates in the nesting and the sheet shows a woodgrain texture.</div>`;}
+  function secGroove(i,it){const gr=grooveOf(it);return `
+    <label class="tg" style="font-weight:700"><input type="checkbox" ${gr.on?'checked':''} onchange="setGrooveOn(${i},this.checked)"> Grooves on this part</label>
+    ${gr.on?`
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <label class="sub">Direction <select onchange="setGrooveDir(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"><option value="vertical" ${gr.dir!=='horizontal'?'selected':''}>Vertical</option><option value="horizontal" ${gr.dir==='horizontal'?'selected':''}>Horizontal</option></select></label>
+      <label class="sub">Target spacing <input type="number" min="1" value="${gr.spacing}" onchange="setGrooveSpacing(${i},this.value)" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"> mm</label>
+    </div>
+    <div class="sub" style="margin-top:5px">First &amp; last lines touch the edges; spacing snaps to the closest even fit — ${(function(){const L=gr.dir==='horizontal'?it.h:it.w,p=groovePositions(L,gr.spacing);return p.length+' lines · '+(p.length>1?Math.round(p[1]-p[0]):L)+'mm actual across '+L+'mm';})()}.</div>
+    <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+      <label class="tg" style="font-weight:700"><input type="checkbox" ${gr.led.on?'checked':''} onchange="setGrooveLedOn(${i},this.checked)"> LED channel</label>
+      ${gr.led.on?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <label class="sub">Width <input type="number" min="0.5" step="0.5" value="${gr.led.width}" onchange="setGrooveLedWidth(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"> mm</label>
+        <label class="sub">Start <input type="number" min="0" value="${gr.led.start}" onchange="setGrooveLedStart(${i},this.value)" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"> mm from edge</label>
+      </div><div class="sub" style="margin-top:4px">A ${gr.led.width}mm rectangular channel running the full ${gr.dir==='vertical'?'height':'width'}, starting ${gr.led.start}mm from the ${gr.dir==='vertical'?'left':'top'} edge (DXF layer LED_CHANNEL).</div>`:''}
+    </div>`:'<div class="sub" style="margin-top:6px">Draw evenly-spaced grooves across a flat panel (DXF layer GROOVE), with an optional LED channel.</div>'}`;}
+  function secNesting(){return `
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Board margin (mm)</label><input type="number" value="${nestMargin}" min="0" onchange="setNestMargin(this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Spacing / gap (mm)</label><input type="number" value="${nestGap}" min="0" onchange="setNestGap(this.value)"></div>
+    </div>
+    <div class="sub" style="margin-top:4px">A sheet only holds parts with the same material + thickness + sheet size. Front+Back parts add a back sheet.</div>`;}
+  function secSheetLayout(){const cur=nestSize;return `
+    <div class="ed-field"><label>Sheet size</label>
+      <select onchange="setNestSize(this.value)">
+        <option value="8x4" ${cur==='8x4'?'selected':''}>8x4 — 2440×1220</option>
+        <option value="10x4" ${cur==='10x4'?'selected':''}>10x4 — 3050×1220</option>
+        <option value="10x5" ${cur==='10x5'?'selected':''}>10x5 — 3050×1525</option>
+        <option value="jumbo" ${cur==='jumbo'?'selected':''}>Jumbo — 2800×2070</option>
+        <option value="custom" ${cur==='custom'?'selected':''}>Custom…</option>
+      </select>
+    </div>
+    ${cur==='custom'?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="number" value="${customSheet.w}" onchange="setCustomSheet('w',this.value)" style="width:80px" title="Width (mm)"><span class="sub">×</span><input type="number" value="${customSheet.h}" onchange="setCustomSheet('h',this.value)" style="width:80px" title="Height (mm)"><span class="sub">mm</span></div>`:''}
+    <div class="sub" style="margin-top:4px">Or change material + size on each sheet header in the nesting preview.</div>`;}
 
   // ---- Apply to All / Apply to Same Group ----
   // "Same group" = same material + same SHEET size (8x4/10x4) + same part type. Part W×H is ignored,
@@ -1448,10 +1553,15 @@
   function setGroupMat(mat,v){items.forEach(it=>{if(it.mat===mat)it.mat=v;});multiBase=null;render();}
   function setSheetSize(mat,si,v){sheetSizeOv[mat+'#'+si]=v;render();}
   let _zoom=null;
-  function openZoom(i){const d=nestSvgs[i];if(!d)return;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
-    ov.innerHTML=`<div class="zoombox"><div class="zoomhead"><b>${esc(d.label)}</b><span><span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div><div class="sub" style="text-align:center;padding-top:2px">Scroll to zoom (towards the cursor) · drag to pan</div></div>`;
+  let _zoomIdx=0;
+  function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
+    const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
+    ov.innerHTML=`<div class="zoombox"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div><div class="sub" style="text-align:center;padding-top:2px">← / → change sheet · scroll to zoom (towards the cursor) · drag to pan · Esc to close</div></div>`;
     ov.classList.add('show');setupZoomPanZoom();}
+  function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
   function closeZoom(){const ov=document.getElementById('zoomOverlay');if(ov)ov.classList.remove('show');_zoom=null;}
+  document.addEventListener('keydown',e=>{const ov=document.getElementById('zoomOverlay');if(!ov||!ov.classList.contains('show'))return;
+    if(e.key==='ArrowLeft'){e.preventDefault();navZoom(-1);}else if(e.key==='ArrowRight'){e.preventDefault();navZoom(1);}else if(e.key==='Escape'){e.preventDefault();closeZoom();}});
   function zoomFit(){if(_zoom)_zoom.fit();}
   // The zoom opens showing the WHOLE sheet (fit). Mouse wheel zooms in/out toward the cursor; drag pans. Transform-based (no scrollbars).
   function setupZoomPanZoom(){
@@ -1541,7 +1651,7 @@
       const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
       const bead=beadingSpecFor(it);const el=bead?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
@@ -1929,6 +2039,16 @@
       const dot=(dx,dy)=>`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="${r.toFixed(2)}" fill="#dc2626"/>`;
       if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);});}
       else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);});}
+    }
+    // grooves across the whole part + optional LED channel rectangle
+    if(p.groove){
+      const gr=p.groove;
+      if(gr.dir==='vertical'){groovePositions(p.w,gr.spacing).forEach(pos=>{const x=X+pos/10;s+=`<line x1="${x.toFixed(1)}" y1="${Y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(Y+H).toFixed(1)}" stroke="#7c3aed" stroke-width="0.18"/>`;});}
+      else{groovePositions(p.h,gr.spacing).forEach(pos=>{const y=Y+pos/10;s+=`<line x1="${X.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(X+W).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#7c3aed" stroke-width="0.18"/>`;});}
+      if(gr.led&&gr.led.on){const wd=gr.led.width/10,st=gr.led.start/10;
+        if(gr.dir==='vertical'){const lx=X+st;if(lx>=X&&lx+wd<=X+W+0.01)s+=`<rect x="${lx.toFixed(1)}" y="${Y.toFixed(1)}" width="${wd.toFixed(2)}" height="${H.toFixed(1)}" fill="#f59e0b55" stroke="#d97706" stroke-width="0.15"/>`;}
+        else{const ly=Y+st;if(ly>=Y&&ly+wd<=Y+H+0.01)s+=`<rect x="${X.toFixed(1)}" y="${ly.toFixed(1)}" width="${W.toFixed(1)}" height="${wd.toFixed(2)}" fill="#f59e0b55" stroke="#d97706" stroke-width="0.15"/>`;}
+      }
     }
     // grain always runs along the sheet X — centred double-arrow, clearly visible (item 5)
     if(grainActive(p)&&Math.min(W,H)>=5){const horiz=true,cx=X+W/2,cy=Y+H/2,L=(horiz?W:H)*0.55,a=Math.max(1.4,Math.min(3.2,L*0.16)),col='#16a34a',sw=Math.max(0.5,Math.min(1.1,Math.min(W,H)/22));
