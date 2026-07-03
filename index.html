@@ -207,6 +207,10 @@
   .tk-inline-side{display:flex;flex-direction:column;gap:5px;justify-content:flex-start;min-width:92px}
   /* divider between part settings and sizes in the add row */
   .qa-div{width:1px;align-self:stretch;background:var(--line);margin:0 12px}
+  /* per-sheet price chip on the sheet header */
+  .pricechip{border:1px solid var(--line);background:#f8fafc;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:800;color:#334155;cursor:pointer}
+  .pricechip:hover{border-color:#93c5fd;background:#eff6ff}
+  .pricechip.ov{border-color:#f59e0b;background:#fffbeb;color:#92400e}
   /* group delete trash on the coloured group bar */
   .grp-head .ghd{margin-left:8px;background:transparent;border:0;color:#fff;opacity:.8;cursor:pointer;padding:3px 4px;border-radius:6px;flex:none;line-height:0}
   .grp-head .ghd:hover{opacity:1;background:rgba(255,255,255,.2)}
@@ -667,6 +671,15 @@
     }
     if(doc.kabacal&&typeof doc.kabacal==='object')project=Object.assign({client:'',number:'',date:'',notes:''},doc.kabacal);
     else if(doc.client&&doc.client.name)project.client=doc.client.name;
+    if(doc.kabacalQuote&&typeof doc.kabacalQuote==='object'){
+      const kq=doc.kabacalQuote;
+      if(kq.services)services=Object.assign({design:0,cutting:0,assembly:0},kq.services);
+      if(kq.machine&&typeof kq.machine==='object')machine=JSON.parse(JSON.stringify(kq.machine));
+      if(kq.sprayAddons)sprayAddons=Object.assign({sq:false,hg:false,gg:false,prep:0},kq.sprayAddons);
+      if(typeof kq.vatOn==='boolean')vatOn=kq.vatOn;
+      if(kq.nestMargin!=null&&!isNaN(+kq.nestMargin)){nestMargin=Math.max(0,+kq.nestMargin);const mi=document.getElementById('nestMarginIn');if(mi)mi.value=nestMargin;}
+      if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
+    }
     if(!project.number)genOrderNumber();
     syncClientBar();
     const q=document.getElementById('qaMat'); if(q){q.innerHTML=matOptionsHtml(orderMaterial);q.value=orderMaterial;}
@@ -737,6 +750,16 @@
     });
     base.nextId=id+1; base.blocks=blocks; base.activeCalculatorMode='doors';
     base.client={name:project.client||'',contact:''}; base.kabacal=JSON.parse(JSON.stringify(project));
+    // quote-side state travels with the job file (services hours, per-material machining, spray add-ons,
+    // VAT toggle, board margin, per-sheet price overrides) — production files without this key still load fine
+    base.kabacalQuote={
+      services:JSON.parse(JSON.stringify(services)),
+      machine:JSON.parse(JSON.stringify(machine)),
+      sprayAddons:JSON.parse(JSON.stringify(sprayAddons)),
+      vatOn:vatOn,
+      nestMargin:nestMargin,
+      sheetPriceOv:JSON.parse(JSON.stringify(sheetPriceOv))
+    };
     return base;
   }
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
@@ -1042,7 +1065,7 @@
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
     const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it)].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
-    if(sig!==lastSig){placements=null;selKey=null;lastSig=sig;}
+    if(sig!==lastSig){placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}
     if(selItem>=items.length)selItem=items.length-1;
     if(selItem<0&&items.length)selItem=0;
     selSet=new Set([...selSet].filter(k=>k>=0&&k<items.length));
@@ -1363,6 +1386,21 @@
   function setNestMargin(v){nestMargin=Math.max(0,Math.round(+v||0));render();}
   function setNestGap(v){nestGap=Math.max(0,Math.round(+v||0));render();}
   let nestMatCost=0,nestCncCost=0,nestSheets=0;
+  // per-sheet manual price overrides (production rule): key 'mat#sheetIdx' -> {mc?:£ material, cnc?:£ CNC}
+  let sheetPriceOv={},keepSheetOv=false;
+  function editSheetPrice(mat,idx){
+    const key=mat+'#'+idx,cur=sheetPriceOv[key]||{};
+    const autoM=priceForSheet(mat,sheetMeta(mat,idx).sz),autoC=cncForThickness(mat);
+    const mv=prompt('Material £ for THIS sheet only (empty = auto £'+autoM+'):',(cur.mc!=null?cur.mc:autoM));
+    if(mv===null)return;
+    const cv=prompt('CNC £ for THIS sheet only (empty = auto £'+autoC+'):',(cur.cnc!=null?cur.cnc:autoC));
+    if(cv===null)return;
+    const ov={};
+    if(String(mv).trim()!==''&&!isNaN(+mv)&&Math.round(+mv)!==autoM)ov.mc=Math.max(0,Math.round(+mv));
+    if(String(cv).trim()!==''&&!isNaN(+cv)&&Math.round(+cv)!==autoC)ov.cnc=Math.max(0,Math.round(+cv));
+    if(ov.mc==null&&ov.cnc==null)delete sheetPriceOv[key];else sheetPriceOv[key]=ov;
+    render();
+  }
   let editMode=false, placements=null, selKey=null, dragState=null, lastSig='';
   function setNestSize(v){nestSize=v;sheetSizeOv={};toggleCustomSheetUI();render();}
   function toggleCustomSheetUI(){const w=document.getElementById('customSheetWrap');if(w)w.style.display=(nestSize==='custom')?'inline-flex':'none';}
@@ -1679,6 +1717,16 @@
     });
     render();
   }
+  // subtle horizontal wood-grain texture (production: sheet shows woodgrain when grain is on)
+  function woodgrainSvg(vbW,vbH){
+    let s='<g stroke="#b45309" stroke-width="0.22" fill="none" opacity="0.28">';
+    for(let y=5;y<vbH-2;y+=9){
+      let d='M1 '+y;
+      for(let x=1;x<vbW-1;x+=30)d+=' q15 '+((((x/30+y)%3)-1)*0.9).toFixed(1)+' 30 0';
+      s+='<path d="'+d+'"/>';
+    }
+    return s+'</g>';
+  }
   // ---- Back Sheets: parts pocketed Front+Back get a mirrored "machining only" back view (production behaviour) ----
   let showBackSheets=true;
   function toggleBackSheets(){showBackSheets=!showBackSheets;render();}
@@ -1711,11 +1759,15 @@
       sheets.forEach((sh,idx)=>{
         const S=sh.S,vbW=Math.round(S.w/10),vbH=Math.round(S.h/10);const bcolSheet=matColor(mat);
         const used=sh.parts.reduce((s,p)=>s+p.w*p.h,0)/(S.w*S.h)*100;
-        nSheets++;nMat+=priceForSheet(mat,sh.sz);nCnc+=cncForThickness(mat);
+        const pov=sheetPriceOv[mat+'#'+idx]||{};
+        const effMc=(pov.mc!=null?pov.mc:priceForSheet(mat,sh.sz)),effCnc=(pov.cnc!=null?pov.cnc:cncForThickness(mat));
+        nSheets++;nMat+=effMc;nCnc+=effCnc;
+        const priceChip=`<button class="pricechip${(pov.mc!=null||pov.cnc!=null)?' ov':''}" title="Price for THIS sheet — click to override material £ / CNC £" onclick="editSheetPrice('${esc(mat)}',${idx})">£${effMc} · CNC £${effCnc}${(pov.mc!=null||pov.cnc!=null)?' ✱':''}</button>`;
         const sizeSel=`<select onchange="setSheetSize('${esc(mat)}',${idx},this.value)" ${editMode?'disabled':''} style="font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 4px">`+sheetSizeOptions(sh.sz)+`</select>`;
         const zi=nestSvgs.length;
         const clickAttr=editMode?'':`onclick="nestClick(event,${zi})" style="cursor:pointer"`;
         let svg=`<svg class="sheet-svg${editMode?' editing':''}" data-group="${esc(mat)}" data-sheet="${idx}" data-size="${sh.sz}" ${clickAttr} viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
+        if(sh.parts.some(p=>grainActive(p)))svg+=woodgrainSvg(vbW,vbH);   // production rule: woodgrain texture when grain is on
         if(S.uh&&S.uh<S.h)svg+=`<rect x="0.25" y="${(S.uh/10).toFixed(1)}" width="${(vbW-0.5).toFixed(1)}" height="${((S.h-S.uh)/10).toFixed(1)}" fill="#fee2e2"/>`;
         sh.parts.forEach(p=>{svg+=drawPart(p,p.key===selKey||selSet.has(parseInt(p.key,10)));});
         if(sh.offcut){const o=sh.offcut,rects=o.rects||[o];
@@ -1726,7 +1778,7 @@
           if(Math.min(ow,oh)>=8){const lx=lr.x/10+ow/2,ly=lr.y/10+oh/2;svg+=`<text x="${lx.toFixed(1)}" y="${(ly-0.6).toFixed(1)}" font-size="${Math.max(2.6,Math.min(6.5,Math.min(ow,oh)*0.16)).toFixed(1)}" font-family="Arial" font-weight="800" text-anchor="middle" fill="#0d9488">OFFCUT</text><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" font-size="${Math.max(2.3,Math.min(5.5,Math.min(ow,oh)*0.13)).toFixed(1)}" font-family="Arial" text-anchor="middle" fill="#0d9488">${esc(o.label)}</text>`;}}
         svg+='</svg>';
         nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg});
-        html+=`<div class="sheet-card" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span>${matInp} ${sizeSel} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
+        html+=`<div class="sheet-card" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span>${matInp} ${sizeSel} ${priceChip} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
         // paired BACK SHEET right below its front sheet — visual only (no material, no sheet count)
         const bps=showBackSheets?backPartsOf(sh):[];
         if(bps.length){
@@ -2518,8 +2570,10 @@
 
   // ---- undo / redo (auto-snapshot on change) ----
   let undoStack=[],redoStack=[],lastSnap=null,isRestoring=false;
-  function snapshot(){return JSON.stringify({items:items,project:project,profiles:profiles,nestSize:nestSize});}
-  function restoreSnap(s){const o=JSON.parse(s);items=o.items;project=o.project;profiles=o.profiles;if(o.nestSize)nestSize=o.nestSize;}
+  function snapshot(){return JSON.stringify({items:items,project:project,profiles:profiles,nestSize:nestSize,services:services,machine:machine,sprayAddons:sprayAddons,vatOn:vatOn,sheetPriceOv:sheetPriceOv});}
+  function restoreSnap(s){const o=JSON.parse(s);items=o.items;project=o.project;profiles=o.profiles;if(o.nestSize)nestSize=o.nestSize;
+    if(o.services)services=o.services;if(o.machine)machine=o.machine;if(o.sprayAddons)sprayAddons=o.sprayAddons;
+    if(typeof o.vatOn==='boolean')vatOn=o.vatOn;if(o.sheetPriceOv){sheetPriceOv=o.sheetPriceOv;keepSheetOv=true;}}
   function captureHistory(){if(isRestoring)return;const s=snapshot();if(lastSnap!==null&&s!==lastSnap){undoStack.push(lastSnap);if(undoStack.length>60)undoStack.shift();redoStack=[];}lastSnap=s;}
   function undo(){if(!undoStack.length)return;redoStack.push(snapshot());const prev=undoStack.pop();isRestoring=true;restoreSnap(prev);lastSnap=prev;placements=null;selKey=null;resetSel(selItem);render();isRestoring=false;syncClientBar();}
   function redo(){if(!redoStack.length)return;undoStack.push(snapshot());const nx=redoStack.pop();isRestoring=true;restoreSnap(nx);lastSnap=nx;placements=null;selKey=null;resetSel(selItem);render();isRestoring=false;syncClientBar();}
@@ -2608,7 +2662,7 @@
     const rows=[];let sheetN=0,partN=0,matTot=0,cncTot=0,bodyTot=0;
     groups.forEach((sheets,mat)=>{
       let mc=0,base=0,pc=0;const szs={};
-      sheets.forEach(s=>{mc+=priceForSheet(mat,s.sz);base+=cncForThickness(mat);pc+=s.parts.filter(p=>!p.isBack).length;szs[s.sz]=1;});
+      sheets.forEach((s,si)=>{const ov=sheetPriceOv[mat+'#'+si]||{};mc+=(ov.mc!=null?ov.mc:priceForSheet(mat,s.sz));base+=(ov.cnc!=null?ov.cnc:cncForThickness(mat));pc+=s.parts.filter(p=>!p.isBack).length;szs[s.sz]=1;});
       const o=mm[mat]||{pocketMin:0,reedMin:0,fb:false,drilled:false};
       const pocketPct=minToPct(o.pocketMin,o.fb),reedPct=minToPct(o.reedMin,false),drillPct=o.drilled?0.05:0;
       const man=machOf(mat),extraPct=(man.extra||0)*0.10;

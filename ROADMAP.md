@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-03 (b) — Persistência do orçamento, woodgrain, preço por chapa
+
+- **`.fastcnc` agora carrega o lado do orçamento** (`kabacalQuote`): horas de serviços, machining por material (Extra/Time/Disc%), spray add-ons, VAT on/off, board margin e overrides de preço por chapa. Salvar → reabrir → orçamento igual. Undo (Ctrl+Z) também restaura esse estado. Arquivos antigos continuam abrindo.
+- **Override de preço por chapa individual** (regra da produção): chip `£55 · CNC £85` no header de cada chapa; clicar pede Material £ e CNC £ só daquela chapa (vazio = auto; igual ao auto = não grava). Chip fica âmbar com ✱ quando tem override. Vale no resumo, no Quote e no PDF. Overrides limpam sozinhos quando o conjunto de peças muda (o nesting reflui) e sobrevivem a save/load.
+- **Textura woodgrain** nas chapas que contêm peça com grain travado (regra da produção) — linhas horizontais sutis, some quando não há grain.
+
+### Testado
+5 chips renderizando · override {99/70} muda totais + marca ✱ + entra no calcQuote ✓ · doc salva kabacalQuote completo e load restaura services/spray/VAT/overrides ✓ · woodgrain presente só com grain ✓ · sem erros no console ✓.
+
 ## 2026-07-03 — Layout v3: Order Entry × Quote separados
 
 - **Duas vistas de verdade** (troca por tabs, sem modal): **Order entry** (padrão) só para peças; **Quote** (ex-"Calculate", renomeado) com: faixa do cliente (Client/Phone/Email/Order#/Date/Notes), card Material pricing + Pricing settings, card Order summary e o corpo do orçamento (tabela por material, serviços, spray, VAT, totais, Print/Save PDF, Cut list). Se houver peça inválida, a vista Quote mostra banner em vez de alert.
