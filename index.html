@@ -580,11 +580,11 @@
   function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
 
   // ---- Groove / LED Channel: decorative grooves drawn across a flat part; optional rectangular LED channel ----
-  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:!!g.on,dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:10),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
-  function ensureGroove(i){const it=items[i];it.groove=it.groove||{on:false,dir:'vertical',spacing:10};it.groove.led=it.groove.led||{on:false,width:4,start:100};return it.groove;}
+  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:!!g.on,dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:100),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
+  function ensureGroove(i){const it=items[i];it.groove=it.groove||{on:false,dir:'vertical',spacing:100};it.groove.led=it.groove.led||{on:false,width:4,start:100};return it.groove;}
   function setGrooveOn(i,v){ensureGroove(i).on=!!v;render();}
   function setGrooveDir(i,v){ensureGroove(i).dir=(v==='horizontal'?'horizontal':'vertical');render();}
-  function setGrooveSpacing(i,v){const g=ensureGroove(i);const x=+v;g.spacing=(x>=1)?x:10;render();}
+  function setGrooveSpacing(i,v){const g=ensureGroove(i);const x=+v;g.spacing=(x>=1)?x:100;render();}
   function setGrooveLedOn(i,v){ensureGroove(i).led.on=!!v;render();}
   function setGrooveLedWidth(i,v){const g=ensureGroove(i);const x=+v;g.led.width=(x>0)?x:4;render();}
   function setGrooveLedStart(i,v){ensureGroove(i).led.start=Math.max(0,+v||0);render();}
@@ -1296,6 +1296,26 @@
     const open=(inspOpen[k]!==undefined)?inspOpen[k]:false;
     return `<div class="acc ${open?'open':''}"><div class="acc-h" onclick="toggleSec('${k}')"><span class="acc-t">${title}</span>${hint?`<span class="acc-hint">${hint}</span>`:''}<span class="acc-c">${open?'▾':'▸'}</span></div>${open?`<div class="acc-b">${body}</div>`:''}</div>`;
   }
+  // compact per-section status, shown as the small chip on each accordion header (same idea as "whole job").
+  // Reflects the current selection; for a multi-selection it only shows a value when every selected part agrees.
+  function inspStatus(){
+    const ids=selSet.size?[...selSet]:(selItem>=0&&selItem<items.length?[selItem]:[]);
+    if(!ids.length)return {};
+    const uni=fn=>{let v=fn(items[ids[0]]);for(let k=1;k<ids.length;k++)if(fn(items[ids[k]])!==v)return null;return v;};
+    const cap=s=>(s&&s.length)?s.charAt(0).toUpperCase()+s.slice(1):(s||'');
+    const H={};
+    H.part=ids.length>1?(ids.length+' parts'):(items[ids[0]].w+'×'+items[ids[0]].h);
+    const t=uni(it=>it.type);H.doortype=t?TYPES[t].name:'';
+    const nm=uni(it=>it.offsetName||''),fl=uni(it=>frameLabel(it));
+    H.offset=(nm&&nm!=='None')?nm:(fl?cap(fl):'');
+    const hon=uni(it=>hingeInfo(it).on?1:0);
+    if(hon===1){const hs=uni(it=>hingeInfo(it).side),ho=uni(it=>hingeInfo(it).offset);H.hinges=(hs?cap(hs):'On')+(ho!=null?' · '+ho+'mm':'');}else H.hinges='';
+    H.spray=(uni(it=>it.spray?1:0)===1)?'On':'';
+    const g=uni(it=>grainOf(it));H.grain=g==='off'?'Off':(g==='long'?'Longest side':(g==='short'?'Shortest side':''));
+    const gon=uni(it=>grooveOf(it).on?1:0);
+    if(gon===1){const gd=uni(it=>grooveOf(it).dir),gs=uni(it=>grooveOf(it).spacing);H.groove=(gd?cap(gd):'On')+(gs!=null?' · '+gs+'mm':'');}else H.groove='';
+    return H;
+  }
   function renderInspector(){
     const box=document.getElementById('inspector');if(!box)return;
     const has=selItem>=0&&selItem<items.length;
@@ -1310,20 +1330,21 @@
         <div class="insp-mat" title="Click to move this part to another material group" onclick="openGroupPicker('move')"><i style="background:${matColor(it.mat)}"></i><b>${esc(it.mat)}</b><span class="sub">click to change</span></div>
         ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}`;
     }else{
-      html+=`<div class="insp-empty" style="padding:14px 12px">No part selected — click one in the list or nesting to edit it. The <b>Nesting</b> and <b>Sheet Layout</b> sections below apply to the whole job.</div>`;
+      html+=`<div class="insp-empty" style="padding:14px 12px">No part selected — click one in the list or nesting to edit it. The <b>Nesting</b> and <b>Sheet Size</b> sections below apply to the whole job.</div>`;
     }
+    const St=inspStatus();
     const secs=[];
     if(has){
-      secs.push(['part','Parts',secParts(i,it)]);
-      secs.push(['doortype','Door Type',secDoorType(i,it)]);
-      secs.push(['offset','Offset',tabOffset(i,it)]);
-      secs.push(['hinges','Hinges',tabHinges(i,it)]);
-      secs.push(['spray','Spray',tabSpray(i,it)]);
-      secs.push(['grain','Grain',secGrain(i,it)]);
-      secs.push(['groove','Groove',secGroove(i,it)]);
+      secs.push(['part','Parts',secParts(i,it),St.part]);
+      secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
+      secs.push(['offset','Offset',tabOffset(i,it),St.offset]);
+      secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
+      secs.push(['spray','Spray',tabSpray(i,it),St.spray]);
+      secs.push(['grain','Grain',secGrain(i,it),St.grain]);
+      secs.push(['groove','Groove',secGroove(i,it),St.groove]);
     }
     secs.push(['nesting','Nesting',secNesting(),'whole job']);
-    secs.push(['sheetlayout','Sheet Layout',secSheetLayout(),'whole job']);
+    secs.push(['sheetlayout','Sheet Size',secSheetLayout(),nestSize==='custom'?(customSheet.w+'×'+customSheet.h):nestSize]);
     html+=secs.map(s=>accSection(s[0],s[1],s[2],s[3])).join('');
     box.innerHTML=html;
   }
@@ -1908,15 +1929,24 @@
     });
     render();
   }
-  // subtle horizontal wood-grain texture (production: sheet shows woodgrain when grain is on)
+  // realistic board texture (grain on): a warm base wash + many fine, near-straight fibres running
+  // along the grain. Deliberately low-contrast and dense so it reads as MATERIAL, not as cut/groove
+  // lines. Deterministic (stable across re-renders). Groove/LED lines stay a saturated purple on top.
   function woodgrainSvg(vbW,vbH){
-    let s='<g stroke="#b45309" stroke-width="0.22" fill="none" opacity="0.28">';
-    for(let y=5;y<vbH-2;y+=9){
-      let d='M1 '+y;
-      for(let x=1;x<vbW-1;x+=30)d+=' q15 '+((((x/30+y)%3)-1)*0.9).toFixed(1)+' 30 0';
-      s+='<path d="'+d+'"/>';
+    const W=vbW,H=vbH;
+    let s='<g pointer-events="none">';
+    s+='<rect x="0.3" y="0.3" width="'+(W-0.6).toFixed(1)+'" height="'+(H-0.6).toFixed(1)+'" fill="#c8965b" opacity="0.06"/>';  // warm board wash
+    s+='<g fill="none" stroke="#9c6b34">';
+    let idx=0;
+    for(let y=2.4;y<H-1.6;y+=2.4){
+      idx++;
+      const amp=0.16+((idx*37)%5)*0.05;              // gentle undulation, <=0.36 units -> fibre, not scallop
+      const ph=((idx*53)%628)/100, op=(0.045+((idx*29)%7)*0.011).toFixed(3), sw=(((idx*17)%4)?0.10:0.16).toFixed(2);
+      let d='M0.4 '+y.toFixed(2);
+      for(let x=0;x<W;x+=24){const nx=Math.min(W-0.4,x+24),yy=y+Math.sin(nx*0.045+ph)*amp;d+=' L'+nx.toFixed(1)+' '+yy.toFixed(2);}
+      s+='<path d="'+d+'" stroke-width="'+sw+'" opacity="'+op+'"/>';
     }
-    return s+'</g>';
+    return s+'</g></g>';
   }
   // ---- Back Sheets: parts pocketed Front+Back get a mirrored "machining only" back view (production behaviour) ----
   let showBackSheets=true;

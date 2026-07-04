@@ -2,6 +2,24 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (c) — Sheets realistas + status por seção + groove 100mm + "Sheet Size"
+
+Primeira leva do pedido grande de nesting/sheets (partes 1, 3, 4, 5). As partes 2, 6–10 (edit no zoom, seleção de chapas, tamanho/nesting só nas selecionadas, tamanho custom pra job novo) estão desenhadas e vêm na próxima leva — a lógica está descrita no fim desta entrada.
+
+- **(1) Grain do sheet mais realista.** A textura antiga eram linhas onduladas (`q`-curves, âmbar, opacidade 0.28) que pareciam corte/groove — pior ainda com grooves de 100mm. Agora é **um wash quente sutil + fibras finas quase retas** (marrom quente `#9c6b34`, opacidade ~0.05, ondulação < 0.4un), densas e de baixo contraste: lê como **material de fundo**, não como corte. Determinístico. Grooves continuam **roxo saturado** por cima (inconfundível). Chapa continua branca (papel) nos 2 temas → legível no dark.
+- **(3) Status compacto por seção** (mesma ideia do "whole job"): cada header do acordeão mostra um resumo do que está selecionado — Parts `1000×600`, Door Type `Flat`, Offset `Shaker`/`Frame 50`, Hinges `Top · 100mm`, Grain `Off`/`Longest side`, Groove `Vertical · 100mm`, Sheet Size `8x4`. Off = **sem chip** (não polui). Multi-seleção só mostra valor se **todas** as peças concordam (senão em branco = misto).
+- **(4) Groove default = 100mm** (era 10mm) em `grooveOf`/`ensureGroove`/`setGrooveSpacing`.
+- **(5) "Sheet Layout" → "Sheet Size".** Diferença: **Sheet Size** = dimensão da chapa (8x4, custom…); **Nesting** = como as peças encaixam (margem, gap). São coisas distintas, então as duas seções continuam — só renomeei pra ficar claro.
+
+### Testado (c)
+groove default 100 (helper + na peça) ✓ · grain: wash+fibras, sem `q`-scallop, 50 paths, wash só nas chapas com grão ✓ · status chips: Parts/Door Type/Offset/Hinges/Grain/Groove/Sheet Size corretos, Spray/Groove off = vazio ✓ · grain on→`Longest side`, groove on→`Vertical · 100mm` ✓ · multi misto→vazio, multi Parts→`2 parts` ✓ · sem erros no console ✓ · screenshots light+dark (preview normal e zoom) conferidos ✓.
+
+### Próxima leva — lógica proposta (partes 2, 6–10)
+- **Seleção de chapas**: checkbox no header de cada sheet-card (espelha o checkbox de grupo/peça), estado `selSheets` separado da seleção de peças; chapas selecionadas ganham realce.
+- **Sheet Size / Nesting nas selecionadas**: se há chapas selecionadas, a seção age só nelas (via `sheetSizeOv` que já existe por-chapa); se nenhuma selecionada, cai pro default do job. **Não recria chapas**: se o novo tamanho não comporta as peças, avisa/re-packa com segurança, nunca perde peça.
+- **Custom size pra job novo (parte 10)**: um "default sheet size" por material/job (inclui custom) aplicado a chapas novas; chapas existentes selecionadas ainda mudam individualmente. (A confirmar com o user antes de codar.)
+- **Edit mode no zoom (parte 2)**: painel de acordeão sobreposto dentro do zoom, ligado ao mesmo estado.
+
 ## 2026-07-04 (b) — Ajustes: parts no dark + alinhamento do menu View
 
 - **Parts/groups mantêm a distinção visual no dark** (pedido do user). Antes o item usava `cor+'10'` (wash 6%), que sobre o fundo escuro sumia e os itens ficavam "flat". Agora, **no dark** o item usa **base opaca (card) + tinta de material ~15%** (`linear-gradient(cor26,cor26), var(--card)`), mantendo a **barra lateral colorida de 4px** e a legibilidade. **No light nada muda** (continua o wash 6% sobre branco que o user gosta). Cores ajustadas pro escuro, não copiadas. Os **group bars** já eram cor sólida vívida (ok nos 2 temas).
