@@ -1156,8 +1156,8 @@
   function roundAll(i,on){items[i].pocketRound=on?'Yes':'No';items[i].lines.forEach(l=>l.rd=on);render();}
   function setHingeOn(i,v){const h=items[i].hinges;h.on=v;if(v&&h.side!=='left'&&h.side!=='right')h.side='left';render();}
   function setHingeSide(i,v){items[i].hinges.side=v;render();}
-  function setHingeCount(i,v){items[i].hinges.count=v;render();}
-  function setHingeOffset(i,v){v=(''+v).trim();const x=Math.round(+v);items[i].hinges.offset=(v===''||isNaN(x)||x<0)?100:x;render();}
+  function setHingeCount(i,v){items[i].hinges.count=v;delete items[i].hinges.custom;render();}   // changing the count re-spreads the hinges evenly
+  function setHingeOffset(i,v){v=(''+v).trim();const x=Math.round(+v);items[i].hinges.offset=(v===''||isNaN(x)||x<0)?100:x;delete items[i].hinges.custom;render();}   // changing the end distance re-spreads evenly
   function newProfile(){const n=prompt('New offset profile name:');if(n){profiles[n]={side:'front',lines:mkLines({A:{mm:0}})};render();}}
   function saveAsProfile(i){const n=(prompt('Save these frame + offset settings as a reusable preset — name:')||'').trim();if(n){profiles[n]={side:items[i].pocketSide,lines:JSON.parse(JSON.stringify(items[i].lines)),frame:JSON.parse(JSON.stringify(resolveFrame(items[i])))};items[i].offsetName=n;render();}}
   function delProfile(name){if(['None'].indexOf(name)>=0)return;if(!confirm('Delete the preset "'+name+'"?'))return;delete profiles[name];items.forEach(it=>{if(it.offsetName===name)it.offsetName='Custom';});render();}
@@ -1176,7 +1176,7 @@
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
     const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
-    if(sig!==lastSig){if(!keepPlacements)placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}
+    if(sig!==lastSig){if(!keepPlacements&&!zoomEdit)placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}   // Zoom Edit mode freezes the layout — no auto re-nest while editing
     keepPlacements=false;
     if(selItem>=items.length)selItem=items.length-1;
     if(selItem<0&&items.length)selItem=0;
@@ -1525,21 +1525,30 @@
   function tabHinges(i,it){
     const cur=(it.hinges.side==='right')?'right':'left';   // only the two long edges, labelled Left/Right
     const h=hingeInfo(it);
-    const refLabel=h.on?((h.side==='left'||h.side==='right')?'from top':'from left'):'';
+    if(!it.hinges.on) return `
+    <label class="tg" style="margin-bottom:8px"><input type="checkbox" onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
+    <div class="sub" style="margin-top:8px">No hinges (off by default — turn on only if this part needs them).</div>`;
+    const fromEnd=(h.side==='left'||h.side==='right')?'top':'left', toEnd=(h.side==='left'||h.side==='right')?'bottom':'right';
+    const pos=hingePositions(it.hinges,h.span), n=pos.length;
+    // clear, per-hinge wording: first = X from top, last = X from bottom, middles = evenly spaced (centre-to-centre)
+    const rows=pos.map((p,k)=>{const top=Math.round(p),bot=Math.round(h.span-p);
+      let role;
+      if(k===0) role=`outer — ${top}mm from ${fromEnd}`;
+      else if(k===n-1) role=`outer — ${bot}mm from ${toEnd}`;
+      else if(n===3) role=`centred between Hinge 1 &amp; Hinge 3`;
+      else role=`evenly spaced between Hinge 1 &amp; Hinge ${n}`;
+      return `<div style="display:flex;gap:7px;align-items:center"><b style="width:52px;font-size:12px">Hinge ${k+1}</b><input type="number" min="10" max="${h.span-10}" value="${top}" onchange="hingeSetPos(${i},${k},this.value)" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:6px"><span class="sub">mm from ${fromEnd}</span><span class="sub" style="flex:1;text-align:right">${role}</span><button class="iconbtn" title="Remove this hinge" onclick="hingeDelPos(${i},${k})">${ic('trash',12)}</button></div>`;}).join('');
     return `
-    <label class="tg" style="margin-bottom:8px"><input type="checkbox" ${it.hinges.on?'checked':''} onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
-    ${it.hinges.on?`
+    <label class="tg" style="margin-bottom:8px"><input type="checkbox" checked onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
       <label class="sub">Side <select onchange="setHingeSide(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['left','right'].map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select></label>
-      ${h.custom?'':`<label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
-      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(it.hinges.count)?'selected':''}>${o}</option>`).join('')}</select></label>`}
+      <label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
+      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(h.count)?'selected':''}>${o}</option>`).join('')}</select></label>
       ${hingeDiagram(it)}
     </div>
-    ${h.custom?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">
-      ${hingePositions(it.hinges,h.span).map((pos,k)=>`<div class="sub" style="display:flex;gap:6px;align-items:center"><b style="width:56px">Hinge ${k+1}</b><input type="number" min="10" max="${h.span-10}" value="${Math.round(pos)}" onchange="hingeSetPos(${i},${k},this.value)" style="width:72px;padding:4px;border:1px solid var(--line);border-radius:6px"> <span>mm ${refLabel}</span> <button class="iconbtn" title="Remove this hinge" onclick="hingeDelPos(${i},${k})">${ic('trash',12)}</button></div>`).join('')}
-      <div style="display:flex;gap:6px;margin-top:2px"><button class="btn ghost tiny" onclick="hingeAddPos(${i})">${ic('plus',12)} Add hinge</button><button class="btn ghost tiny" onclick="hingeAuto(${i})">${ic('reset',12)} Back to auto</button></div>
-    </div>`:`<button class="btn ghost tiny" style="margin-top:8px" onclick="hingeCustomize(${i})">${ic('pencil',12)} Customize positions</button>`}
-    <div class="sub" style="margin-top:8px">${'always on the longest side ('+h.span+'mm) · Left/Right = the two long edges · '+h.count+' hinge'+(h.count===1?'':'s')+(h.custom?' · individual positions':' · '+h.offset+'mm from ends')+' · +5% CNC'}</div>`:'<div class="sub" style="margin-top:8px">No hinges (off by default — turn on only if this part needs them).</div>'}`;}
+    <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">${rows}</div>
+    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost tiny" onclick="setHingeCount(${i},${n+1})">${ic('plus',12)} Add hinge</button>${h.custom?`<button class="btn ghost tiny" title="Re-spread the ${n} hinges evenly between the ends" onclick="hingeAuto(${i})">${ic('reset',12)} Reset to even spacing</button>`:''}</div>
+    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · positions are hinge <b>centres</b> · ${h.custom?'individual positions — change <b>Count</b> or <b>From ends</b> to reset to even':('outer hinges '+h.offset+'mm from each end, middle'+(n>3?'s':'')+' evenly spaced')} · +5% CNC</div>`;}
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}
@@ -1630,10 +1639,17 @@
   let zoomEdit=false;   // Edit mode inside the zoom overlay (shows the editing accordion as a side drawer)
   function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> <span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
     ov.classList.add('show');setupZoomPanZoom();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
-  function toggleZoomEdit(){zoomEdit=!zoomEdit;const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}
+  function toggleZoomEdit(){
+    zoomEdit=!zoomEdit;
+    if(zoomEdit)materialize();                       // freeze the current layout so parts don't jump while editing sizes
+    else{placements=null;keepPlacements=false;}       // leaving Edit mode -> allow a fresh re-nest / repack
+    render();
+    const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);
+  }
+  function zoomReNest(){placements=null;materialize();render();const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}   // manual re-pack while staying in Edit mode
   function closeZoom(){const ov=document.getElementById('zoomOverlay');if(ov)ov.classList.remove('show');_zoom=null;}
   document.addEventListener('keydown',e=>{const ov=document.getElementById('zoomOverlay');if(!ov||!ov.classList.contains('show'))return;
     if(e.key==='Escape'){e.preventDefault();closeZoom();return;}
@@ -2015,15 +2031,19 @@
   function woodgrainSvg(vbW,vbH){
     const W=vbW,H=vbH;
     let s='<g pointer-events="none">';
-    s+='<rect x="0.3" y="0.3" width="'+(W-0.6).toFixed(1)+'" height="'+(H-0.6).toFixed(1)+'" fill="#c8965b" opacity="0.06"/>';  // warm board wash
-    s+='<g fill="none" stroke="#9c6b34">';
-    let idx=0;
-    for(let y=2.4;y<H-1.6;y+=2.4){
-      idx++;
-      const amp=0.16+((idx*37)%5)*0.05;              // gentle undulation, <=0.36 units -> fibre, not scallop
-      const ph=((idx*53)%628)/100, op=(0.045+((idx*29)%7)*0.011).toFixed(3), sw=(((idx*17)%4)?0.10:0.16).toFixed(2);
-      let d='M0.4 '+y.toFixed(2);
-      for(let x=0;x<W;x+=24){const nx=Math.min(W-0.4,x+24),yy=y+Math.sin(nx*0.045+ph)*amp;d+=' L'+nx.toFixed(1)+' '+yy.toFixed(2);}
+    // faint NEUTRAL board tint (taupe/grey — deliberately not yellow) so the sheet reads as material
+    s+='<rect x="0.3" y="0.3" width="'+(W-0.6).toFixed(1)+'" height="'+(H-0.6).toFixed(1)+'" fill="#9c9284" opacity="0.05"/>';
+    // just a FEW broad, soft, widely-spaced streaks along the grain — low contrast, no hairlines, won't be
+    // mistaken for cut/groove lines and won't make the sheet look busy
+    s+='<g fill="none" stroke="#8b8272" stroke-linecap="round">';
+    const rows=7,step=H/(rows+1),seg=Math.max(60,W/4);
+    for(let r=1;r<=rows;r++){
+      const y=r*step,amp=0.5+((r*37)%4)*0.35,ph=((r*53)%628)/100;
+      const sw=(1.1+((r*29)%5)*0.5).toFixed(2);            // broad soft strokes (1.1..3.1 units)
+      const op=(0.025+((r*17)%3)*0.012).toFixed(3);         // very faint (0.025..0.049)
+      let d='M0.5 '+y.toFixed(2);
+      for(let x=0;x<W;x+=seg){const nx=Math.min(W-0.5,x+seg),mx=(x+nx)/2;
+        d+=' Q'+mx.toFixed(1)+' '+(y+Math.sin(mx*0.011+ph)*amp).toFixed(2)+' '+nx.toFixed(1)+' '+(y+Math.sin(nx*0.011+ph)*amp).toFixed(2);}
       s+='<path d="'+d+'" stroke-width="'+sw+'" opacity="'+op+'"/>';
     }
     return s+'</g></g>';

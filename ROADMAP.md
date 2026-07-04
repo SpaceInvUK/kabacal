@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (g) — Auto-nest congelado no Edit mode + grain refeito + hinges corrigidos
+
+- **(1) Sem auto-nesting enquanto Edit mode ON.** Editar o tamanho de uma peça re-nestava tudo e a peça "fugia". Agora entrar no Edit mode faz `materialize()` (congela o layout) e o `render()` **não re-nesta** enquanto `zoomEdit` está ligado — a peça editada fica no lugar e selecionada. Sair do Edit mode libera o re-nest. Botão **Re-nest** no cabeçalho do zoom pra repack manual quando quiser.
+- **(2) Grain refeito.** Saiu o laranja/amarelo denso; agora é **tom neutro taupe** (`#9c9284`/`#8b8272`) + **poucas faixas largas e suaves** (7 streaks, opacidade ~0.03–0.05), sem hairlines. Lê como material sutil, não compete com groove (roxo), não fica "busy". Chapa branca nos 2 temas.
+- **(3/6) Hinges re-distribuem certo.** Mudar a contagem agora **limpa o custom** e re-espalha uniforme (centro-a-centro): 3→[100,500,900], 4→[100,367,633,900], 5→[100,300,500,700,900]. Externas na distância das pontas, do meio uniformes.
+- **(4) Labels claros.** Cada hinge diz o que é, na orientação real da peça: `Hinge 1 — 100mm from top/left`, `Hinge N — 100mm from bottom/right`, meio = `centred between Hinge 1 & 3` (3) ou `evenly spaced between Hinge 1 & Hinge N` (4+). Nota: posições são os **centros**.
+- **(5) Edição individual sempre visível.** N hinges = N controles, cada um editável; Count/From ends sempre à mão; "Add hinge" e "Reset to even spacing".
+
+### Testado (g)
+Edit mode: editar largura não move a peça (`stayedPut`), sair re-nesta ✓ · grain neutro/sutil light+dark (screenshots) ✓ · hinges 2/3/4/5 uniformes + custom limpo ao trocar count ✓ · labels 3 e 4 hinges corretos e orientados ✓ · 4 inputs pra 4 hinges ✓ · sem erros no console ✓.
+
 ## 2026-07-04 (f) — Zoom Edit mode: painel à esquerda + seleção de peças dentro do zoom
 
 Correção do feedback: no zoom Edit mode o painel foi pro lado errado e as peças não selecionavam.
