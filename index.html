@@ -1630,7 +1630,7 @@
   let zoomEdit=false;   // Edit mode inside the zoom overlay (shows the editing accordion as a side drawer)
   function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> <span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div><div class="zoominsp" id="zoomInsp"></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — change the selected part / sheet on the right; the sheet updates live · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> <span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
     ov.classList.add('show');setupZoomPanZoom();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
   function toggleZoomEdit(){zoomEdit=!zoomEdit;const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}
@@ -1657,14 +1657,23 @@
     function zoomAt(cx,cy,f){const ns=Math.min(20,Math.max(1,st.s*f));if(Math.abs(ns-st.s)<1e-4)return;const px=(cx-st.tx)/st.s,py=(cy-st.ty)/st.s;st.s=ns;st.tx=cx-px*ns;st.ty=cy-py*ns;apply();}
     scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);},{passive:false});
     let drag=null;
-    scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
-    scroll.addEventListener('pointermove',e=>{if(!drag)return;st.tx=drag.tx+(e.clientX-drag.x);st.ty=drag.ty+(e.clientY-drag.y);apply();});
-    const end=()=>{drag=null;scroll.style.cursor='grab';};scroll.addEventListener('pointerup',end);scroll.addEventListener('pointercancel',end);scroll.addEventListener('pointerleave',end);
+    scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty,moved:false};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
+    scroll.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)>3||Math.abs(dy)>3)drag.moved=true;st.tx=drag.tx+dx;st.ty=drag.ty+dy;apply();});
+    // a click (not a pan) while Edit mode is ON selects the part under the cursor — Ctrl/Cmd+click adds to the selection
+    const end=e=>{const d=drag;drag=null;scroll.style.cursor='grab';
+      if(d&&!d.moved&&zoomEdit&&e&&e.clientX!=null){
+        const el=document.elementFromPoint(e.clientX,e.clientY),g=(el&&el.closest)?el.closest('.npart'):null;
+        if(g&&g.getAttribute('data-key')!=null){const i=parseInt(g.getAttribute('data-key'),10);if(!isNaN(i)&&i>=0&&i<items.length)sel(i,e);}
+      }};
+    scroll.addEventListener('pointerup',end);
+    scroll.addEventListener('pointercancel',()=>{drag=null;scroll.style.cursor='grab';});
+    scroll.addEventListener('pointerleave',()=>{drag=null;scroll.style.cursor='grab';});
     _zoom={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();}};
     fit();
   }
   // Click a part in the nest = select it (syncs list + inspector). Shift+click = zoom the sheet.
   function nestClick(ev,zi){
+    if(ev.target&&ev.target.closest&&ev.target.closest('#zoomInner'))return;   // clicks inside the zoom are handled by the zoom's own pan/select layer
     if(marqJustEnded){marqJustEnded=false;return;}                 // a marquee drag just ended — swallow this click
     if(ev.shiftKey){if(ev.preventDefault)ev.preventDefault();if(window.getSelection)try{window.getSelection().removeAllRanges();}catch(e){}openZoom(zi);return;}
     const g=ev.target&&ev.target.closest?ev.target.closest('.npart'):null;

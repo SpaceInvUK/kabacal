@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (f) — Zoom Edit mode: painel à esquerda + seleção de peças dentro do zoom
+
+Correção do feedback: no zoom Edit mode o painel foi pro lado errado e as peças não selecionavam.
+
+- **Painel de edição à esquerda** do zoom (drawer reordenado; `#zoomInsp` antes do canvas). A chapa ampliada continua visível à direita.
+- **Clicar numa peça dentro do zoom seleciona** (Edit mode ON): o layer de pan/zoom capturava o clique, então a seleção nunca disparava. Agora o `pointerup` distingue **clique de arraste** (limiar 3px) e, sendo clique, faz `elementFromPoint` → `.npart` → `sel(i,ev)`. `nestClick` ignora eventos vindos de dentro do `#zoomInner` (sem duplo-handling).
+- **Ctrl/Cmd+click** adiciona à seleção (multi); peças selecionadas ficam **realçadas** no zoom; o painel edita **todas** as selecionadas juntas.
+- **Sync total** com o app normal: seleção no zoom reflete na lista/nesting e **persiste** ao fechar o zoom (é o `selSet`/`selItem` global). Funciona com toque (celular).
+
+### Testado (f)
+Painel à esquerda (x=32 vs canvas x=380) ✓ · clique seleciona (item 0, painel mostra 1000×600) ✓ · Ctrl+click → 2 peças, ambas realçadas ✓ · editar setting compartilhado muda as 2 ✓ · lista principal mostra 2 selecionadas durante e depois de fechar o zoom ✓ · sem erros no console ✓ · screenshot conferido (peça "Hinge" realçada azul, painel à esquerda).
+
 ## 2026-07-04 (e) — Edit mode dentro do zoom (parte 2) — pedido grande COMPLETO
 
 - **(2) Edit mode no zoom**: botão **"Edit mode: ON/OFF"** no cabeçalho do zoom. Ligado, abre um **drawer lateral** dentro do zoom com o **mesmo acordeão de 9 seções** (Parts · Door Type · Offset · Hinges · Spray · Grain · Groove · Nesting · Sheet Size), ligado ao **mesmo estado** — dá pra editar a peça/chapa selecionada **sem sair do zoom**.
