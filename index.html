@@ -200,6 +200,9 @@
   .segbtn.on{background:#2563eb;color:#fff}
   .ins-card{display:flex;gap:7px;align-items:center;padding:7px 9px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;font-size:12px;margin-bottom:4px}
   /* BACK SHEET card: unmistakably not a production sheet */
+  .sheet-card .ssel{width:15px;height:15px;accent-color:#2563eb;cursor:pointer;vertical-align:-2px;margin-right:2px}
+  .sheet-card.sheet-sel{outline:2px solid var(--blue);outline-offset:-1px;box-shadow:0 0 0 3px rgba(37,99,235,.16)}
+  body.dark .sheet-card.sheet-sel{box-shadow:0 0 0 3px rgba(96,165,250,.22)}
   .back-card{border-left:5px solid #dc2626!important;background:#fff1f2;border-color:#fecaca}
   .back-card .sheet-head{color:#b91c1c;border-bottom-color:#fecaca}
   /* inline Smart Takeoff strip (Order entry) */
@@ -756,6 +759,7 @@
       if(kq.nestMargin!=null&&!isNaN(+kq.nestMargin)){nestMargin=Math.max(0,+kq.nestMargin);const mi=document.getElementById('nestMarginIn');if(mi)mi.value=nestMargin;}
       if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
       if(kq.profiles&&typeof kq.profiles==='object')profiles=Object.assign({},profiles,kq.profiles);   // keep built-ins, add saved presets
+      if(kq.matSizeDef&&typeof kq.matSizeDef==='object')matSizeDef=JSON.parse(JSON.stringify(kq.matSizeDef));   // per-material default sheet size
     }
     if(!project.number)genOrderNumber();
     syncClientBar();
@@ -838,7 +842,8 @@
       vatOn:vatOn,
       nestMargin:nestMargin,
       sheetPriceOv:JSON.parse(JSON.stringify(sheetPriceOv)),
-      profiles:JSON.parse(JSON.stringify(profiles))
+      profiles:JSON.parse(JSON.stringify(profiles)),
+      matSizeDef:JSON.parse(JSON.stringify(matSizeDef))
     };
     return base;
   }
@@ -1168,7 +1173,8 @@
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
     const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
-    if(sig!==lastSig){placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}
+    if(sig!==lastSig){if(!keepPlacements)placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}
+    keepPlacements=false;
     if(selItem>=items.length)selItem=items.length-1;
     if(selItem<0&&items.length)selItem=0;
     selSet=new Set([...selSet].filter(k=>k>=0&&k<items.length));
@@ -1343,8 +1349,9 @@
       secs.push(['grain','Grain',secGrain(i,it),St.grain]);
       secs.push(['groove','Groove',secGroove(i,it),St.groove]);
     }
-    secs.push(['nesting','Nesting',secNesting(),'whole job']);
-    secs.push(['sheetlayout','Sheet Size',secSheetLayout(),nestSize==='custom'?(customSheet.w+'×'+customSheet.h):nestSize]);
+    const shScope=selSheets.size?(selSheets.size+' sheet'+(selSheets.size>1?'s':'')):null;
+    secs.push(['nesting','Nesting',secNesting(),shScope||'whole job']);
+    secs.push(['sheetlayout','Sheet Size',secSheetLayout(),shScope||(nestSize==='custom'?(customSheet.w+'×'+customSheet.h):nestSize)]);
     html+=secs.map(s=>accSection(s[0],s[1],s[2],s[3])).join('');
     box.innerHTML=html;
   }
@@ -1382,24 +1389,23 @@
         <label class="sub">Start <input type="number" min="0" value="${gr.led.start}" onchange="setGrooveLedStart(${i},this.value)" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"> mm from edge</label>
       </div><div class="sub" style="margin-top:4px">A ${gr.led.width}mm rectangular channel running the full ${gr.dir==='vertical'?'height':'width'}, starting ${gr.led.start}mm from the ${gr.dir==='vertical'?'left':'top'} edge (DXF layer LED_CHANNEL).</div>`:''}
     </div>`:'<div class="sub" style="margin-top:6px">Draw evenly-spaced grooves across a flat panel (DXF layer GROOVE), with an optional LED channel.</div>'}`;}
-  function secNesting(){return `
+  function secNesting(){const n=selSheets.size,mg=n?selSheetMG('margin'):nestMargin,gp=n?selSheetMG('gap'):nestGap;return `
+    ${n?`<div class="sub" style="margin-bottom:6px">Applying to <b>${n} selected sheet${n>1?'s':''}</b> · <span class="link" onclick="clearSheetSel()">clear</span></div>`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <div class="ed-field" style="flex:1;min-width:110px"><label>Board margin (mm)</label><input type="number" value="${nestMargin}" min="0" onchange="setNestMargin(this.value)"></div>
-      <div class="ed-field" style="flex:1;min-width:110px"><label>Spacing / gap (mm)</label><input type="number" value="${nestGap}" min="0" onchange="setNestGap(this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Board margin (mm)</label><input type="number" value="${mg==null?'':mg}" placeholder="${n?'mixed':''}" min="0" onchange="applyNestSel('margin',this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Spacing / gap (mm)</label><input type="number" value="${gp==null?'':gp}" placeholder="${n?'mixed':''}" min="0" onchange="applyNestSel('gap',this.value)"></div>
     </div>
-    <div class="sub" style="margin-top:4px">A sheet only holds parts with the same material + thickness + sheet size. Front+Back parts add a back sheet.</div>`;}
-  function secSheetLayout(){const cur=nestSize;return `
-    <div class="ed-field"><label>Sheet size</label>
-      <select onchange="setNestSize(this.value)">
-        <option value="8x4" ${cur==='8x4'?'selected':''}>8x4 — 2440×1220</option>
-        <option value="10x4" ${cur==='10x4'?'selected':''}>10x4 — 3050×1220</option>
-        <option value="10x5" ${cur==='10x5'?'selected':''}>10x5 — 3050×1525</option>
-        <option value="jumbo" ${cur==='jumbo'?'selected':''}>Jumbo — 2800×2070</option>
-        <option value="custom" ${cur==='custom'?'selected':''}>Custom…</option>
+    <div class="sub" style="margin-top:4px">${n?'Margin/gap change only the selected sheets (parts re-packed safely).':'No sheet selected — whole job. Tick sheets in the nesting to change just those. A sheet only holds parts with the same material + thickness + size.'}</div>`;}
+  function secSheetLayout(){const n=selSheets.size,raw=n?selSheetSize():nestSize,mixed=(raw==='__mixed__'),eff=mixed?nestSize:raw,opt=(k,l)=>`<option value="${k}" ${(!mixed&&eff===k)?'selected':''}>${l}</option>`;return `
+    ${n?`<div class="sub" style="margin-bottom:6px">Applying to <b>${n} selected sheet${n>1?'s':''}</b> · <span class="link" onclick="clearSheetSel()">clear</span></div>`:''}
+    <div class="ed-field"><label>Sheet size${n?' (selected)':''}</label>
+      <select onchange="applySheetSizeSel(this.value)">
+        ${mixed?'<option value="" selected>— mixed —</option>':''}
+        ${opt('8x4','8x4 — 2440×1220')}${opt('10x4','10x4 — 3050×1220')}${opt('10x5','10x5 — 3050×1525')}${opt('jumbo','Jumbo — 2800×2070')}${opt('custom','Custom…')}
       </select>
     </div>
-    ${cur==='custom'?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="number" value="${customSheet.w}" onchange="setCustomSheet('w',this.value)" style="width:80px" title="Width (mm)"><span class="sub">×</span><input type="number" value="${customSheet.h}" onchange="setCustomSheet('h',this.value)" style="width:80px" title="Height (mm)"><span class="sub">mm</span></div>`:''}
-    <div class="sub" style="margin-top:4px">Or change material + size on each sheet header in the nesting preview.</div>`;}
+    ${eff==='custom'?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="number" value="${customSheet.w}" onchange="setCustomSheet('w',this.value)" style="width:80px" title="Width (mm)"><span class="sub">×</span><input type="number" value="${customSheet.h}" onchange="setCustomSheet('h',this.value)" style="width:80px" title="Height (mm)"><span class="sub">mm</span></div>`:''}
+    <div class="sub" style="margin-top:4px">${n?'New sheets of these materials will use this size too; existing unselected sheets are left as they are.':'No sheet selected — whole-job size. Tick sheets in the nesting to size them individually.'}</div>`;}
 
   // ---- Apply to All / Apply to Same Group ----
   // "Same group" = same material + same SHEET size (8x4/10x4) + same part type. Part W×H is ignored,
@@ -1593,6 +1599,9 @@
   let nestMatCost=0,nestCncCost=0,nestSheets=0;
   // per-sheet manual price overrides (production rule): key 'mat#sheetIdx' -> {mc?:£ material, cnc?:£ CNC}
   let sheetPriceOv={},keepSheetOv=false;
+  // Sheet selection (independent of part selection): selected sheet keys 'mat#idx'.
+  // Per-material default size (new sheets of a material follow it) + per-sheet margin/gap overrides.
+  let selSheets=new Set(),matSizeDef={},sheetMarginOv={},sheetGapOv={},nestNote='';
   function editSheetPrice(mat,idx){
     const key=mat+'#'+idx,cur=sheetPriceOv[key]||{};
     const autoM=priceForSheet(mat,sheetMeta(mat,idx).sz),autoC=cncForThickness(mat);
@@ -1606,12 +1615,12 @@
     if(ov.mc==null&&ov.cnc==null)delete sheetPriceOv[key];else sheetPriceOv[key]=ov;
     render();
   }
-  let editMode=false, placements=null, selKey=null, dragState=null, lastSig='';
-  function setNestSize(v){nestSize=v;sheetSizeOv={};toggleCustomSheetUI();render();}
+  let editMode=false, placements=null, selKey=null, dragState=null, lastSig='', keepPlacements=false;
+  function setNestSize(v){nestSize=v;sheetSizeOv={};matSizeDef={};toggleCustomSheetUI();render();}
   function toggleCustomSheetUI(){const w=document.getElementById('customSheetWrap');if(w)w.style.display=(nestSize==='custom')?'inline-flex':'none';}
   function setCustomSheet(dim,val){let x=Math.round(+val||0);if(x<50)x=50;if(x>6000)x=6000;customSheet[dim]=x;render();}
   function setGroupMat(mat,v){items.forEach(it=>{if(it.mat===mat)it.mat=v;});multiBase=null;render();}
-  function setSheetSize(mat,si,v){sheetSizeOv[mat+'#'+si]=v;render();}
+  function setSheetSize(mat,si,v){materialize();pinExistingSheets(new Set([mat]));sheetSizeOv[mat+'#'+si]=v;repackSheetToSize(mat,si);keepPlacements=true;render();}
   let _zoom=null;
   let _zoomIdx=0;
   function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
@@ -1704,7 +1713,7 @@
     if(g&&g!=='off'&&p.h>p.w)return {w:p.h,h:p.w};
     return {w:p.w,h:p.h};
   }
-  function sheetMeta(mat,idx){const sz=sheetSizeOv[mat+'#'+idx]||nestSize;const S=sheetDef(sz);return {sz,S,g:Math.max(0,nestGap),margin:Math.max(0,nestMargin)};}
+  function sheetMeta(mat,idx){const key=mat+'#'+idx;const sz=sheetSizeOv[key]||matSizeDef[mat]||nestSize;const S=sheetDef(sz);const g=Math.max(0,(key in sheetGapOv)?sheetGapOv[key]:nestGap);const margin=Math.max(0,(key in sheetMarginOv)?sheetMarginOv[key]:nestMargin);return {sz,S,g,margin};}
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
@@ -1815,6 +1824,60 @@
       sh.offcut=offcutForSheet(sh);                 // largest usable rectangular leftover (or null)
     }));
     return out;
+  }
+  // ==== Sheet selection + per-sheet Sheet Size / Nesting (applies to SELECTED sheets, else whole job) ====
+  function sheetCounts(){const m=new Map();buildSheetGroups().forEach((sheets,mat)=>m.set(mat,sheets.length));return m;}
+  function pruneSheetSel(groups){const ok=new Set();groups.forEach((sheets,mat)=>sheets.forEach((_,i)=>ok.add(mat+'#'+i)));[...selSheets].forEach(k=>{if(!ok.has(k))selSheets.delete(k);});}
+  function toggleSheetSel(key,on){materialize();if(on)selSheets.add(key);else selSheets.delete(key);render();}
+  function selSheetCb(mat,idx,on){toggleSheetSel(mat+'#'+idx,on);}
+  function clearSheetSel(){selSheets.clear();render();}
+  function selSheetSize(){let v=null;for(const k of selSheets){const p=k.split('#'),sz=sheetMeta(p[0],+p[1]).sz;if(v===null)v=sz;else if(v!==sz)return '__mixed__';}return v;}
+  function selSheetMG(field){let v=null;for(const k of selSheets){const p=k.split('#'),m=sheetMeta(p[0],+p[1]),x=field==='margin'?m.margin:m.g;if(v===null)v=x;else if(v!==x)return null;}return v;}
+  function partsOnSheet(mat,s){const g=genParts().get(mat)||[];return g.filter(p=>placements[p.key]&&placements[p.key].g===mat&&placements[p.key].s===s);}
+  function maxSheetIdx(mat){let mx=-1;Object.keys(placements||{}).forEach(k=>{const pl=placements[k];if(pl.g===mat&&pl.s>mx)mx=pl.s;});return mx;}
+  // pack a fixed set of parts into as many bins of a GIVEN sheet size as needed (never drops parts)
+  function packMulti(parts,S,g,margin){
+    const W=(S.w-2*margin)+g,H=((S.uh||S.h)-2*margin)+g,mk=()=>({free:[{x:0,y:0,w:W,h:H}],parts:[],g,margin,W,H});
+    const bins=[mk()];
+    parts.slice().sort((a,b)=>(b.w*b.h)-(a.w*a.h)).forEach(p=>{
+      const d=mrPartDims(p);let r=null,bin=null;
+      for(const b of bins){r=mrInsert(b,d.w+g,d.h+g,d.rot,partCenterPref(p));if(r){bin=b;break;}}
+      if(!r){bin=mk();bins.push(bin);r=mrInsert(bin,d.w+g,d.h+g,d.rot,partCenterPref(p));}
+      if(!r){bin.parts.push(Object.assign({},p,{x:margin,y:margin,w:p.w,h:p.h,rot:0}));return;}
+      mrEmit(bin,p,r);
+    });
+    return bins;
+  }
+  // re-pack ONE selected sheet into its (new) size; overflow that no longer fits goes onto ADDED sheets of the
+  // same material (never silently dropped or overlapped). Returns how many extra sheets were created.
+  function repackSheetToSize(mat,s){
+    const m=sheetMeta(mat,s),parts=partsOnSheet(mat,s);if(!parts.length)return 0;
+    const bins=packMulti(parts,m.S,m.g,m.margin);let nextIdx=maxSheetIdx(mat)+1,extra=0;
+    bins.forEach((bin,bi)=>{const tS=bi===0?s:nextIdx++;if(bi>0){extra++;sheetSizeOv[mat+'#'+tS]=m.sz;if(m.g!==nestGap)sheetGapOv[mat+'#'+tS]=m.g;if(m.margin!==nestMargin)sheetMarginOv[mat+'#'+tS]=m.margin;}
+      bin.parts.forEach(p=>{placements[p.key]={g:mat,s:tS,x:p.x,y:p.y,rot:p.rot?1:0};});});
+    return extra;
+  }
+  // freeze existing sheets of a material to their current size, so setting a material default won't move them
+  function pinExistingSheets(mats){const c=sheetCounts();mats.forEach(mat=>{const n=c.get(mat)||0;for(let i=0;i<n;i++){const k=mat+'#'+i;if(!(k in sheetSizeOv))sheetSizeOv[k]=sheetMeta(mat,i).sz;}});}
+  function applySheetSizeSel(v){
+    if(!v)return;materialize();nestNote='';
+    if(!selSheets.size){setNestSize(v);return;}                       // no sheet selected -> whole-job default
+    const keys=[...selSheets],mats=new Set(keys.map(k=>k.split('#')[0]));
+    pinExistingSheets(mats);                                          // keep unselected existing sheets unchanged
+    keys.forEach(k=>{sheetSizeOv[k]=v;});
+    mats.forEach(mat=>{matSizeDef[mat]=v;});                          // per-material default -> new sheets follow
+    let added=0;keys.forEach(k=>{const p=k.split('#');added+=repackSheetToSize(p[0],+p[1]);});
+    if(added)nestNote=added+' extra sheet'+(added>1?'s were':' was')+' added because some parts no longer fit the smaller size.';
+    keepPlacements=true;render();
+  }
+  function applyNestSel(field,v){
+    materialize();nestNote='';const val=Math.max(0,Math.round(+v||0));
+    if(!selSheets.size){if(field==='margin')setNestMargin(val);else setNestGap(val);return;}
+    const keys=[...selSheets];
+    keys.forEach(k=>{if(field==='margin')sheetMarginOv[k]=val;else sheetGapOv[k]=val;});
+    let added=0;keys.forEach(k=>{const p=k.split('#');added+=repackSheetToSize(p[0],+p[1]);});
+    if(added)nestNote=added+' extra sheet'+(added>1?'s were':' was')+' added because the parts no longer fit with the new margin/gap.';
+    keepPlacements=true;render();
   }
   // ---- offcut: biggest usable empty rectangle, optionally an L of TWO OVERLAPPING rectangles (never C/E) ----
   // Min usable size (Kabacal): (shorter>=350 AND longer>=500) OR (shorter>=120 AND longer>=1500).
@@ -1974,6 +2037,7 @@
     const box=document.getElementById('nest');if(!box)return;
     const tb=document.getElementById('nestTools');if(tb)tb.innerHTML=nestToolbar();
     const groups=buildSheetGroups();
+    pruneSheetSel(groups);
     let html='',nMat=0,nCnc=0,nSheets=0;nestSvgs=[];
     groups.forEach((sheets,mat)=>{
       const matInp=`<input list="matList" value="${esc(mat)}" onchange="setGroupMat('${esc(mat)}',this.value)" ${editMode?'disabled':''} style="font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 6px;width:175px">`;
@@ -1999,7 +2063,8 @@
           if(Math.min(ow,oh)>=8){const lx=lr.x/10+ow/2,ly=lr.y/10+oh/2;svg+=`<text x="${lx.toFixed(1)}" y="${(ly-0.6).toFixed(1)}" font-size="${Math.max(2.6,Math.min(6.5,Math.min(ow,oh)*0.16)).toFixed(1)}" font-family="Arial" font-weight="800" text-anchor="middle" fill="#0d9488">OFFCUT</text><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" font-size="${Math.max(2.3,Math.min(5.5,Math.min(ow,oh)*0.13)).toFixed(1)}" font-family="Arial" text-anchor="middle" fill="#0d9488">${esc(o.label)}</text>`;}}
         svg+='</svg>';
         nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg});
-        html+=`<div class="sheet-card" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span>${matInp} ${sizeSel} ${priceChip} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
+        const ssel=selSheets.has(mat+'#'+idx);
+        html+=`<div class="sheet-card${ssel?' sheet-sel':''}" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${ssel?'checked':''} onchange="selSheetCb('${esc(mat)}',${idx},this.checked)" title="Select this sheet — Sheet Size / Nesting then change only the selected sheets"> ${matInp} ${sizeSel} ${priceChip} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
         // paired BACK SHEET right below its front sheet — visual only (no material, no sheet count)
         const bps=showBackSheets?backPartsOf(sh):[];
         if(bps.length){
@@ -2014,7 +2079,7 @@
       });
     });
     nestMatCost=nMat;nestCncCost=nCnc;nestSheets=nSheets;
-    box.innerHTML=html||'<div class="sub">No parts yet.</div>';
+    box.innerHTML=(nestNote?`<div class="multinote" style="display:flex;justify-content:space-between;align-items:center;gap:8px">⚠ ${esc(nestNote)} <button class="btn ghost tiny" onclick="nestNote='';render()">Dismiss</button></div>`:'')+(html||'<div class="sub">No parts yet.</div>');
     if(editMode)attachEditHandlers();
     attachMarquee();
   }

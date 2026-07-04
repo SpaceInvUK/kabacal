@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (d) — Seleção de chapas + Sheet Size/Nesting só nas selecionadas (partes 6, 7, 8, 9, 10)
+
+- **(6) Seleção de chapas** (independente da seleção de peças): checkbox no header de cada sheet-card + realce azul (outline + ring). Estado `selSheets` (chaves `mat#idx`), com poda automática quando a estrutura muda. Back-sheets não têm checkbox.
+- **(7) Sheet Size nas selecionadas** + **default por material**. Com chapas selecionadas, a seção **Sheet Size** muda só elas; sem seleção, é o default do job. Ao mudar as selecionadas, o material ganha um **default** (`matSizeDef[mat]`) → chapas **novas** desse material seguem; **as existentes não-selecionadas NÃO mudam** (são "pinadas" no tamanho atual antes de aplicar o default). Ex.1 (só sheet 1 muda) ✓, Ex.2 (as 3 juntas) ✓, Ex.3 (default do material) ✓.
+- **(8) Nesting (margem/gap) nas selecionadas**: mesma mecânica; sem seleção = job inteiro.
+- **(9) Nunca perde peça / nada de chapa fantasma**: mudar tamanho **re-packa** a chapa; o que não couber vai pra chapas **adicionadas** do mesmo material (tamanho = default do material) com **aviso claro** (banner "N extra sheet added…"). Total de peças conferido = constante em todos os testes.
+- **(10) Custom pra job novo**: sem chapa selecionada, Sheet Size → Custom (W×H) vira o tamanho do job; com seleção, vira o default do material. `matSizeDef` **persiste no `.fastcnc`**.
+- **Bug de raiz corrigido**: `render()` zerava `placements` sempre que `sheetSizeOv` mudava (re-nestava tudo e juntava peças). Novo flag `keepPlacements` preserva o layout nas operações por-chapa. O **dropdown de tamanho no header** também passou a isolar (antes re-nestava o material todo).
+
+### Testado (d)
+Ex.1 só sheet 0→10x5, sheets 1/2 intactas ✓ · Ex.2 as 3→10x4 ✓ · overflow: chapa custom 1250² → 1 peça transborda pra chapa nova + aviso, 12 peças mantidas ✓ · margem por-chapa (sheet0=20, sheet1=7) ✓ · checkbox/realce/hint "N sheet(s)" ✓ · clear ✓ · sem erros no console ✓. Falta a parte 2 (Edit mode no zoom) — próxima.
+
 ## 2026-07-04 (c) — Sheets realistas + status por seção + groove 100mm + "Sheet Size"
 
 Primeira leva do pedido grande de nesting/sheets (partes 1, 3, 4, 5). As partes 2, 6–10 (edit no zoom, seleção de chapas, tamanho/nesting só nas selecionadas, tamanho custom pra job novo) estão desenhadas e vêm na próxima leva — a lógica está descrita no fim desta entrada.
