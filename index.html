@@ -630,17 +630,15 @@
   // hinge positions along the LONG side, measured from the top (vertical side) / left (horizontal side).
   // h.custom = array of mm positions (individual editing); otherwise evenly spread from the end offset.
   function hingePositions(h,span){
-    // A hinge run is defined by the FIRST and LAST hinge; every middle hinge is ALWAYS evenly spaced
-    // (centre-to-centre) between them. So editing the first or last hinge automatically re-spreads the
-    // middles — stored middle values are never trusted, they are re-derived from the two ends.
-    let n,first,last;const eo=+((h&&h.offset))||100;
+    // Hinges default to evenly spaced (centre-to-centre) between the first and last. Stored custom positions
+    // are respected as-is, so a middle hinge can be nudged individually; moving an END re-spreads the middles
+    // (done in hingeSetPos); Auto/Count give the even default.
     if(h&&Array.isArray(h.custom)&&h.custom.length){
-      n=h.custom.length;first=+h.custom[0];last=+h.custom[h.custom.length-1];
-    }else{
-      const c=(h&&h.count);n=(c==null||c==='auto')?(span>1500?4:span>900?3:2):Math.max(1,+c||1);
-      first=eo;last=span-eo;
+      return h.custom.map(v=>Math.max(0,Math.min(span,+v||0)));
     }
-    first=Math.max(0,Math.min(span,first));last=Math.max(0,Math.min(span,last));
+    const c=(h&&h.count),eo=+((h&&h.offset))||100;
+    const n=(c==null||c==='auto')?(span>1500?4:span>900?3:2):Math.max(1,+c||1);
+    const first=eo,last=span-eo;
     if(n<=1)return [(first+last)/2];
     const out=[];for(let k=0;k<n;k++)out.push(first+(last-first)*k/(n-1));
     return out;
@@ -1533,11 +1531,14 @@
   // individual hinge editing: Customize materialises the auto positions into an editable per-hinge list
   function hingeCustomize(i){const it=items[i];const h=hingeInfo(it);if(!h.on)return;it.hinges.custom=hingePositions(it.hinges&&it.hinges.custom?it.hinges:h,h.span).map(v=>Math.round(v));render();}
   function hingeAuto(i){delete items[i].hinges.custom;render();}
-  function hingeSetPos(i,k,v){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);
-    arr[k]=Math.max(10,Math.min(h.span-10,Math.round(+v||0)));it.hinges.custom=arr;                        // record the edited first/last…
-    it.hinges.custom=hingePositions(it.hinges,h.span).map(v=>Math.round(v));render();}                     // …then re-spread the middles evenly
-  function hingeDelPos(i,k){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);if(arr.length<=1)return;
-    arr.splice(k,1);it.hinges.custom=arr;it.hinges.custom=hingePositions(it.hinges,h.span).map(v=>Math.round(v));render();}
+  function hingeSetPos(i,k,v){const it=items[i];const h=hingeInfo(it),span=h.span;const arr=hingePositions(it.hinges,span).slice();
+    const n=arr.length,val=Math.max(10,Math.min(span-10,Math.round(+v||0)));
+    if(n<=1){it.hinges.custom=[val];render();return;}
+    if(k===0||k===n-1){arr[k]=val;const first=arr[0],last=arr[n-1];for(let j=1;j<n-1;j++)arr[j]=Math.round(first+(last-first)*j/(n-1));it.hinges.custom=arr;}   // moving an END re-spreads the middles evenly
+    else{const lo=arr[0],hi=arr[n-1];arr[k]=Math.max(lo+1,Math.min(hi-1,val));it.hinges.custom=arr.slice().sort((a,b)=>a-b);}                                   // nudging a MIDDLE keeps the others (kept between the ends)
+    render();}
+  function hingeDelPos(i,k){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span).slice();if(arr.length<=1)return;
+    arr.splice(k,1);it.hinges.custom=arr.map(v=>Math.round(v));render();}
   function hingeAddPos(i){const it=items[i];const h=hingeInfo(it);const arr=hingePositions(it.hinges,h.span);
     const pts=[0].concat(arr,[h.span]);let bi=0,bg=0;for(let k=0;k+1<pts.length;k++){const g=pts[k+1]-pts[k];if(g>bg){bg=g;bi=k;}}
     arr.push(Math.round((pts[bi]+pts[bi+1])/2));it.hinges.custom=arr.sort((a,b)=>a-b);render();}
@@ -1555,9 +1556,9 @@
       let role;
       if(k===0) role=`first · ${top}mm from ${fromEnd}`;
       else if(k===n-1) role=`last · ${bot}mm from ${toEnd}`;
-      else if(n===3) role=`auto · centred between Hinge 1 &amp; Hinge 3`;
-      else role=`auto · evenly spaced (Hinge 1–${n})`;
-      return `<div style="display:flex;gap:7px;align-items:center${isEnd?'':';opacity:.72'}"><b style="width:52px;font-size:12px">Hinge ${k+1}</b><input type="number" min="10" max="${h.span-10}" value="${top}" ${isEnd?`onchange="hingeSetPos(${i},${k},this.value)"`:'disabled title="Middle hinges are spaced automatically between the first and last hinge — edit Hinge 1 or the last hinge to move them"'} style="width:70px;padding:4px;border:1px solid var(--line);border-radius:6px${isEnd?'':';background:var(--chip);color:var(--muted);cursor:not-allowed'}"><span class="sub">mm from ${fromEnd}</span><span class="sub" style="flex:1;text-align:right">${role}</span><button class="iconbtn" title="Remove this hinge" onclick="hingeDelPos(${i},${k})">${ic('trash',12)}</button></div>`;}).join('');
+      else role=`middle · nudge to move just this one`;
+      const tip=isEnd?'End hinge — moving it re-spreads the middle hinges evenly':'Middle hinge — type to nudge just this one (or move an end to re-spread them all)';
+      return `<div style="display:flex;gap:7px;align-items:center"><b style="width:52px;font-size:12px">Hinge ${k+1}</b><input type="number" min="10" max="${h.span-10}" value="${top}" onchange="hingeSetPos(${i},${k},this.value)" title="${tip}" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:6px"><span class="sub">mm from ${fromEnd}</span><span class="sub" style="flex:1;text-align:right">${role}</span><button class="iconbtn" title="Remove this hinge" onclick="hingeDelPos(${i},${k})">${ic('trash',12)}</button></div>`;}).join('');
     return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" checked onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
@@ -1568,7 +1569,7 @@
     </div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">${rows}</div>
     <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost tiny" onclick="setHingeCount(${i},${n+1})">${ic('plus',12)} Add hinge</button>${h.custom?`<button class="btn ghost tiny" title="Reset both ends to ${h.offset}mm from each end and re-spread evenly" onclick="hingeAuto(${i})">${ic('reset',12)} Reset to symmetric</button>`:''}</div>
-    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · positions are hinge <b>centres</b> · <b>first</b> &amp; <b>last</b> set the pattern, middle hinges auto-spaced evenly — edit an end and the middles move · +5% CNC</div>`;}
+    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}

@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (i) — Hinges: meio agora também é ajustável à mão (nudge)
+
+O user pediu pra poder ajustar as hinges do meio individualmente também, mantendo o auto.
+
+- **Híbrido**: as hinges do meio auto-espaçam entre primeira e última **por padrão**, mas cada uma pode ser **nudgeada** (digitando o valor) e fica onde foi posta. Editar uma **ponta** ainda **re-espalha** todo o meio uniformemente.
+- `hingePositions` volta a **respeitar** posições salvas (custom) as-is; `hingeSetPos`: ponta → re-espalha o meio; meio → move só aquela (clampada entre as pontas, mantém as outras). Auto/Count = default uniforme.
+- **UI**: todos os inputs **editáveis** de novo (meio não fica mais disabled). Tooltip explica: ponta re-espalha, meio nudgeia só ela. Resumo atualizado.
+
+### Testado (i)
+auto5 [100,300,500,700,900] · nudge meio (Hinge 3→420, Hinge 4→760) move só elas → [100,300,420,760,900] · editar última (690) re-espalha → [100,248,395,543,690] · editar primeira (150) → [150,285,420,555,690] · 4 inputs todos editáveis · sem erros no console. ✓
+
 ## 2026-07-04 (h) — Hinges: modelo primeira+última, meio sempre redistribui
 
 Esclarecimento do user: o padrão de dobradiças é definido pela **primeira e última** hinge; as do **meio são SEMPRE distribuídas uniformemente** entre elas. Editar uma ponta **redistribui** o meio.
