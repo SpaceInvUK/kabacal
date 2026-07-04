@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (e) — Edit mode dentro do zoom (parte 2) — pedido grande COMPLETO
+
+- **(2) Edit mode no zoom**: botão **"Edit mode: ON/OFF"** no cabeçalho do zoom. Ligado, abre um **drawer lateral** dentro do zoom com o **mesmo acordeão de 9 seções** (Parts · Door Type · Offset · Hinges · Spray · Grain · Groove · Nesting · Sheet Size), ligado ao **mesmo estado** — dá pra editar a peça/chapa selecionada **sem sair do zoom**.
+- Edições no drawer atualizam **ao vivo** o próprio drawer **e** a chapa ampliada (o `renderInspector` espelha o HTML no `#zoomInsp`; o `renderNest` dá refresh no SVG do zoom após qualquer edição). O zoom continua aberto.
+- Setas ←/→ **não** trocam de chapa enquanto você digita num campo do drawer (guardado por `tagName`); Esc ainda fecha.
+
+### Testado (e)
+Drawer escondido com Edit off, visível com Edit on ✓ · 9 seções no drawer ✓ · editar grain pelo drawer → hint "Longest side" + textura aparece na chapa ampliada ao vivo, zoom não fecha ✓ · layout lado a lado (canvas + drawer 340px) ✓ · sem erros no console ✓.
+
+**Pedido grande (13 pontos) 100% entregue** nas levas (c)+(d)+(e): sheets realistas, status por seção, groove 100mm, "Sheet Size", edit no zoom, seleção de chapas, tamanho/nesting nas selecionadas, safe-repack, default por material/custom.
+
 ## 2026-07-04 (d) — Seleção de chapas + Sheet Size/Nesting só nas selecionadas (partes 6, 7, 8, 9, 10)
 
 - **(6) Seleção de chapas** (independente da seleção de peças): checkbox no header de cada sheet-card + realce azul (outline + ring). Estado `selSheets` (chaves `mat#idx`), com poda automática quando a estrutura muda. Back-sheets não têm checkbox.
