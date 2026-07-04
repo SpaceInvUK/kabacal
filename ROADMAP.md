@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-04 (h) — Hinges: modelo primeira+última, meio sempre redistribui
+
+Esclarecimento do user: o padrão de dobradiças é definido pela **primeira e última** hinge; as do **meio são SEMPRE distribuídas uniformemente** entre elas. Editar uma ponta **redistribui** o meio.
+
+- **`hingePositions` reescrito**: as posições do meio são **sempre derivadas** de `first`/`last` (centro-a-centro), nunca dos valores salvos. Então mexer na Hinge 1 ou na última re-espalha o meio automaticamente. Também resolve `count:'auto'` (corrigia um bug latente onde a lista mostrava 1 hinge no modo auto).
+- **Editar ponta redistribui**: `hingeSetPos` grava a ponta editada e re-deriva o meio. Ex. (span 1000): 5 hinges `[100,300,500,700,900]` → mudar a última pra **690** → `[100,248,395,543,690]`; mudar a 1ª pra **150** → `[150,285,420,555,690]`.
+- **Trocar count preserva as pontas**: `setHingeCount` mantém `first`/`last` e re-espalha (3→`[150,420,690]`, volta 5→`[150,285,420,555,690]`).
+- **UI**: só **primeira e última** são editáveis; as do meio ficam **read-only** (cinza, "auto · evenly spaced") com tooltip explicando. Labels: `Hinge 1 · first · 100mm from top/left`, `Hinge N · last · 100mm from bottom/right`. Botão "Reset to symmetric".
+- **Consistente em tudo**: lista do inspetor, desenho na chapa e DXF usam as mesmas posições derivadas.
+
+### Testado (h)
+auto→[100,500,900] (span 1000, corrige bug do 1); editar última→meio redistribui; editar primeira→idem; count preserva pontas; meio disabled / pontas editáveis; draw == UI == DXF; sem erros no console. ✓
+
 ## 2026-07-04 (g) — Auto-nest congelado no Edit mode + grain refeito + hinges corrigidos
 
 - **(1) Sem auto-nesting enquanto Edit mode ON.** Editar o tamanho de uma peça re-nestava tudo e a peça "fugia". Agora entrar no Edit mode faz `materialize()` (congela o layout) e o `render()` **não re-nesta** enquanto `zoomEdit` está ligado — a peça editada fica no lugar e selecionada. Sair do Edit mode libera o re-nest. Botão **Re-nest** no cabeçalho do zoom pra repack manual quando quiser.
