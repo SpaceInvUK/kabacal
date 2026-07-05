@@ -2,6 +2,22 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-05 — CAM Fase 1a: aba Toolpaths → corte de perfil → .NC Pegasus/Syntec 🎉
+
+Kabacal deixou de ser só CAD — agora **gera código de máquina**.
+
+- **Aba "Toolpaths" (beta)** nova view: gera o **corte de perfil** de cada peça e exporta o **`.NC`** que a Syntec lê. Por chapa: preview + "Download .NC".
+- **Post-processor Pegasus (Syntec)** portado do `.pp` do VCarve e **validado byte-a-byte** contra o `James Template.nc` (header `% :1248 G90 N30…`, coords modais X/Y/Z só quando mudam, arcos I/J, footer `G53Z0…M05M30`, N de 10 em 10).
+- **Geometria**: contorno externo com **compensação de raio** (retângulo da peça ± raio da fresa), origem no canto inferior-esquerdo com **Y pra cima** (flip do sheet), passes em Z iguais (≤ stepdown), **tabs** distribuídas (lift→atravessa→desce), plunge/corte separados.
+- **Seed com dados reais** (do `.NC`/projeto): T1 = **End Mill 6mm**, S**18000**, corte **F8000**, plunge **F3000**, stepdown 6mm. Z: topo = espessura, seguro +20, aproximação +5, mesa = 0 (aviso de **Z-zero na mesa** + botão pra alternar pro topo do material).
+- Máquina confirmada na base do VCarve: **Pegasus 1530 · OPUS CNC · Syntec**. (2ª máquina Fabertec/Parkingm2 usa arcos **R** — post plugável depois.)
+
+### Testado
+Header/footer batem 100% com o arquivo real ✓ · offset = peça ± raio, Y invertido certo (peça 7,7,600×1000 em chapa 1220 → start 4,210 / topo-dir 610,1216) ✓ · passes 13.45/8.9/4.35/-0.2 iguais ✓ · tabs só no passe passante (3 peças × 4 = 12 lifts) ✓ · plunge F3000 / corte F8000 ✓ · 5 chapas com preview + download ✓ · `.NC` termina em M05M30 ✓ · sem erros no console ✓ · screenshot conferido.
+
+### Próximo
+Comparar o `.NC` do Kabacal com o do VCarve pra mesma peça (dry-run) · depois pockets (shaker), grooves, LED e furação (o app já desenha) · lead-in/rampa · diâmetro exato da fresa de pocket (T12).
+
 ## 2026-07-04 (i) — Hinges: meio agora também é ajustável à mão (nudge)
 
 O user pediu pra poder ajustar as hinges do meio individualmente também, mantendo o auto.

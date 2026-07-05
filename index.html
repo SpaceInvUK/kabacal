@@ -367,7 +367,7 @@
     <div class="tabs">
       <span class="tab active" id="tabOrder" onclick="setView('order')" title="Add and edit parts">Order entry</span>
       <span class="tab" id="tabQuote" onclick="setView('quote')" title="Customer, pricing and totals">Quote</span>
-      <span class="tab" onclick="comingSoon('Toolpaths')">Toolpaths <span class="soon">soon</span></span>
+      <span class="tab" id="tabToolpaths" onclick="setView('toolpaths')" title="Generate CNC toolpaths and export the machine .NC">Toolpaths <span class="soon" style="background:#dcfce7;color:#166534;border-color:#86efac">beta</span></span>
     </div>
   </div>
 
@@ -406,6 +406,11 @@
   <div class="clientstrip">
     <div class="card" id="quoteBody" style="padding:14px"></div>
   </div>
+  </div>
+
+  <!-- TOOLPATHS view: CAM — profile cut + .NC export (Phase 1a) -->
+  <div id="viewToolpaths" style="display:none">
+    <div class="wrap"><div id="tpBody"></div></div>
   </div>
 
   <!-- ORDER ENTRY view: parts only -->
@@ -2850,6 +2855,112 @@
       CHECKLIST_COLS.join('\t')].concat(rows).join('\r\n');
   }
   function dlBlob(content,mime,name){const b=new Blob([content],{type:mime});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
+
+  // ============ CAM / Toolpaths — Phase 1a: profile cut -> Pegasus (Syntec) .NC ============
+  // Defaults seeded from the real James Template.nc + tools (T1 = 6mm end mill, S18000, F8000, plunge F3000).
+  let cam={thickness:18,toolDia:6,feed:8000,plunge:3000,spindle:18000,toolNum:1,stepdown:6,overcut:0.2,
+           tabs:4,tabLen:12,tabH:4,safeGap:20,approachGap:5,zZero:'table'};
+  const CAM_NUM=['thickness','toolDia','feed','plunge','spindle','toolNum','stepdown','overcut','tabs','tabLen','tabH','safeGap','approachGap'];
+  function setCam(k,v){ if(CAM_NUM.indexOf(k)>=0){v=+v; if(isNaN(v)||v<0)return;} cam[k]=v; renderToolpaths(); }
+  function camDist(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1]);}
+  // distribute n tabs around a 4-corner loop, at mid-edge (clamped away from corners)
+  function tabPositions(corners,n){ if(!n||n<1)return [];
+    const loop=[corners[0],corners[1],corners[2],corners[3],corners[0]],el=[]; for(let i=0;i<4;i++)el.push(camDist(loop[i],loop[i+1]));
+    const per=el.reduce((a,b)=>a+b,0),out=[];
+    for(let k=0;k<n;k++){ let d=(k+0.5)*per/n,acc=0,ei=3; for(let i=0;i<4;i++){ if(d<=acc+el[i]){ei=i;break;} acc+=el[i]; }
+      const a=loop[ei],b=loop[ei+1],len=el[ei]||1; let t=(d-acc)/len; const m=Math.min(0.45,(cam.tabLen/2+2)/len); t=Math.max(m,Math.min(1-m,t));
+      out.push({edge:ei,x:a[0]+(b[0]-a[0])*t,y:a[1]+(b[1]-a[1])*t}); }
+    return out; }
+  // emit one perimeter loop (feed) at depth z, lifting to tabTopZ over each tab
+  function camPerimeter(moves,corners,z,tabTopZ,useTabs,tabs){
+    const loop=[corners[0],corners[1],corners[2],corners[3],corners[0]]; let first=true;
+    const F=()=>{const f=first?cam.feed:undefined;first=false;return f;};
+    for(let i=0;i<4;i++){ const a=loop[i],b=loop[i+1],ux=b[0]-a[0],uy=b[1]-a[1],len=Math.hypot(ux,uy)||1,nx=ux/len,ny=uy/len;
+      const et=(useTabs?tabs.filter(t=>t.edge===i):[]).map(t=>({t,d:camDist(a,[t.x,t.y])})).sort((p,q)=>p.d-q.d);
+      for(const {d} of et){ const h=cam.tabLen/2,s0=Math.max(0,d-h),s1=Math.min(len,d+h);
+        moves.push({x:a[0]+nx*s0,y:a[1]+ny*s0,f:F()});           // to tab start
+        moves.push({x:a[0]+nx*s0,y:a[1]+ny*s0,z:tabTopZ});        // lift
+        moves.push({x:a[0]+nx*s1,y:a[1]+ny*s1});                  // across tab
+        moves.push({x:a[0]+nx*s1,y:a[1]+ny*s1,z:z}); }            // back down
+      moves.push({x:b[0],y:b[1],f:F()}); }                       // to corner
+  }
+  // build the full profile toolpath (machine coords, Y up, origin bottom-left of sheet) for one sheet
+  function camMovesForSheet(sheet){
+    const S=sheet.S,r=cam.toolDia/2,th=cam.thickness;
+    const topZ=(cam.zZero==='table')?th:0, tableZ=(cam.zZero==='table')?0:-th;
+    const safeZ=topZ+cam.safeGap, approachZ=topZ+cam.approachGap, finalZ=tableZ-cam.overcut, tabTopZ=tableZ+cam.tabH;
+    const moves=[],mY=sy=>S.h-sy;
+    (sheet.parts||[]).forEach(p=>{ if(p.isBack)return;
+      const L=p.x-r,Rt=p.x+p.w+r,Tp=p.y-r,Bp=p.y+p.h+r;                 // sheet coords (y down)
+      const corners=[[L,mY(Bp)],[Rt,mY(Bp)],[Rt,mY(Tp)],[L,mY(Tp)]];   // machine coords (y up), CCW from bottom-left
+      const tabs=tabPositions(corners,cam.tabs);
+      const total=topZ-finalZ,nP=Math.max(1,Math.ceil(total/cam.stepdown)),passes=[]; for(let k=1;k<=nP;k++)passes.push(k===nP?finalZ:+(topZ-k*(total/nP)).toFixed(3));
+      moves.push({r:1,x:corners[0][0],y:corners[0][1],z:safeZ});
+      moves.push({r:1,z:approachZ});
+      passes.forEach(pz=>{ moves.push({x:corners[0][0],y:corners[0][1],z:pz,f:cam.plunge}); camPerimeter(moves,corners,pz,tabTopZ,pz<tabTopZ-1e-6,tabs); });
+      moves.push({r:1,z:safeZ});
+    });
+    return moves;
+  }
+  // Pegasus (Syntec) post — validated byte-for-byte against James Template.nc
+  function ncPegasus(toolNum,spindle,moves){
+    let n=0; const md={X:null,Y:null,Z:null,F:null},out=[]; const f3=v=>(+v).toFixed(3),f1=v=>(+v).toFixed(1);
+    const L=(hasN,t)=>{out.push((hasN?('N'+n):'')+t);n+=10;};
+    L(false,'%');L(false,':1248');L(false,'G90');
+    L(true,'G0X0Y0');L(true,'G40G17G80G49');L(true,'T'+Math.round(toolNum)+'M6');L(true,'G90G54');L(true,'G43H'+Math.round(toolNum));
+    L(true,'G0X0.000Y0.000S'+Math.round(spindle)+'M3'); md.X=0;md.Y=0;
+    moves.forEach(m=>{
+      if(m.r){ let s='G0'; if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;} if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;} if(m.z!==undefined&&m.z!==md.Z){s+='Z'+f3(m.z);md.Z=m.z;} if(s!=='G0')L(true,s); }
+      else { const zc=(m.z!==undefined&&m.z!==md.Z),fc=(m.f!==undefined&&m.f!==md.F); let s=(zc||fc)?'G1':'';
+        if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;} if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;}
+        if(zc){s+='Z'+f3(m.z);md.Z=m.z;} if(fc){s+='F'+f1(m.f);md.F=m.f;} if(s!=='')L(true,s); }
+    });
+    L(true,'G53Z0');L(true,'M05');L(true,'T1M06');L(true,'G90G54');L(true,'G43H1');L(true,'G0X0.000Y0.000');L(true,'G49H0');L(true,'G0X0Y0');L(true,'G55X0Y0');L(true,'M05M30');
+    return out.join('\r\n')+'\r\n';
+  }
+  function camStats(moves){ let x=0,y=0,z=0,f=cam.feed,t=0,feedDist=0,rapidDist=0; const RAPID=15000;
+    moves.forEach(m=>{ const nx=m.x!==undefined?m.x:x,ny=m.y!==undefined?m.y:y,nz=m.z!==undefined?m.z:z,d=Math.hypot(nx-x,ny-y,nz-z);
+      if(m.r){rapidDist+=d;t+=d/RAPID;}else{if(m.f!==undefined)f=m.f;feedDist+=d;t+=d/(f||cam.feed);} x=nx;y=ny;z=nz; });
+    return {timeMin:t,feedDist,rapidDist,passes:Math.max(1,Math.ceil((cam.thickness+cam.overcut)/cam.stepdown))}; }
+  function camPreviewSvg(sheet){
+    const S=sheet.S,vbW=Math.round(S.w/10),vbH=Math.round(S.h/10),r=cam.toolDia/2;
+    let s=`<svg class="sheet-svg" viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
+    (sheet.parts||[]).forEach(p=>{ if(p.isBack)return;
+      s+=`<rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="#0f172a0c" stroke="#94a3b8" stroke-width="0.2"/>`;
+      const L=(p.x-r)/10,T=(p.y-r)/10,W=(p.w+2*r)/10,H=(p.h+2*r)/10;
+      s+=`<rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="#2563eb" stroke-width="0.4"/>`;
+      // tab marks (sheet coords)
+      const cS=[[p.x-r,p.y-r],[p.x+p.w+r,p.y-r],[p.x+p.w+r,p.y+p.h+r],[p.x-r,p.y+p.h+r]];
+      tabPositions(cS,cam.tabs).forEach(t=>{ s+=`<circle cx="${(t.x/10).toFixed(1)}" cy="${(t.y/10).toFixed(1)}" r="0.7" fill="#dc2626"/>`; });
+    });
+    return s+'</svg>';
+  }
+  function flatSheets(){ const flat=[]; buildSheetGroups().forEach((sheets,mat)=>sheets.forEach((sh,i)=>flat.push({mat,i,sh}))); return flat; }
+  function downloadSheetNC(idx){ const f=flatSheets()[idx]; if(!f)return;
+    const nc=ncPegasus(cam.toolNum,cam.spindle,camMovesForSheet(f.sh));
+    const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(idx+1)+'_profile.nc';
+    dlBlob(nc,'text/plain;charset=utf-8',nm); }
+  function renderToolpaths(){
+    const box=document.getElementById('tpBody'); if(!box)return;
+    const num=(lbl,k,step)=>`<div class="ed-field"><label>${lbl}</label><input type="number" step="${step||1}" value="${cam[k]}" onchange="setCam('${k}',this.value)"></div>`;
+    let html=`<div class="card" style="margin-bottom:12px">
+      <h2>Toolpaths — profile cut → Pegasus (Syntec) <code>.NC</code></h2>
+      <div class="hint">Phase 1a: cuts the outline of every part (outside, through the material, with holding tabs) using the profile tool, then exports the <b>.NC</b> your Syntec machine reads. Pockets, grooves, LED &amp; drilling come next.</div>
+      <div class="warn amber" style="margin:8px 0"><span>⚠ <b>Z-zero on the ${cam.zZero==='table'?'machine bed / table':'material top'}</b> — your James file zeroes on the <b>table</b>. Set the machine's Z-zero the same way before cutting, and dry-run in the air first.</span> <button class="btn tiny" onclick="setCam('zZero','${cam.zZero==='table'?'top':'table'}')">Use ${cam.zZero==='table'?'material top':'table'} instead</button></div>
+      <div class="ed-grid">
+        ${num('Material thickness (mm)','thickness',0.5)}${num('Tool Ø (mm)','toolDia',0.5)}${num('ATC tool number','toolNum',1)}${num('Spindle (RPM)','spindle',500)}
+        ${num('Cut feed (mm/min)','feed',100)}${num('Plunge feed (mm/min)','plunge',100)}${num('Pass depth (mm)','stepdown',0.5)}${num('Overcut past table (mm)','overcut',0.1)}
+        ${num('Tabs per part','tabs',1)}${num('Tab length (mm)','tabLen',1)}${num('Tab height (mm)','tabH',0.5)}${num('Safe Z above top (mm)','safeGap',1)}
+      </div></div>`;
+    const flat=flatSheets();
+    if(!flat.length){ box.innerHTML=html+'<div class="card"><div class="sub">No parts nested yet — add parts in Order entry.</div></div>'; return; }
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px">';
+    flat.forEach((f,idx)=>{ const st=camStats(camMovesForSheet(f.sh)),np=(f.sh.parts||[]).filter(p=>!p.isBack).length;
+      html+=`<div class="sheet-card"><div class="sheet-head"><span><b>Sheet ${idx+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)}</span><span class="sub">${np} part${np===1?'':'s'} · ~${st.timeMin.toFixed(1)} min</span></div>${camPreviewSvg(f.sh)}
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary tiny" onclick="downloadSheetNC(${idx})">${ic('save',13)} Download .NC</button><span class="sub">${st.passes} pass${st.passes===1?'':'es'}/part · cut ${(st.feedDist/1000).toFixed(1)} m</span></div></div>`; });
+    html+='</div>';
+    box.innerHTML=html;
+  }
   function openChecklist(){
     const tsv=buildChecklistTsv();
     if(!tsv){alert('Add parts before creating a checklist.');return;}
@@ -3068,13 +3179,16 @@
   let curView='order';
   function setView(v){
     curView=v;
-    const o=document.getElementById('viewOrder'),q=document.getElementById('viewQuote');
+    const o=document.getElementById('viewOrder'),q=document.getElementById('viewQuote'),tp=document.getElementById('viewToolpaths');
     if(o)o.style.display=v==='order'?'':'none';
     if(q)q.style.display=v==='quote'?'':'none';
-    const to=document.getElementById('tabOrder'),tq=document.getElementById('tabQuote');
+    if(tp)tp.style.display=v==='toolpaths'?'':'none';
+    const to=document.getElementById('tabOrder'),tq=document.getElementById('tabQuote'),tt=document.getElementById('tabToolpaths');
     if(to)to.classList.toggle('active',v==='order');
     if(tq)tq.classList.toggle('active',v==='quote');
+    if(tt)tt.classList.toggle('active',v==='toolpaths');
     if(v==='quote')renderQuoteView();
+    if(v==='toolpaths')renderToolpaths();
   }
   function openQuote(){setView('quote');}
   function renderQuoteView(){
