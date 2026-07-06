@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-06 (d) — Validação vs VCarve real + fixes (pass depth da fresa, aviso de duplicados)
+
+O user gerou o mesmo job nos dois ("Vcarve Test.nc" vs "Kabacal Test.nc") e pediu comparação, com foco em **até onde a máquina fura**.
+
+- **✅ Profundidade CORRETA no Kabacal**: os dois arquivos terminam **exatamente em Z0.000** (mesa), nunca abaixo; topo do material Z18; zero Z negativo no arquivo inteiro. Compensação de raio idêntica (X4.000 final nos dois). Alturas: Kabacal até mais conservador (lift Z38 entre peças vs VCarve atravessando a 23.08).
+- **A diferença real**: o arquivo Kabacal tinha **2 toolpaths marcados** cortando as mesmas peças (Profile 1: 3×6mm + Profile 2: **18×1mm** — o default de 1mm da spec) → 1217 linhas vs 89 do VCarve (2×9mm, sem skin). Não era bug de geometria — era default ruim + os dois ✓ na árvore.
+- **Fix 1 — pass depth vem da FRESA** (comportamento VCarve): `tpDefaults(tool)` usa `tool.passDepth` (T1→6mm→3 passes; fallback 6); **trocar de fresa no Select puxa o pass depth dela** (passes recalculam). Adeus arquivos de 18 passadas por acidente.
+- **Fix 2 — aviso de corte duplicado**: o Save NC detecta **2+ profiles marcados com escopo sobreposto** e mostra banner vermelho ("cut the same parts — untick the extra ones"); cada chapa agora lista os **nomes** dos toolpaths incluídos.
+- **Goldens regenerados** (regra da zona guardada): NC caiu ~5× (40279→8388 · 40509→8438; DXF intacto 4517). README atualizado com o novo status (comparado vs VCarve real; falta só o dry-run físico).
+
+### Testado (d)
+passDepth default 6 (T1) → 3 passes [12/6/0] ✓ · pick T8→4 / T1→6 ✓ · minZ=0.000, sem Z negativo, arquivo 177 linhas (era 762) ✓ · banner de duplicados + nomes por chapa no modal ✓ · goldens determinísticos byte-exatos (CRLF conferido) ✓ · `tools/check.mjs` ok ✓ · sem erros no console ✓.
+
 ## 2026-07-06 (c) — Golden files de CAM/DXF + cam-reviewer atualizado pras Fases 1–3
 
 Rede de regressão pro output de máquina (o app em si não mudou — `index.html` intocado).

@@ -5,10 +5,12 @@ Any code change that alters these outputs will show up as a diff — which must 
 **intended, itemised, and shipped together with regenerated goldens** (see
 `/verify-kabacal` step 7 and CLAUDE.md "Guarded zones").
 
-> **Status: known STATE, not yet known GOOD.** Captured from the app at commit
-> `9582af0` (CAM Phases 1–3). The .NC has not yet been dry-run against the real
-> machine / compared with VCarve output for the same part. After that validation,
-> treat these as known-good.
+> **Status: compared against a real VCarve file (2026-07-06).** Regenerated after
+> the pass-depth default changed to tool-based (T1 → 6mm → 3 passes; was 1mm →
+> 18 passes). A side-by-side of `Vcarve Test.nc` vs `Kabacal Test.nc` for the same
+> job confirmed: identical header/footer, final depth exactly Z0.000 (bed), no
+> negative Z, same radius compensation. Still pending an actual dry-run on the
+> Pegasus before calling it fully known-good.
 
 ## Files
 
@@ -44,7 +46,9 @@ must never be EOL-normalised by git.
    ```
 3. Write `ncLL`, `ncC`, `dxf` to the three files **byte-exact** (base64 them out of
    the browser; do not paste through anything that touches line endings).
-4. Expected sizes as of `9582af0`: ll = 40279 bytes · c = 40509 bytes · dxf = 4517 bytes.
+4. Expected sizes (after the tool-based pass-depth change): ll = 8388 bytes ·
+   c = 8438 bytes · dxf = 4517 bytes. (Before, with the old 1mm default:
+   40279 / 40509 / 4517 — the NC shrank ~5× because 18 passes became 3.)
 
 ## Comparing (what /verify-kabacal does)
 

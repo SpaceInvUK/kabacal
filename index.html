@@ -3246,11 +3246,12 @@
   function tpSetDatum(k){if(k==='c')camJob.datum='c';else camJob.datum=k;tpSide();}
   function tpSetStartAt(k){if(tpForm)tpForm.params.startAt=k;tpSide();}
   function tpF(k,v){if(!tpForm)return;const seg=k.split('.');let o=tpForm.params;for(let i=0;i<seg.length-1;i++)o=o[seg[i]];o[seg[seg.length-1]]=v;tpSide();}
-  function tpDefaults(){return {startDepth:0,cutDepth:null,passDepth:1,passes:null,side:'outside',allowance:0,
+  function tpDefaults(tool){return {startDepth:0,cutDepth:null,passDepth:(tool&&+tool.passDepth>0)?+tool.passDepth:6,passes:null,side:'outside',allowance:0,
     lastPass:{on:true,val:0.4},addDepth:{on:false,val:0.2},tabs:{on:false,len:10,th:3,n:4},ramp:{on:true,dist:100},
-    order:'narrow',startAt:'ll',scope:null};}
+    order:'narrow',startAt:'ll',scope:null};}   // pass depth comes from the TOOL (VCarve behaviour) — 1mm default made 18-pass files
   function tpOpenOp(kind){tpUI.mode='profile';tpUI.editId=null;
-    tpForm={name:'Profile '+tpSeq,toolId:(toolDb[0]||{}).id||null,params:tpDefaults(),selSnap:(typeof selSet!=='undefined')?[...selSet]:[]};
+    const t0=toolDb[0]||null;
+    tpForm={name:'Profile '+tpSeq,toolId:t0?t0.id:null,params:tpDefaults(t0),selSnap:(typeof selSet!=='undefined')?[...selSet]:[]};
     tpSide();}
   function tpSetScope(mode){if(!tpForm)return;tpForm.params.scope=(mode==='sel'&&tpForm.selSnap.length)?{items:tpForm.selSnap.slice()}:null;tpSide();}
   function tpOpenPh(k){tpUI.mode='ph';tpUI.ph=k;tpSide();}
@@ -3294,7 +3295,7 @@
     const rows=toolDb.map(t=>`<div class="tpl-item" style="cursor:pointer" onclick="tpPickTool('${t.id}')"><div class="tpl-meta"><b>(${t.num}) ${esc(t.name)}</b><div class="sub">Ø${t.dia}mm · F${t.feed} · plunge F${t.plunge} · S${t.rpm} · pass ${t.passDepth}mm</div></div></div>`).join('');
     openModal('Select tool',rows||'<div class="sub">Tool database is empty.</div>',true);
   }
-  function tpPickTool(id){if(tpForm)tpForm.toolId=id;tpCloseModal();tpSide();}
+  function tpPickTool(id){if(tpForm){tpForm.toolId=id;const t=toolById(id);if(t&&+t.passDepth>0){tpForm.params.passDepth=+t.passDepth;tpForm.params.passes=null;}}tpCloseModal();tpSide();}   // picking a tool pulls its pass depth (editable after)
   // ---- templates (Save/Load Selected Toolpath) ----
   function tpTpls(){try{return JSON.parse(localStorage.getItem('kab_tp_tpl'))||{};}catch(e){return {};}}
   function tpSaveTpl(){
@@ -3333,15 +3334,24 @@
     if(!vis.length){alert('No visible toolpaths — create a Profile first (and tick it in the list).');return;}
     const sheets=tpVisibleSheets();
     if(!sheets.length){alert('No sheets to cut.');return;}
+    // ticked profile toolpaths that target the SAME parts = the sheet gets cut more than once — warn loudly
+    const profs=vis.filter(p=>p.kind==='profile');let dup=false;
+    for(let a=0;a<profs.length&&!dup;a++)for(let b=a+1;b<profs.length&&!dup;b++){
+      const A=profs[a].params.scope,B=profs[b].params.scope;
+      const ai=A&&A.items&&A.items.length?A.items:null,bi=B&&B.items&&B.items.length?B.items:null;
+      if(!ai||!bi||ai.some(x=>bi.indexOf(x)>=0))dup=true;
+    }
+    const dupWarn=dup?`<div class="warn err" style="margin-bottom:10px">⚠ <b>${profs.length} profile toolpaths are ticked and cut the same parts</b> — the machine would profile them more than once. Untick the extra ones in the Toolpaths list unless that is really intended.</div>`:'';
     let rows='';
     sheets.forEach((f,i)=>{
       const segs=tpSegsForSheet(f);if(!segs.length){rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)}<div class="sub">no toolpath applies here</div></div></div>`;return;}
       const tools=[...new Set(segs.map(s=>'T'+s.num))].join(' → ');
+      const names=vis.map(p=>esc(p.name)).join(' + ');
       const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;if(cd!=null&&cd>f.th+0.01)w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();
-      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
+      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
-    openModal('Save Toolpaths — Pegasus (Syntec) .NC',`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> — set the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> — set the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
   }
   function tpDownloadNC(i){
     const f=tpVisibleSheets()[i];if(!f)return;
