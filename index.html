@@ -275,6 +275,35 @@
   .preset-chip.on{background:#2563eb;color:#fff;border-color:#2563eb}
   .preset-chip .pdel{opacity:.6;font-weight:900}
   .preset-chip .pdel:hover{opacity:1;color:#dc2626}
+  /* ===== Toolpaths (CAM) — VCarve-style right panel ===== */
+  .tp-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
+  .tp-canvas{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px;align-content:start}
+  .tp-side{position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto;padding:12px}
+  @media(max-width:900px){.tp-layout{grid-template-columns:1fr}.tp-side{position:static;max-height:none;order:-1}}
+  .tps-title{font-weight:800;font-size:12.5px;letter-spacing:.02em;margin:2px 0 8px}
+  .tp-setup{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:10px;background:var(--surface);display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+  .tp-ops{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:4px 0 10px}
+  .tp-op{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 4px 7px;border:1.5px solid var(--line);border-radius:9px;background:var(--input);cursor:pointer;font-size:10.5px;font-weight:700;color:var(--ink)}
+  .tp-op:hover{border-color:#94a3b8}
+  .tp-op svg{width:24px;height:24px}
+  .tp-acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 0 10px}
+  .tp-acts .btn{display:flex;align-items:center;gap:6px;justify-content:flex-start;font-size:11.5px;padding:7px 9px}
+  .tp-tree{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .tp-tree-h{display:flex;align-items:center;gap:5px;padding:7px 9px;background:var(--head);border-bottom:1px solid var(--line);font-weight:800;font-size:12px}
+  .tp-row{display:flex;align-items:center;gap:7px;padding:6px 9px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer}
+  .tp-row:last-child{border-bottom:0}
+  .tp-row.sel{background:var(--head-open)}
+  .tp-row .dot{width:9px;height:9px;border-radius:3px;flex:none}
+  .tp-row .nm{font-weight:700;white-space:nowrap}
+  .tp-row .sub2{color:var(--muted);font-size:10.5px;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+  .tp-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:12px}
+  .tp-datum{display:grid;grid-template-columns:repeat(3,15px);grid-template-rows:repeat(3,15px);gap:2px;flex:none}
+  .tp-datum i{width:13px;height:13px;border:1.5px solid var(--line-strong);border-radius:50%;cursor:pointer;background:var(--input)}
+  .tp-datum i:hover{border-color:#dc2626}
+  .tp-datum i.on{background:#dc2626;border-color:#dc2626}
+  .tp-datum i.mid{visibility:hidden}
+  .tpf-sec{border:1px solid var(--line);border-radius:9px;padding:9px 10px;margin-bottom:9px}
+  .tpf-sec h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
   /* ===== Dark mode ===== */
   body.dark{
     --bg:#0f151d; --card:#161d27; --ink:#e6edf5; --muted:#93a1b3; --line:#2a333f;
@@ -408,9 +437,12 @@
   </div>
   </div>
 
-  <!-- TOOLPATHS view: CAM — profile cut + .NC export (Phase 1a) -->
+  <!-- TOOLPATHS view: CAM — VCarve-style panel (Job Setup · Tool Database · Profile) -->
   <div id="viewToolpaths" style="display:none">
-    <div class="wrap"><div id="tpBody"></div></div>
+    <div class="wrap"><div class="tp-layout">
+      <div id="tpCanvas" class="tp-canvas"></div>
+      <aside id="tpSide" class="card tp-side"></aside>
+    </div></div>
   </div>
 
   <!-- ORDER ENTRY view: parts only -->
@@ -775,6 +807,9 @@
       if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
       if(kq.profiles&&typeof kq.profiles==='object')profiles=Object.assign({},profiles,kq.profiles);   // keep built-ins, add saved presets
       if(kq.matSizeDef&&typeof kq.matSizeDef==='object')matSizeDef=JSON.parse(JSON.stringify(kq.matSizeDef));   // per-material default sheet size
+      if(kq.camJob&&typeof kq.camJob==='object')camJob=Object.assign({zZero:'bed',datum:'ll',rapidGap:20,approach:5},kq.camJob);
+      if(Array.isArray(kq.camPaths)){camPaths=JSON.parse(JSON.stringify(kq.camPaths));tpSeq=camPaths.length+1;}
+      if(Array.isArray(kq.camTools)&&kq.camTools.length){kq.camTools.forEach(t=>{const i=toolDb.findIndex(x=>x.id===t.id);if(i>=0)toolDb[i]=t;else toolDb.push(t);});saveToolDb();}   // job's tools merge into the machine library
     }
     if(!project.number)genOrderNumber();
     syncClientBar();
@@ -858,7 +893,10 @@
       nestMargin:nestMargin,
       sheetPriceOv:JSON.parse(JSON.stringify(sheetPriceOv)),
       profiles:JSON.parse(JSON.stringify(profiles)),
-      matSizeDef:JSON.parse(JSON.stringify(matSizeDef))
+      matSizeDef:JSON.parse(JSON.stringify(matSizeDef)),
+      camJob:JSON.parse(JSON.stringify(camJob)),
+      camPaths:JSON.parse(JSON.stringify(camPaths)),
+      camTools:JSON.parse(JSON.stringify(toolDb))
     };
     return base;
   }
@@ -1250,6 +1288,7 @@
     renderSelBar();
     renderInspector();
     renderNest();updateMatPricing();summary();
+    if(curView==='toolpaths')renderToolpaths();
     if(curView==='quote')renderQuoteView();
     renderWarn();updateHVCheck();updateBSCheck();captureHistory();
   }
@@ -2856,110 +2895,466 @@
   }
   function dlBlob(content,mime,name){const b=new Blob([content],{type:mime});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
 
-  // ============ CAM / Toolpaths — Phase 1a: profile cut -> Pegasus (Syntec) .NC ============
-  // Defaults seeded from the real James Template.nc + tools (T1 = 6mm end mill, S18000, F8000, plunge F3000).
-  let cam={thickness:18,toolDia:6,feed:8000,plunge:3000,spindle:18000,toolNum:1,stepdown:6,overcut:0.2,
-           tabs:4,tabLen:12,tabH:4,safeGap:20,approachGap:5,zZero:'table'};
-  const CAM_NUM=['thickness','toolDia','feed','plunge','spindle','toolNum','stepdown','overcut','tabs','tabLen','tabH','safeGap','approachGap'];
-  function setCam(k,v){ if(CAM_NUM.indexOf(k)>=0){v=+v; if(isNaN(v)||v<0)return;} cam[k]=v; renderToolpaths(); }
-  function camDist(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1]);}
-  // distribute n tabs around a 4-corner loop, at mid-edge (clamped away from corners)
-  function tabPositions(corners,n){ if(!n||n<1)return [];
-    const loop=[corners[0],corners[1],corners[2],corners[3],corners[0]],el=[]; for(let i=0;i<4;i++)el.push(camDist(loop[i],loop[i+1]));
-    const per=el.reduce((a,b)=>a+b,0),out=[];
-    for(let k=0;k<n;k++){ let d=(k+0.5)*per/n,acc=0,ei=3; for(let i=0;i<4;i++){ if(d<=acc+el[i]){ei=i;break;} acc+=el[i]; }
-      const a=loop[ei],b=loop[ei+1],len=el[ei]||1; let t=(d-acc)/len; const m=Math.min(0.45,(cam.tabLen/2+2)/len); t=Math.max(m,Math.min(1-m,t));
-      out.push({edge:ei,x:a[0]+(b[0]-a[0])*t,y:a[1]+(b[1]-a[1])*t}); }
-    return out; }
-  // emit one perimeter loop (feed) at depth z, lifting to tabTopZ over each tab
-  function camPerimeter(moves,corners,z,tabTopZ,useTabs,tabs){
-    const loop=[corners[0],corners[1],corners[2],corners[3],corners[0]]; let first=true;
-    const F=()=>{const f=first?cam.feed:undefined;first=false;return f;};
-    for(let i=0;i<4;i++){ const a=loop[i],b=loop[i+1],ux=b[0]-a[0],uy=b[1]-a[1],len=Math.hypot(ux,uy)||1,nx=ux/len,ny=uy/len;
-      const et=(useTabs?tabs.filter(t=>t.edge===i):[]).map(t=>({t,d:camDist(a,[t.x,t.y])})).sort((p,q)=>p.d-q.d);
-      for(const {d} of et){ const h=cam.tabLen/2,s0=Math.max(0,d-h),s1=Math.min(len,d+h);
-        moves.push({x:a[0]+nx*s0,y:a[1]+ny*s0,f:F()});           // to tab start
-        moves.push({x:a[0]+nx*s0,y:a[1]+ny*s0,z:tabTopZ});        // lift
-        moves.push({x:a[0]+nx*s1,y:a[1]+ny*s1});                  // across tab
-        moves.push({x:a[0]+nx*s1,y:a[1]+ny*s1,z:z}); }            // back down
-      moves.push({x:b[0],y:b[1],f:F()}); }                       // to corner
+  // ============ CAM / Toolpaths — VCarve-style (Fases 1–3): Job Setup · Tool Database · Profile ============
+  // Post: Pegasus (Syntec), validated byte-for-byte against James Template.nc. Tools/feeds seeded from the
+  // real machine data (T1 6mm S18000 F8000/F3000 · T6 V-bit · T8 ball nose · T12 pocket).
+  let toolDb=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tooldb'));if(Array.isArray(s)&&s.length)return s;}catch(e){}
+    return [
+      {id:'t1', name:'6mm CUTTER',              num:1,  dia:6,   feed:8000,  plunge:3000, rpm:18000, passDepth:6},
+      {id:'t6', name:'V-Bit 90° (38.3mm)',      num:6,  dia:38.3,feed:4000,  plunge:3000, rpm:16000, passDepth:3},
+      {id:'t8', name:'Ball Nose 8mm',           num:8,  dia:8,   feed:8000,  plunge:2000, rpm:15000, passDepth:4},
+      {id:'t12',name:'TOOL 12 — pocket clear',  num:12, dia:12,  feed:10000, plunge:3000, rpm:18000, passDepth:6}];})();
+  function saveToolDb(){try{localStorage.setItem('kab_tooldb',JSON.stringify(toolDb));}catch(e){}}
+  function toolById(id){return toolDb.find(t=>t.id===id)||null;}
+  let camJob={zZero:'bed',datum:'ll',rapidGap:20,approach:5};      // Job Setup — defaults match the James file (bed zero, lower-left datum)
+  let camPaths=[],tpSeq=1,tpUI={mode:'home',editId:null,sel:null},tpFilter='all',tpForm=null;
+  const TP_COLORS=['#2563eb','#d97706','#0d9488','#9333ea','#dc2626','#0891b2','#65a30d'];
+  const TP_ANCH={ll:'lower-left',lc:'lower-centre',lr:'lower-right',mr:'right-middle',ur:'upper-right',uc:'upper-centre',ul:'upper-left',ml:'left-middle'};
+  function thicknessOf(mat){const t=parseFloat(parseMat(mat).th);return isNaN(t)?18:t;}
+  function tpSheets(){const flat=[];buildSheetGroups().forEach((sheets,mat)=>sheets.forEach((sh,i)=>flat.push({mat,i,sh,th:thicknessOf(mat)})));return flat;}
+  function tpThicknesses(){const s=new Set();tpSheets().forEach(f=>s.add(f.th));return [...s].sort((a,b)=>b-a);}
+  function tpVisibleSheets(){const all=tpSheets();return tpFilter==='all'?all:all.filter(f=>f.th===+tpFilter);}
+  function tpResolveTh(){const v=tpVisibleSheets();return v.length?v[0].th:18;}
+  // ---- geometry: CCW 8-point ring (machine coords, y-up) starting at the chosen anchor. CCW matches the
+  // James file (Outside/Right + Conventional in VCarve produced a CCW outside loop). ----
+  function ringPts(p,S,d,startAt){
+    const L=p.x-d,R=p.x+p.w+d,T=p.y-d,B=p.y+p.h+d,mY=y=>S.h-y;
+    const bl=[L,mY(B)],br=[R,mY(B)],tr=[R,mY(T)],tl=[L,mY(T)],mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
+    const ring=[{k:'ll',p:bl},{k:'lc',p:mid(bl,br)},{k:'lr',p:br},{k:'mr',p:mid(br,tr)},{k:'ur',p:tr},{k:'uc',p:mid(tr,tl)},{k:'ul',p:tl},{k:'ml',p:mid(tl,bl)}];
+    let s=ring.findIndex(q=>q.k===(startAt||'ll'));if(s<0)s=0;
+    return ring.slice(s).concat(ring.slice(0,s)).map(q=>({x:q.p[0],y:q.p[1]}));
   }
-  // build the full profile toolpath (machine coords, Y up, origin bottom-left of sheet) for one sheet
-  function camMovesForSheet(sheet){
-    const S=sheet.S,r=cam.toolDia/2,th=cam.thickness;
-    const topZ=(cam.zZero==='table')?th:0, tableZ=(cam.zZero==='table')?0:-th;
-    const safeZ=topZ+cam.safeGap, approachZ=topZ+cam.approachGap, finalZ=tableZ-cam.overcut, tabTopZ=tableZ+cam.tabH;
-    const moves=[],mY=sy=>S.h-sy;
-    (sheet.parts||[]).forEach(p=>{ if(p.isBack)return;
-      const L=p.x-r,Rt=p.x+p.w+r,Tp=p.y-r,Bp=p.y+p.h+r;                 // sheet coords (y down)
-      const corners=[[L,mY(Bp)],[Rt,mY(Bp)],[Rt,mY(Tp)],[L,mY(Tp)]];   // machine coords (y up), CCW from bottom-left
-      const tabs=tabPositions(corners,cam.tabs);
-      const total=topZ-finalZ,nP=Math.max(1,Math.ceil(total/cam.stepdown)),passes=[]; for(let k=1;k<=nP;k++)passes.push(k===nP?finalZ:+(topZ-k*(total/nP)).toFixed(3));
-      moves.push({r:1,x:corners[0][0],y:corners[0][1],z:safeZ});
-      moves.push({r:1,z:approachZ});
-      passes.forEach(pz=>{ moves.push({x:corners[0][0],y:corners[0][1],z:pz,f:cam.plunge}); camPerimeter(moves,corners,pz,tabTopZ,pz<tabTopZ-1e-6,tabs); });
-      moves.push({r:1,z:safeZ});
+  function ringWalker(pts){
+    const segs=[];let per=0;
+    for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length],l=Math.hypot(b.x-a.x,b.y-a.y);segs.push({a,b,l,d0:per});per+=l;}
+    function at(d){d=Math.max(0,Math.min(d,per));for(const s of segs){if(d<=s.d0+s.l+1e-9){const t=s.l?(d-s.d0)/s.l:0;return [s.a.x+(s.b.x-s.a.x)*t,s.a.y+(s.b.y-s.a.y)*t];}}const s=segs[segs.length-1];return [s.b.x,s.b.y];}
+    return {per,at,corners:segs.map(s=>s.d0)};
+  }
+  // emit the ring from perimeter-distance d0 to d1 at depth z; tabs = [{s,e}] spans that lift to tabTop
+  function emitLapFrom(mv,W,d0,d1,z,feedFirst,tabs,tabTop){
+    const evs=[];W.corners.forEach(d=>{if(d>d0+1e-9&&d<d1-1e-9)evs.push({d});});evs.push({d:d1});
+    (tabs||[]).forEach(t=>{const s=Math.max(t.s,d0),e=Math.min(t.e,d1);if(e>s+0.02){evs.push({d:s,tb:'s'});evs.push({d:e,tb:'e'});}});
+    evs.sort((a,b)=>a.d-b.d||((a.tb==='s')?-1:1));
+    let f=feedFirst;
+    evs.forEach(ev=>{const c=W.at(ev.d),m={x:+c[0].toFixed(3),y:+c[1].toFixed(3)};if(f!==undefined){m.f=f;f=undefined;}mv.push(m);
+      if(ev.tb==='s')mv.push({z:+tabTop.toFixed(3)});if(ev.tb==='e')mv.push({z:z});});
+  }
+  // smooth ramp along the path over rampD mm (plunge feed), then the lap, then re-cover the ramp span at depth
+  function emitRampThenLap(mv,W,zTop,z,rampD,plunge,feed,tabs,tabTop){
+    rampD=Math.max(5,Math.min(+rampD||100,W.per*0.9));
+    const bps=W.corners.filter(d=>d>1e-9&&d<rampD-1e-9).concat([rampD]);let f=plunge;
+    bps.forEach(d=>{const c=W.at(d),zz=zTop+(z-zTop)*(d/rampD),m={x:+c[0].toFixed(3),y:+c[1].toFixed(3),z:+zz.toFixed(3)};if(f!==undefined){m.f=f;f=undefined;}mv.push(m);});
+    emitLapFrom(mv,W,rampD,W.per,z,feed,tabs,tabTop);
+    emitLapFrom(mv,W,0,rampD,z,undefined,tabs,tabTop);
+  }
+  // full profile move-set for ONE part (rough passes at +lastPass allowance, optional exact final pass — James pattern)
+  function tpPartMoves(mv,p,S,P,tool,th){
+    const topZ=(camJob.zZero==='bed')?th:0;
+    const cutD=(P.cutDepth==null?th:+P.cutDepth)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
+    const startZ=+(topZ-(+P.startDepth||0)).toFixed(3),finalZ=+(topZ-cutD).toFixed(3);
+    const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
+    const r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
+    const allow=+P.allowance||0,lastA=(P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0;
+    const dRough=sgn*r+sgn*(allow+lastA),dFinal=sgn*r+sgn*allow;
+    const total=startZ-finalZ,pd=Math.max(0.1,+P.passDepth||1);
+    const nP=(P.passes!=null&&P.passes>0)?Math.round(P.passes):Math.max(1,Math.ceil(total/pd));
+    const zs=[];for(let k=1;k<=nP;k++)zs.push(+(startZ-total*k/nP).toFixed(3));
+    const tabTop=+(finalZ+((P.tabs&&P.tabs.on)?Math.max(0.5,+P.tabs.th||3):0)).toFixed(3);
+    const mkTabs=W=>{if(!(P.tabs&&P.tabs.on))return null;const n=Math.max(1,Math.round(P.tabs.n||4)),h=Math.max(1,(+P.tabs.len||10)/2);
+      const out=[];for(let k=0;k<n;k++){const c=(k+0.5)*W.per/n;out.push({s:Math.max(0.5,c-h),e:Math.min(W.per-0.5,c+h)});}return out;};
+    const WR=ringWalker(ringPts(p,S,dRough,P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);
+    mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
+    zs.forEach(z=>{
+      mv.push({r:1,z:appZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
+      mv.push({z:startZ,f:tool.plunge});                                             // feed to material top (James pattern)
+      const uT=(tabsR&&z<tabTop-1e-6)?tabsR:null;
+      if(P.ramp&&P.ramp.on)emitRampThenLap(mv,WR,startZ,z,P.ramp.dist,tool.plunge,tool.feed,uT,tabTop);
+      else{mv.push({z:z,f:tool.plunge});emitLapFrom(mv,WR,0,WR.per,z,tool.feed,uT,tabTop);}
     });
-    return moves;
+    mv.push({r:1,z:safeZ});
+    if(lastA>0){                                                                      // separate last pass: exact offset, vertical plunge, full depth
+      const WF=ringWalker(ringPts(p,S,dFinal,P.startAt)),tabsF=mkTabs(WF),sf=WF.at(0);
+      mv.push({r:1,x:+sf[0].toFixed(3),y:+sf[1].toFixed(3)});mv.push({r:1,z:appZ});
+      mv.push({z:finalZ,f:tool.plunge});
+      emitLapFrom(mv,WF,0,WF.per,finalZ,tool.feed,(tabsF&&finalZ<tabTop-1e-6)?tabsF:null,tabTop);
+      mv.push({r:1,z:safeZ});
+    }
   }
-  // Pegasus (Syntec) post — validated byte-for-byte against James Template.nc
-  function ncPegasus(toolNum,spindle,moves){
-    let n=0; const md={X:null,Y:null,Z:null,F:null},out=[]; const f3=v=>(+v).toFixed(3),f1=v=>(+v).toFixed(1);
+  function tpOrderParts(parts,S,order){const mY=p=>S.h-(p.y+p.h);const a=parts.slice();
+    if(order==='narrow')a.sort((x,y)=>Math.min(x.w,x.h)-Math.min(y.w,y.h));
+    else if(order==='lr')a.sort((x,y)=>x.x-y.x);
+    else if(order==='bt')a.sort((x,y)=>mY(x)-mY(y));
+    else a.sort((x,y)=>parseInt(x.key)-parseInt(y.key));
+    return a;}
+  function tpPathParts(f,pp){let parts=(f.sh.parts||[]).filter(p=>!p.isBack);
+    const P=pp.params;if(P.scope&&P.scope.items&&P.scope.items.length)parts=parts.filter(p=>P.scope.items.indexOf(parseInt(p.key,10))>=0);
+    return tpOrderParts(parts,f.sh.S,P.order||'narrow');}
+  function tpPathMovesForSheet(f,pp,tool){const mv=[];if(pp.kind!=='profile')return mv;
+    tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
+  function tpDatumOff(S){switch(camJob.datum){case 'lr':return [S.w,0];case 'c':return [S.w/2,S.h/2];case 'ul':return [0,S.h];case 'ur':return [S.w,S.h];default:return [0,0];}}
+  // visible toolpaths -> tool segments for one sheet (consecutive same-tool paths merge, like VCarve)
+  function tpSegsForSheet(f){
+    const off=tpDatumOff(f.sh.S),segs=[];
+    camPaths.filter(pp=>pp.on).forEach(pp=>{
+      const tool=toolById(pp.toolId);if(!tool)return;
+      let mv=tpPathMovesForSheet(f,pp,tool);if(!mv.length)return;
+      if(off[0]||off[1])mv=mv.map(m=>{const c=Object.assign({},m);if(c.x!==undefined)c.x=+(c.x-off[0]).toFixed(3);if(c.y!==undefined)c.y=+(c.y-off[1]).toFixed(3);return c;});
+      const last=segs[segs.length-1];
+      if(last&&last.num===tool.num)last.moves=last.moves.concat(mv);
+      else segs.push({num:Math.round(tool.num||1),rpm:Math.round(tool.rpm||18000),moves:mv});
+    });
+    return segs;
+  }
+  // Pegasus (Syntec) post — HEADER/TOOLCHANGE/FOOTER exactly as the validated .pp / James Template.nc
+  function ncPegasus(segs){
+    let n=0;const md={X:null,Y:null,Z:null,F:null},out=[];const f3=v=>(+v).toFixed(3),f1=v=>(+v).toFixed(1);
     const L=(hasN,t)=>{out.push((hasN?('N'+n):'')+t);n+=10;};
     L(false,'%');L(false,':1248');L(false,'G90');
-    L(true,'G0X0Y0');L(true,'G40G17G80G49');L(true,'T'+Math.round(toolNum)+'M6');L(true,'G90G54');L(true,'G43H'+Math.round(toolNum));
-    L(true,'G0X0.000Y0.000S'+Math.round(spindle)+'M3'); md.X=0;md.Y=0;
-    moves.forEach(m=>{
-      if(m.r){ let s='G0'; if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;} if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;} if(m.z!==undefined&&m.z!==md.Z){s+='Z'+f3(m.z);md.Z=m.z;} if(s!=='G0')L(true,s); }
-      else { const zc=(m.z!==undefined&&m.z!==md.Z),fc=(m.f!==undefined&&m.f!==md.F); let s=(zc||fc)?'G1':'';
-        if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;} if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;}
-        if(zc){s+='Z'+f3(m.z);md.Z=m.z;} if(fc){s+='F'+f1(m.f);md.F=m.f;} if(s!=='')L(true,s); }
+    L(true,'G0X0Y0');L(true,'G40G17G80G49');
+    segs.forEach((sg,i)=>{
+      if(i>0)L(true,'G53Z0');
+      L(true,'T'+sg.num+(i===0?'M6':'M06'));L(true,'G90G54');L(true,'G43H'+sg.num);
+      L(true,'G0X0.000Y0.000S'+sg.rpm+'M3');md.X=0;md.Y=0;md.Z=null;md.F=null;
+      sg.moves.forEach(m=>{
+        if(m.r){let s='G0';if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;}if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;}if(m.z!==undefined&&m.z!==md.Z){s+='Z'+f3(m.z);md.Z=m.z;}if(s!=='G0')L(true,s);}
+        else{const zc=(m.z!==undefined&&m.z!==md.Z),fc=(m.f!==undefined&&m.f!==md.F);let s=(zc||fc)?'G1':'';
+          if(m.x!==undefined&&m.x!==md.X){s+='X'+f3(m.x);md.X=m.x;}if(m.y!==undefined&&m.y!==md.Y){s+='Y'+f3(m.y);md.Y=m.y;}
+          if(zc){s+='Z'+f3(m.z);md.Z=m.z;}if(fc){s+='F'+f1(m.f);md.F=m.f;}if(s!=='')L(true,s);}
+      });
     });
     L(true,'G53Z0');L(true,'M05');L(true,'T1M06');L(true,'G90G54');L(true,'G43H1');L(true,'G0X0.000Y0.000');L(true,'G49H0');L(true,'G0X0Y0');L(true,'G55X0Y0');L(true,'M05M30');
     return out.join('\r\n')+'\r\n';
   }
-  function camStats(moves){ let x=0,y=0,z=0,f=cam.feed,t=0,feedDist=0,rapidDist=0; const RAPID=15000;
-    moves.forEach(m=>{ const nx=m.x!==undefined?m.x:x,ny=m.y!==undefined?m.y:y,nz=m.z!==undefined?m.z:z,d=Math.hypot(nx-x,ny-y,nz-z);
-      if(m.r){rapidDist+=d;t+=d/RAPID;}else{if(m.f!==undefined)f=m.f;feedDist+=d;t+=d/(f||cam.feed);} x=nx;y=ny;z=nz; });
-    return {timeMin:t,feedDist,rapidDist,passes:Math.max(1,Math.ceil((cam.thickness+cam.overcut)/cam.stepdown))}; }
-  function camPreviewSvg(sheet){
-    const S=sheet.S,vbW=Math.round(S.w/10),vbH=Math.round(S.h/10),r=cam.toolDia/2;
+  function tpStats(moves){let x=0,y=0,z=0,f=8000,t=0,fd=0,rd=0;const R=15000;
+    moves.forEach(m=>{const nx=m.x!==undefined?m.x:x,ny=m.y!==undefined?m.y:y,nz=m.z!==undefined?m.z:z,d=Math.hypot(nx-x,ny-y,nz-z);
+      if(m.r){rd+=d;t+=d/R;}else{if(m.f!==undefined)f=m.f;fd+=d;t+=d/(f||1);}x=nx;y=ny;z=nz;});
+    return {timeMin:t,feedDist:fd,rapidDist:rd};}
+  // ---- canvas (left): sheets with toolpath overlays, order numbers and start dots ----
+  function tpAnchorPt(p,d,k){const L=p.x-d,R=p.x+p.w+d,T=p.y-d,B=p.y+p.h+d,cx=(L+R)/2,cy=(T+B)/2;
+    return {ll:[L,B],lc:[cx,B],lr:[R,B],mr:[R,cy],ur:[R,T],uc:[cx,T],ul:[L,T],ml:[L,cy]}[k||'ll'];}
+  function tpSheetSvg(f){
+    const S=f.sh.S,vbW=Math.round(S.w/10),vbH=Math.round(S.h/10);
     let s=`<svg class="sheet-svg" viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
-    (sheet.parts||[]).forEach(p=>{ if(p.isBack)return;
-      s+=`<rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="#0f172a0c" stroke="#94a3b8" stroke-width="0.2"/>`;
-      const L=(p.x-r)/10,T=(p.y-r)/10,W=(p.w+2*r)/10,H=(p.h+2*r)/10;
-      s+=`<rect x="${L.toFixed(1)}" y="${T.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="#2563eb" stroke-width="0.4"/>`;
-      // tab marks (sheet coords)
-      const cS=[[p.x-r,p.y-r],[p.x+p.w+r,p.y-r],[p.x+p.w+r,p.y+p.h+r],[p.x-r,p.y+p.h+r]];
-      tabPositions(cS,cam.tabs).forEach(t=>{ s+=`<circle cx="${(t.x/10).toFixed(1)}" cy="${(t.y/10).toFixed(1)}" r="0.7" fill="#dc2626"/>`; });
+    (f.sh.parts||[]).forEach(p=>{if(p.isBack)return;
+      s+=`<rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="#0f172a0a" stroke="#94a3b8" stroke-width="0.2"/>`;});
+    camPaths.forEach((pp,ci)=>{if(!pp.on||pp.kind!=='profile')return;
+      const tool=toolById(pp.toolId);if(!tool)return;
+      const col=TP_COLORS[ci%TP_COLORS.length],P=pp.params,r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
+      const dF=sgn*r+sgn*(+P.allowance||0),dR=dF+sgn*((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
+      tpPathParts(f,pp).forEach((p,seq)=>{
+        const cutD=(P.cutDepth==null?f.th:+P.cutDepth);
+        const rect=(d,dash)=>`<rect x="${((p.x-d)/10).toFixed(1)}" y="${((p.y-d)/10).toFixed(1)}" width="${((p.w+2*d)/10).toFixed(1)}" height="${((p.h+2*d)/10).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${dash?0.3:0.55}"${dash?' stroke-dasharray="2 1.6"':''}><title>${esc(pp.name)} · ${esc(tool.name)} · ${cutD}mm deep</title></rect>`;
+        if(Math.abs(dR-dF)>0.01)s+=rect(dR,true);
+        s+=rect(dF,false);
+        const a=tpAnchorPt(p,dF,P.startAt);
+        s+=`<circle cx="${(a[0]/10).toFixed(1)}" cy="${(a[1]/10).toFixed(1)}" r="0.9" fill="${col}"/>`;
+        s+=`<text x="${((p.x+p.w/2)/10).toFixed(1)}" y="${((p.y+p.h/2)/10+2).toFixed(1)}" font-size="5.5" font-family="Arial" font-weight="800" text-anchor="middle" fill="${col}" opacity="0.85">${seq+1}</text>`;
+      });
     });
     return s+'</svg>';
   }
-  function flatSheets(){ const flat=[]; buildSheetGroups().forEach((sheets,mat)=>sheets.forEach((sh,i)=>flat.push({mat,i,sh}))); return flat; }
-  function downloadSheetNC(idx){ const f=flatSheets()[idx]; if(!f)return;
-    const nc=ncPegasus(cam.toolNum,cam.spindle,camMovesForSheet(f.sh));
-    const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(idx+1)+'_profile.nc';
-    dlBlob(nc,'text/plain;charset=utf-8',nm); }
+  function tpCanvasHtml(){
+    const vis=tpVisibleSheets();
+    if(!vis.length)return '<div class="card"><div class="sub">No sheets — add parts in Order entry first.</div></div>';
+    return vis.map((f,i)=>{
+      const nP=(f.sh.parts||[]).filter(p=>!p.isBack).length;
+      return `<div class="sheet-card"><div class="sheet-head"><span><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm</span><span>${nP} part${nP===1?'':'s'}</span></div>${tpSheetSvg(f)}</div>`;
+    }).join('');
+  }
+  // ---- right panel ----
+  function tpOpIcon(k){
+    if(k==='profile')return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6.5" y="6.5" width="11" height="11" rx="1"/><rect x="2.8" y="2.8" width="18.4" height="18.4" rx="2" stroke-dasharray="3 2.2" opacity=".6"/></svg>';
+    if(k==='pocket')return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7.5h10M7 11h10M7 14.5h10M7 18h6" stroke-width="1.2" opacity=".7"/></svg>';
+    if(k==='drill')return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.7" fill="currentColor" stroke="none"/><circle cx="15.5" cy="9" r="1.7" fill="currentColor" stroke="none"/><circle cx="9" cy="15.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.7" fill="currentColor" stroke="none"/></svg>';
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 19V9c5.5 0 5.5-4 11-4h7"/><path d="M3 19h18"/></svg>';
+  }
+  function tpDatumGrid(cur,cb,eight){
+    const pts=eight?['ul','uc','ur','ml','c0','mr','ll','lc','lr']:['ul','x1','ur','x2','c','x3','ll','x4','lr'];
+    return '<span class="tp-datum">'+pts.map(k=>{
+      if(k[0]==='x')return '<i class="mid"></i>';
+      if(k==='c0')return '<i class="mid"></i>';
+      return `<i class="${cur===k?'on':''}" title="${TP_ANCH[k]||'centre'}" onclick="${cb}('${k}')"></i>`;
+    }).join('')+'</span>';
+  }
+  function tpSideHtml(){
+    if(tpUI.mode==='job')return tpJobHtml();
+    if(tpUI.mode==='profile')return tpProfileFormHtml();
+    if(tpUI.mode==='ph')return tpPhHtml();
+    return tpHomeHtml();
+  }
+  function tpHomeHtml(){
+    const th=tpResolveTh(),topZ=(camJob.zZero==='bed')?th:0,ths=tpThicknesses();
+    let h=`<div class="tps-title">Toolpaths</div>
+    <div class="tp-setup"><div>
+      <div style="font-weight:800;font-size:12px">Material Setup</div>
+      <div class="sub" style="margin-top:3px">Thickness <b>${th}mm</b> · rapid gap <b>${camJob.rapidGap}mm</b><br>Home X:0.0 Y:0.0 Z:${(topZ+ +camJob.rapidGap).toFixed(1)} · Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b></div>
+      <button class="btn ghost tiny" style="margin-top:6px" onclick="tpUI.mode='job';tpSide()">Set ...</button>
+    </div><div style="text-align:center"><div class="sub" style="font-weight:700;margin-bottom:4px">XY Datum</div>${tpDatumGrid(camJob.datum,'tpSetDatum',false)}<div class="sub" style="margin-top:3px">X: 0.0 Y: 0.0</div></div></div>
+    <div class="tps-title">Toolpath Operations</div>
+    <div class="tp-ops">
+      <div class="tp-op" onclick="tpOpenOp('profile')">${tpOpIcon('profile')}<span>Profile</span></div>
+      <div class="tp-op" onclick="tpOpenPh('pocket')">${tpOpIcon('pocket')}<span>Pocket</span></div>
+      <div class="tp-op" onclick="tpOpenPh('drill')">${tpOpIcon('drill')}<span>Drilling</span></div>
+      <div class="tp-op" onclick="tpOpenPh('mould')">${tpOpIcon('mould')}<span>Moulding</span></div>
+    </div>
+    <div class="tp-acts">
+      <button class="btn ghost tiny" onclick="openToolDb()">${ic('sliders',13)} Tool Database</button>
+      <button class="btn ghost tiny" onclick="tpLoadTpl()">${ic('open',13)} Load Toolpath</button>
+      <button class="btn ghost tiny" onclick="tpSaveTpl()">${ic('save',13)} Save Toolpath</button>
+      <button class="btn ghost tiny" onclick="tpPreviewAll()">${ic('eye',13)} Preview</button>
+      <button class="btn ghost tiny" onclick="openTpSummary()">${ic('list',13)} Summary</button>
+      <button class="btn primary tiny" onclick="openTpSaveNC()">${ic('export',13)} Save NC</button>
+    </div>
+    <div class="tp-tree">
+      <div class="tp-tree-h"><span>Toolpaths</span>
+        <select style="margin-left:auto;padding:3px 5px;border:1px solid var(--line);border-radius:6px;font-size:11.5px" onchange="tpFilter=this.value;renderToolpaths()">
+          <option value="all" ${tpFilter==='all'?'selected':''}>All</option>
+          ${ths.map(t=>`<option value="${t}" ${String(tpFilter)===String(t)?'selected':''}>${t}mm</option>`).join('')}
+        </select>
+        <button class="iconbtn" title="Move selected up" onclick="tpMoveSel(-1)" style="width:22px;height:22px">▲</button>
+        <button class="iconbtn" title="Move selected down" onclick="tpMoveSel(1)" style="width:22px;height:22px">▼</button>
+      </div>`;
+    if(!camPaths.length)h+='<div class="tp-empty">No Toolpaths Created Yet</div>';
+    else camPaths.forEach((pp,i)=>{
+      const tool=toolById(pp.toolId),col=TP_COLORS[i%TP_COLORS.length];
+      h+=`<div class="tp-row ${tpUI.sel===pp.id?'sel':''}" onclick="tpUI.sel='${pp.id}';tpSide()">
+        <input type="checkbox" class="selcb" ${pp.on?'checked':''} onclick="event.stopPropagation()" onchange="tpToggle('${pp.id}',this.checked)">
+        <span class="dot" style="background:${col}"></span>
+        <span class="nm">${esc(pp.name)} [${tool?tool.num:'?'}]</span>
+        <span class="sub2">${tool?esc(tool.name):'no tool'}</span>
+        <button class="iconbtn" title="Edit" style="width:22px;height:22px" onclick="event.stopPropagation();tpEdit('${pp.id}')">${ic('pencil',11)}</button>
+        <button class="iconbtn" title="Delete" style="width:22px;height:22px" onclick="event.stopPropagation();tpDel('${pp.id}')">${ic('trash',11)}</button>
+      </div>`;
+    });
+    h+='</div>';
+    return h;
+  }
+  function tpJobHtml(){
+    const ths=tpThicknesses();
+    return `<div class="tps-title">Job Setup</div>
+    <div class="tpf-sec"><h4>Sheets in this job</h4><div class="sub">${ths.map(t=>{const n=tpSheets().filter(f=>f.th===t).length;return t+'mm × '+n+' sheet'+(n===1?'':'s');}).join(' · ')||'none yet'}</div>
+    <div class="sub" style="margin-top:4px">Width/height/thickness come from each nested sheet + material.</div></div>
+    <div class="tpf-sec"><h4>Z Zero Position</h4>
+      <label class="tg" style="margin-bottom:5px"><input type="radio" name="tpzz" ${camJob.zZero==='top'?'checked':''} onchange="camJob.zZero='top';tpSide()"> Material Surface</label>
+      <label class="tg"><input type="radio" name="tpzz" ${camJob.zZero==='bed'?'checked':''} onchange="camJob.zZero='bed';tpSide()"> Machine Bed <span class="sub">(default — matches your machine)</span></label>
+    </div>
+    <div class="tpf-sec"><h4>XY Datum Position</h4>
+      <div style="display:flex;gap:14px;align-items:center">${tpDatumGrid(camJob.datum,'tpSetDatum',false)}<span class="sub">${TP_ANCH[camJob.datum]||'centre'} — the red point. Coordinates in the .NC are measured from here.</span></div>
+    </div>
+    <div class="tpf-sec"><h4>Z heights</h4>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="ed-field" style="flex:1;min-width:110px"><label>Rapid gap above material</label><input type="number" min="2" value="${camJob.rapidGap}" onchange="camJob.rapidGap=Math.max(2,+this.value||20);tpSide()"></div>
+        <div class="ed-field" style="flex:1;min-width:110px"><label>Approach gap</label><input type="number" min="1" value="${camJob.approach}" onchange="camJob.approach=Math.max(1,+this.value||5);tpSide()"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px"><button class="btn primary tiny" onclick="tpUI.mode='home';tpSide()">OK</button></div>`;
+  }
+  function tpPhHtml(){
+    const k=tpUI.ph,names={pocket:'Pocket Toolpath',drill:'Drilling Toolpath',mould:'Moulding Toolpath'};
+    const notes={pocket:'Next phase: rectangular pockets (shaker fronts, LED channels) with offset clearing, larger clearance tool + finish tool, profile pass last.',
+      drill:'Next phase: drills the hinge centres Kabacal already computes — tool, depth, order (nearest / left-right), then peck cycles later.',
+      mould:'Planned for a later phase: needs a real 2.5D engine (drive rail + profile). The UI will come first; NC only when the simulation is trustworthy.'};
+    return `<div class="tps-title" style="display:flex;align-items:center;gap:8px">${tpOpIcon(k)} ${names[k]}</div>
+    <div class="tpf-sec"><div class="sub">${notes[k]}</div></div>
+    <div class="warn amber" style="margin:8px 0">Planned — not generating NC yet. Profile is live; this comes next.</div>
+    <button class="btn ghost tiny" onclick="tpUI.mode='home';tpSide()">Close</button>`;
+  }
+  function tpProfileFormHtml(){
+    const F=tpForm,tool=toolById(F.toolId),th=tpResolveTh();
+    const cutD=F.params.cutDepth==null?th:F.params.cutDepth;
+    const total=cutD-(+F.params.startDepth||0),pd=Math.max(0.1,+F.params.passDepth||1);
+    const nP=(F.params.passes!=null&&F.params.passes>0)?Math.round(F.params.passes):Math.max(1,Math.ceil(total/pd));
+    const deep=cutD>th+0.01;
+    const scopeSel=!!(F.params.scope&&F.params.scope.items&&F.params.scope.items.length);
+    const scope=scopeSel?F.params.scope.items.length+' selected part(s)':'all parts';
+    return `<div class="tps-title" style="display:flex;align-items:center;gap:8px">${tpOpIcon('profile')} 2D Profile Toolpath</div>
+    <div class="tpf-sec"><h4>Cutting Depths</h4>
+      <div style="display:flex;gap:8px">
+        <div class="ed-field" style="flex:1"><label>Start Depth (D)</label><input type="number" step="0.1" value="${F.params.startDepth}" onchange="tpF('startDepth',+this.value||0)"></div>
+        <div class="ed-field" style="flex:1"><label>Cut Depth (C)</label><input type="number" step="0.1" value="${cutD}" onchange="tpF('cutDepth',this.value===''?null:+this.value)">
+          <span class="sub">${F.params.cutDepth==null?'auto = sheet thickness':'<span class="link" onclick="tpF(\'cutDepth\',null)">reset to auto ('+th+'mm)</span>'}</span></div>
+      </div>
+      ${deep?'<div class="sub" style="color:#dc2626;font-weight:700;margin-top:4px">⚠ Cut Depth exceeds material thickness ('+th+'mm) — will cut '+(cutD-th).toFixed(1)+'mm into the bed!</div>':''}
+    </div>
+    <div class="tpf-sec"><h4>Tool</h4>
+      <div style="display:flex;gap:8px;align-items:center"><b style="font-size:12.5px">${tool?('('+tool.num+') '+esc(tool.name)):'<span style="color:#dc2626">no tool selected</span>'}</b>
+        <button class="btn ghost tiny" style="margin-left:auto" onclick="openToolPick()">Select ...</button><button class="btn ghost tiny" onclick="openToolDb()">Edit ...</button></div>
+      ${tool?`<div class="sub" style="margin-top:4px">Ø${tool.dia}mm · F${tool.feed} · plunge F${tool.plunge} · S${tool.rpm}</div>`:''}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div class="ed-field" style="flex:1"><label>Pass depth (mm)</label><input type="number" step="0.5" min="0.1" value="${F.params.passDepth}" onchange="tpF('passDepth',Math.max(0.1,+this.value||1));tpF('passes',null)"></div>
+        <div class="ed-field" style="flex:1"><label>Passes</label><input type="number" min="1" value="${nP}" onchange="tpF('passes',this.value===''?null:Math.max(1,Math.round(+this.value)))"></div>
+      </div>
+    </div>
+    <div class="tpf-sec"><h4>Machine Vectors</h4>
+      <div class="seg3">
+        <button class="segbtn ${F.params.side==='outside'?'on':''}" onclick="tpF('side','outside')">Outside / Right</button>
+        <button class="segbtn ${F.params.side==='inside'?'on':''}" onclick="tpF('side','inside')">Inside / Left</button>
+        <button class="segbtn ${F.params.side==='on'?'on':''}" onclick="tpF('side','on')">On</button>
+      </div>
+      <div class="ed-field" style="margin-top:8px;max-width:170px"><label>Allowance offset (mm)</label><input type="number" step="0.1" value="${F.params.allowance}" onchange="tpF('allowance',+this.value||0)"></div>
+    </div>
+    <div class="tpf-sec">
+      <label class="tg"><input type="checkbox" ${F.params.lastPass.on?'checked':''} onchange="tpF('lastPass.on',this.checked)"> <b>Do Separate Last Pass</b></label>
+      ${F.params.lastPass.on?`<div class="ed-field" style="margin-top:6px;max-width:150px"><label>Allowance (A)</label><input type="number" step="0.1" min="0" value="${F.params.lastPass.val}" onchange="tpF('lastPass.val',Math.max(0,+this.value||0))"></div>
+      <div class="sub" style="margin-top:3px">Passes leave a ${F.params.lastPass.val}mm skin; one exact full-depth pass removes it (your James pattern).</div>`:''}
+    </div>
+    <div class="tpf-sec">
+      <label class="tg"><input type="checkbox" ${F.params.addDepth.on?'checked':''} onchange="tpF('addDepth.on',this.checked)"> <b>Add Depth to Toolpath</b></label>
+      ${F.params.addDepth.on?`<div class="ed-field" style="margin-top:6px;max-width:150px"><label>Extra depth (mm)</label><input type="number" step="0.1" min="0" value="${F.params.addDepth.val}" onchange="tpF('addDepth.val',Math.max(0,+this.value||0))"></div>`:''}
+    </div>
+    <div class="tpf-sec">
+      <label class="tg"><input type="checkbox" ${F.params.tabs.on?'checked':''} onchange="tpF('tabs.on',this.checked)"> <b>Add tabs to toolpath</b></label>
+      ${F.params.tabs.on?`<div style="display:flex;gap:8px;margin-top:6px">
+        <div class="ed-field" style="flex:1"><label>Length</label><input type="number" min="2" value="${F.params.tabs.len}" onchange="tpF('tabs.len',Math.max(2,+this.value||10))"></div>
+        <div class="ed-field" style="flex:1"><label>Thickness</label><input type="number" min="0.5" step="0.5" value="${F.params.tabs.th}" onchange="tpF('tabs.th',Math.max(0.5,+this.value||3))"></div>
+        <div class="ed-field" style="flex:1"><label>Per part</label><input type="number" min="1" value="${F.params.tabs.n}" onchange="tpF('tabs.n',Math.max(1,Math.round(+this.value||4)))"></div>
+      </div>`:''}
+    </div>
+    <div class="tpf-sec">
+      <label class="tg"><input type="checkbox" ${F.params.ramp.on?'checked':''} onchange="tpF('ramp.on',this.checked)"> <b>Add ramps to toolpath</b> <span class="sub">(smooth)</span></label>
+      ${F.params.ramp.on?`<div class="ed-field" style="margin-top:6px;max-width:150px"><label>Distance (mm)</label><input type="number" min="5" value="${F.params.ramp.dist}" onchange="tpF('ramp.dist',Math.max(5,+this.value||100))"></div>`:''}
+    </div>
+    <div class="tpf-sec"><h4>Order</h4>
+      <div class="seg3" style="flex-wrap:wrap">
+        <button class="segbtn ${F.params.order==='narrow'?'on':''}" title="Cut narrow/small parts first" onclick="tpF('order','narrow')">Narrow first</button>
+        <button class="segbtn ${F.params.order==='sel'?'on':''}" onclick="tpF('order','sel')">Selection</button>
+        <button class="segbtn ${F.params.order==='lr'?'on':''}" onclick="tpF('order','lr')">Left → Right</button>
+        <button class="segbtn ${F.params.order==='bt'?'on':''}" onclick="tpF('order','bt')">Bottom → Top</button>
+      </div>
+      <div class="sub" style="margin-top:5px">Internal cuts always run before external profiles when pockets/drills arrive.</div>
+    </div>
+    <div class="tpf-sec"><h4>Start At</h4>
+      <div style="display:flex;gap:14px;align-items:center">${tpDatumGrid(F.params.startAt,'tpSetStartAt',true)}<span class="sub">${TP_ANCH[F.params.startAt]||''} of each part</span></div>
+    </div>
+    <div class="tpf-sec"><h4>Vectors / parts</h4>
+      <div class="seg3">
+        <button class="segbtn ${scopeSel?'':'on'}" onclick="tpSetScope('all')">All parts</button>
+        <button class="segbtn ${scopeSel?'on':''}" ${F.selSnap&&F.selSnap.length?'':'disabled title="Select parts in Order entry first"'} onclick="tpSetScope('sel')">Selection${F.selSnap&&F.selSnap.length?' ('+F.selSnap.length+')':''}</button>
+      </div>
+    </div>
+    <div class="tpf-sec"><h4>Name</h4>
+      <input type="text" value="${esc(F.name)}" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px" onchange="tpForm.name=this.value">
+      <div class="sub" style="margin-top:4px">Applies to <b>${scope}</b> · Safe Z ${(tpResolveTh()*(camJob.zZero==='bed'?1:0)+ +camJob.rapidGap).toFixed(1)}mm · Home X0 Y0</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:2px">
+      <button class="btn primary" onclick="tpCalc()">Calculate</button>
+      <button class="btn ghost" onclick="tpUI.mode='home';tpForm=null;tpSide()">Close</button>
+    </div>`;
+  }
+  // ---- panel actions ----
+  function tpSide(){const s=document.getElementById('tpSide');if(s)s.innerHTML=tpSideHtml();}
+  function tpSetDatum(k){if(k==='c')camJob.datum='c';else camJob.datum=k;tpSide();}
+  function tpSetStartAt(k){if(tpForm)tpForm.params.startAt=k;tpSide();}
+  function tpF(k,v){if(!tpForm)return;const seg=k.split('.');let o=tpForm.params;for(let i=0;i<seg.length-1;i++)o=o[seg[i]];o[seg[seg.length-1]]=v;tpSide();}
+  function tpDefaults(){return {startDepth:0,cutDepth:null,passDepth:1,passes:null,side:'outside',allowance:0,
+    lastPass:{on:true,val:0.4},addDepth:{on:false,val:0.2},tabs:{on:false,len:10,th:3,n:4},ramp:{on:true,dist:100},
+    order:'narrow',startAt:'ll',scope:null};}
+  function tpOpenOp(kind){tpUI.mode='profile';tpUI.editId=null;
+    tpForm={name:'Profile '+tpSeq,toolId:(toolDb[0]||{}).id||null,params:tpDefaults(),selSnap:(typeof selSet!=='undefined')?[...selSet]:[]};
+    tpSide();}
+  function tpSetScope(mode){if(!tpForm)return;tpForm.params.scope=(mode==='sel'&&tpForm.selSnap.length)?{items:tpForm.selSnap.slice()}:null;tpSide();}
+  function tpOpenPh(k){tpUI.mode='ph';tpUI.ph=k;tpSide();}
+  function tpEdit(id){const pp=camPaths.find(x=>x.id===id);if(!pp)return;
+    tpUI.mode='profile';tpUI.editId=id;tpForm=JSON.parse(JSON.stringify({name:pp.name,toolId:pp.toolId,params:pp.params}));
+    tpForm.selSnap=(pp.params.scope&&pp.params.scope.items)?pp.params.scope.items.slice():((typeof selSet!=='undefined')?[...selSet]:[]);tpSide();}
+  function tpCalc(){
+    const F=tpForm;if(!F)return;
+    const tool=toolById(F.toolId);
+    if(!tool){alert('Select a tool first (Tool Database).');return;}
+    if(!(tool.feed>0&&tool.plunge>0&&tool.rpm>0&&tool.dia>0)){alert('Tool "'+tool.name+'" has missing feed/plunge/RPM/diameter — edit it in the Tool Database first.');return;}
+    if(F.params.cutDepth!=null&&F.params.cutDepth<=0){alert('Cut depth must be greater than 0.');return;}
+    if(tpUI.editId){const pp=camPaths.find(x=>x.id===tpUI.editId);if(pp){pp.name=F.name;pp.toolId=F.toolId;pp.params=JSON.parse(JSON.stringify(F.params));}}
+    else{camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:true,kind:'profile',name:F.name,toolId:F.toolId,params:JSON.parse(JSON.stringify(F.params))});tpSeq++;}
+    tpUI.mode='home';tpUI.editId=null;tpForm=null;renderToolpaths();
+  }
+  function tpToggle(id,on){const pp=camPaths.find(x=>x.id===id);if(pp)pp.on=!!on;renderToolpaths();}
+  function tpDel(id){const i=camPaths.findIndex(x=>x.id===id);if(i<0)return;if(!confirm('Delete toolpath "'+camPaths[i].name+'"?'))return;camPaths.splice(i,1);if(tpUI.sel===id)tpUI.sel=null;renderToolpaths();}
+  function tpMoveSel(dir){const i=camPaths.findIndex(x=>x.id===tpUI.sel);if(i<0)return;const j=i+dir;if(j<0||j>=camPaths.length)return;const t=camPaths[i];camPaths[i]=camPaths[j];camPaths[j]=t;renderToolpaths();}
+  function tpPreviewAll(){renderToolpaths();const c=document.getElementById('tpCanvas');if(c)c.scrollIntoView({behavior:'smooth',block:'start'});}
+  // ---- Tool Database ----
+  function tpCloseModal(){if(typeof closeModal==='function')closeModal();else{const o=document.getElementById('modalOv');if(o)o.remove();}}
+  function openToolDb(){
+    const rows=toolDb.map((t,i)=>`<tr>
+      <td><input type="text" value="${esc(t.name)}" style="width:150px" onchange="tdbSet(${i},'name',this.value)"></td>
+      <td><input type="number" value="${t.num}" style="width:46px" onchange="tdbSet(${i},'num',Math.max(1,Math.round(+this.value||1)))"></td>
+      <td><input type="number" step="0.1" value="${t.dia}" style="width:56px" onchange="tdbSet(${i},'dia',Math.max(0.1,+this.value||6))"></td>
+      <td><input type="number" step="100" value="${t.feed}" style="width:64px" onchange="tdbSet(${i},'feed',Math.max(1,+this.value||8000))"></td>
+      <td><input type="number" step="100" value="${t.plunge}" style="width:64px" onchange="tdbSet(${i},'plunge',Math.max(1,+this.value||3000))"></td>
+      <td><input type="number" step="500" value="${t.rpm}" style="width:64px" onchange="tdbSet(${i},'rpm',Math.max(1000,+this.value||18000))"></td>
+      <td><input type="number" step="0.5" value="${t.passDepth}" style="width:52px" onchange="tdbSet(${i},'passDepth',Math.max(0.1,+this.value||1))"></td>
+      <td><button class="iconbtn" onclick="tdbDel(${i})">${ic('trash',12)}</button></td></tr>`).join('');
+    openModal('Tool Database',`<div class="sub" style="margin-bottom:8px">Seeded from your real machine (James job). Feeds in mm/min. Tool № = ATC pocket.</div>
+      <table class="ptbl" style="font-size:12px"><tr><th>Name</th><th>T№</th><th>Ø mm</th><th>Feed</th><th>Plunge</th><th>RPM</th><th>Pass</th><th></th></tr>${rows}</table>
+      <div style="margin-top:10px"><button class="btn ghost tiny" onclick="tdbAdd()">${ic('plus',12)} Add tool</button></div>`,true);
+  }
+  function tdbSet(i,k,v){if(!toolDb[i])return;toolDb[i][k]=v;saveToolDb();renderToolpaths();}
+  function tdbDel(i){if(!toolDb[i])return;if(!confirm('Delete tool "'+toolDb[i].name+'"?'))return;toolDb.splice(i,1);saveToolDb();tpCloseModal();openToolDb();renderToolpaths();}
+  function tdbAdd(){toolDb.push({id:'t'+Date.now().toString(36),name:'New tool',num:1,dia:6,feed:8000,plunge:3000,rpm:18000,passDepth:6});saveToolDb();tpCloseModal();openToolDb();}
+  function openToolPick(){
+    const rows=toolDb.map(t=>`<div class="tpl-item" style="cursor:pointer" onclick="tpPickTool('${t.id}')"><div class="tpl-meta"><b>(${t.num}) ${esc(t.name)}</b><div class="sub">Ø${t.dia}mm · F${t.feed} · plunge F${t.plunge} · S${t.rpm} · pass ${t.passDepth}mm</div></div></div>`).join('');
+    openModal('Select tool',rows||'<div class="sub">Tool database is empty.</div>',true);
+  }
+  function tpPickTool(id){if(tpForm)tpForm.toolId=id;tpCloseModal();tpSide();}
+  // ---- templates (Save/Load Selected Toolpath) ----
+  function tpTpls(){try{return JSON.parse(localStorage.getItem('kab_tp_tpl'))||{};}catch(e){return {};}}
+  function tpSaveTpl(){
+    const pp=camPaths.find(x=>x.id===tpUI.sel)||(tpForm?{name:tpForm.name,toolId:tpForm.toolId,kind:'profile',params:tpForm.params}:null);
+    if(!pp){alert('Select a toolpath in the list first (click it), then Save.');return;}
+    const nm=prompt('Template name:',pp.name);if(!nm)return;
+    const t=tpTpls();t[nm]={kind:pp.kind||'profile',toolId:pp.toolId,params:JSON.parse(JSON.stringify(pp.params))};
+    try{localStorage.setItem('kab_tp_tpl',JSON.stringify(t));}catch(e){}
+    alert('Saved template "'+nm+'" — Load Toolpath brings it back on any job.');
+  }
+  function tpLoadTpl(){
+    const t=tpTpls(),keys=Object.keys(t);
+    if(!keys.length){alert('No saved templates yet — configure a toolpath and use Save Toolpath.');return;}
+    openModal('Load toolpath template',keys.map(k=>`<div class="tpl-item" style="cursor:pointer" onclick="tpApplyTpl('${esc(k)}')"><div class="tpl-meta"><b>${esc(k)}</b><div class="sub">${t[k].kind}</div></div></div>`).join(''),true);
+  }
+  function tpApplyTpl(name){const t=tpTpls()[name];if(!t)return;tpCloseModal();
+    tpUI.mode='profile';tpUI.editId=null;tpForm={name:'Profile '+tpSeq,toolId:t.toolId,params:JSON.parse(JSON.stringify(t.params))};tpSide();}
+  // ---- Summary + Save NC ----
+  function openTpSummary(){
+    const vis=camPaths.filter(p=>p.on);
+    if(!vis.length){alert('No visible toolpaths — create a Profile first.');return;}
+    let rows='',totT=0,totL=0;
+    vis.forEach((pp,i)=>{const tool=toolById(pp.toolId);if(!tool)return;
+      let t=0,len=0,parts=0;
+      tpVisibleSheets().forEach(f=>{const mv=tpPathMovesForSheet(f,pp,tool);const st=tpStats(mv);t+=st.timeMin;len+=st.feedDist;parts+=tpPathParts(f,pp).length;});
+      totT+=t;totL+=len;
+      const cutD=pp.params.cutDepth==null?'auto':pp.params.cutDepth+'mm';
+      rows+=`<tr><td><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${TP_COLORS[camPaths.indexOf(pp)%TP_COLORS.length]}"></span> ${esc(pp.name)}</td><td>(${tool.num}) ${esc(tool.name)}</td><td>${cutD}</td><td>${parts}</td><td>${(len/1000).toFixed(1)} m</td><td>${t.toFixed(1)} min</td></tr>`;
+    });
+    openModal('Summary of all toolpaths',`<table class="ptbl" style="font-size:12.5px"><tr><th>Toolpath</th><th>Tool</th><th>Cut depth</th><th>Parts</th><th>Cut length</th><th>Est. time</th></tr>${rows}
+      <tr><td colspan="4" style="text-align:right"><b>Total (${tpFilter==='all'?'all sheets':tpFilter+'mm sheets'})</b></td><td><b>${(totL/1000).toFixed(1)} m</b></td><td><b>${totT.toFixed(1)} min</b></td></tr></table>
+      <div class="sub" style="margin-top:8px">Times use each tool's real feed/plunge + rapids at 15 m/min. Add your usual handling margin.</div>`,true);
+  }
+  function openTpSaveNC(){
+    const vis=camPaths.filter(p=>p.on);
+    if(!vis.length){alert('No visible toolpaths — create a Profile first (and tick it in the list).');return;}
+    const sheets=tpVisibleSheets();
+    if(!sheets.length){alert('No sheets to cut.');return;}
+    let rows='';
+    sheets.forEach((f,i)=>{
+      const segs=tpSegsForSheet(f);if(!segs.length){rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)}<div class="sub">no toolpath applies here</div></div></div>`;return;}
+      const tools=[...new Set(segs.map(s=>'T'+s.num))].join(' → ');
+      const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;if(cd!=null&&cd>f.th+0.01)w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();
+      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
+        <div class="tpl-act"><button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
+    });
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> — set the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
+  }
+  function tpDownloadNC(i){
+    const f=tpVisibleSheets()[i];if(!f)return;
+    const segs=tpSegsForSheet(f);if(!segs.length){alert('No toolpath applies to this sheet.');return;}
+    const nc=ncPegasus(segs);
+    const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(i+1)+'_'+f.th+'mm.nc';
+    dlBlob(nc,'text/plain;charset=utf-8',nm);
+  }
   function renderToolpaths(){
-    const box=document.getElementById('tpBody'); if(!box)return;
-    const num=(lbl,k,step)=>`<div class="ed-field"><label>${lbl}</label><input type="number" step="${step||1}" value="${cam[k]}" onchange="setCam('${k}',this.value)"></div>`;
-    let html=`<div class="card" style="margin-bottom:12px">
-      <h2>Toolpaths — profile cut → Pegasus (Syntec) <code>.NC</code></h2>
-      <div class="hint">Phase 1a: cuts the outline of every part (outside, through the material, with holding tabs) using the profile tool, then exports the <b>.NC</b> your Syntec machine reads. Pockets, grooves, LED &amp; drilling come next.</div>
-      <div class="warn amber" style="margin:8px 0"><span>⚠ <b>Z-zero on the ${cam.zZero==='table'?'machine bed / table':'material top'}</b> — your James file zeroes on the <b>table</b>. Set the machine's Z-zero the same way before cutting, and dry-run in the air first.</span> <button class="btn tiny" onclick="setCam('zZero','${cam.zZero==='table'?'top':'table'}')">Use ${cam.zZero==='table'?'material top':'table'} instead</button></div>
-      <div class="ed-grid">
-        ${num('Material thickness (mm)','thickness',0.5)}${num('Tool Ø (mm)','toolDia',0.5)}${num('ATC tool number','toolNum',1)}${num('Spindle (RPM)','spindle',500)}
-        ${num('Cut feed (mm/min)','feed',100)}${num('Plunge feed (mm/min)','plunge',100)}${num('Pass depth (mm)','stepdown',0.5)}${num('Overcut past table (mm)','overcut',0.1)}
-        ${num('Tabs per part','tabs',1)}${num('Tab length (mm)','tabLen',1)}${num('Tab height (mm)','tabH',0.5)}${num('Safe Z above top (mm)','safeGap',1)}
-      </div></div>`;
-    const flat=flatSheets();
-    if(!flat.length){ box.innerHTML=html+'<div class="card"><div class="sub">No parts nested yet — add parts in Order entry.</div></div>'; return; }
-    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px">';
-    flat.forEach((f,idx)=>{ const st=camStats(camMovesForSheet(f.sh)),np=(f.sh.parts||[]).filter(p=>!p.isBack).length;
-      html+=`<div class="sheet-card"><div class="sheet-head"><span><b>Sheet ${idx+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)}</span><span class="sub">${np} part${np===1?'':'s'} · ~${st.timeMin.toFixed(1)} min</span></div>${camPreviewSvg(f.sh)}
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary tiny" onclick="downloadSheetNC(${idx})">${ic('save',13)} Download .NC</button><span class="sub">${st.passes} pass${st.passes===1?'':'es'}/part · cut ${(st.feedDist/1000).toFixed(1)} m</span></div></div>`; });
-    html+='</div>';
-    box.innerHTML=html;
+    const c=document.getElementById('tpCanvas'),s=document.getElementById('tpSide');
+    if(!c||!s)return;
+    c.innerHTML=tpCanvasHtml();
+    s.innerHTML=tpSideHtml();
   }
   function openChecklist(){
     const tsv=buildChecklistTsv();

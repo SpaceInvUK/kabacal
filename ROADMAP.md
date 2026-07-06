@@ -16,6 +16,24 @@ Infraestrutura de desenvolvimento (não muda o app em si — `index.html` intoca
 ### Testado
 `node tools/check.mjs` → ok no estado atual · modo `--hook` ignora outros arquivos e roda no index.html · app não foi alterado (git diff do index.html vazio).
 
+## 2026-07-06 (b) — CAM Fases 1–3: painel estilo VCarve (Job Setup · Tool Database · Profile completo)
+
+A aba **Toolpaths** virou o painel do VCarve que o user pediu (copiado dos screenshots + vídeo dele):
+
+- **Layout**: canvas de chapas à esquerda + **painel fixo à direita** — Material Setup (Set…, thickness, gap, Home Z, **XY Datum de 5 pontos** com bolinha vermelha) → **Toolpath Operations** (só os 4: Profile · Pocket · Drilling · Moulding) → 6 botões (Tool Database, Load/Save Toolpath template, Preview, Summary, **Save NC**) → **árvore de toolpaths** (checkbox, cor, "Profile 1 [1]" com T№ entre colchetes, filtro por espessura 18/12/9mm, ▲▼, editar/apagar, "No Toolpaths Created Yet").
+- **Job Setup**: Z Zero (**Machine Bed default** / Material Surface), XY Datum 5 posições (default lower-left), rapid gap + approach editáveis, resumo das chapas por espessura.
+- **Tool Database**: CRUD persistente (`kab_tooldb`) com **seed real** — T1 6mm F8000/F3000 S18000 · T6 V-bit 90° · T8 ball 8mm · T12 pocket. Select/Edit no form, merge por id ao carregar `.fastcnc`.
+- **Profile Toolpath** (form copiado do vídeo, com os defaults de produção): Start/Cut Depth (**auto = espessura da chapa**, editável, aviso "exceeds thickness"), Tool Select/Edit, **Pass depth 1mm + passes auto**, Machine Vectors **Outside/Inside/On**, Allowance 0, **Separate Last Pass ON 0.4mm** (passes com pele + passada final exata — padrão do James), **Add Depth**, **Tabs** (off default, como na produção — vácuo), **Ramp smooth 100mm ON**, **Order** (Narrow first default · Selection · L→R · B→T), **Start At** (seletor de 8 pontos), escopo explícito **All parts / Selection**, Name.
+- **Motor**: anel CCW de 8 pontos (bate com o sentido do James), rampa diagonal com **F modal** (`G1Z18F3000` → `G1X..Z..` → `F8000` — 1:1 com o arquivo real), re-cobertura do trecho rampado, tabs com lift/cross/drop por distância de perímetro, passada final com plunge vertical (padrão James).
+- **NC multi-tool**: `ncPegasus(segs)` com **TOOLCHANGE** do `.pp` (`G53Z0/T#M06/G90G54/G43H#/G0X0Y0S#M3`), merge de paths consecutivos da mesma fresa, **datum transform** (ll/lr/c/ul/ur), 1 arquivo por chapa `JOB_S#_18mm.nc`.
+- **Preview 2D** no canvas: anéis coloridos por toolpath (tracejado = passe com pele), **números de ordem**, ponto de início; **Summary** (comprimento + tempo por toolpath e total); **Save NC** com aviso de Z-zero/datum e warning de corte no bed.
+- Persistência no `.fastcnc` (`camJob`/`camPaths`/`camTools`) + hook no `render()`.
+
+### Testado (b)
+Painel: 4 ops + 6 botões + árvore vazia "No Toolpaths Created Yet" + filtro All/18/12/9mm ✓ · defaults do form = vídeo (outside, lastPass 0.4, ramp 100, narrow, pass 1mm, cut auto) ✓ · Calculate → "Profile 1 [1]" na árvore, 24 anéis + 12 números + 12 dots no canvas ✓ · NC: header/footer James, CRLF, rampa diagonal F modal, pele 0.4 (X 3.6 vs 4.0), 3 plunges verticais Z0 (last pass), toolchange T6+S16000, datum centre → coords negativas ✓ · persistência camPaths/camTools/camJob ✓ · `tools/check.mjs` ok ✓ · sem erros no console ✓. (Screenshot tool travou — verificação por DOM.)
+
+## 2026-07-05 — CAM Fase 1a: aba Toolpaths → corte de perfil → .NC Pegasus/Syntec 🎉
+
 Kabacal deixou de ser só CAD — agora **gera código de máquina**.
 
 - **Aba "Toolpaths" (beta)** nova view: gera o **corte de perfil** de cada peça e exporta o **`.NC`** que a Syntec lê. Por chapa: preview + "Download .NC".
