@@ -28,7 +28,7 @@ Published via GitHub Pages: https://spaceinvuk.github.io/kabacal/ (push to `main
 | Nest rendering | `renderNest`, `drawPart`, `woodgrainSvg`, drag handlers |
 | Takeoff + DXF import | `parseTakeoffLine`, `parseTakeoffText`, `addTakeoffItems`, `readDxfEntities`, OCR via `loadTesseract` |
 | Labels + checklist | `collectPartLabels`, `cncLabelSvg`, `labelMap*`, `a4Labels*`, `buildChecklistTsv`, QR (`qr*`) |
-| CAM / Toolpaths | `cam` (config), `camMovesForSheet`, `camPerimeter`, `tabPositions`, `ncPegasus`, `renderToolpaths` |
+| CAM / Toolpaths (VCarve-style panel) | state: `toolDb` (kab_tooldb), `camJob` (zZero/datum/gaps), `camPaths` (tree), `tpDefaults`; engine: `ringPts`, `ringWalker`, `emitLapFrom`, `emitRampThenLap`, `tpPartMoves`, `tpOrderParts`, `tpSegsForSheet`, `tpDatumOff`, `ncPegasus(segs)`; UI: `tpCalc`, `tpDownloadNC`, `openToolDb`, `renderToolpaths` |
 | Quote + VAT | `calcQuote`, `sprayCalc`, `machOf`, `setSvc`, `toggleVat`, `setPriceOv` |
 | Print docs | `buildQuoteHtml`, `buildCutListHtml`, `openQuoteDoc`, `openCutList`, `openPrintWindow` |
 | App meta | `snapshot/undo/redo`, `validateOrder`, `applyTheme`, `genOrderNumber`, `setView` |
@@ -39,7 +39,7 @@ These produce customer prices, machine files, or factory paperwork. Changes here
 
 1. **Pricing / quote** (`calcQuote`, `priceForSheet`, `cncForThickness`, `sprayCalc`, `machOf`, services rates, VAT) → run `/pricing-impact` (before/after totals table on the standard basket). Production rules that must survive any refactor: MDF 18mm on 10x4 = £75 exact; spray never enters the group discount base; VAT = 20% of sub; design £35/h, cutting £25/h, assembly £50/h, machine time £250/h.
 2. **DXF export** (`dxfForThickness`, `buildDxfByThickness`, `DXF_LAYERS`) → export before/after DXF for the same job and diff; layer names are a contract with the VCarve gadgets — never rename/remove layers.
-3. **CAM / .NC output** (`ncPegasus`, `camMovesForSheet`, `camPerimeter`, `tabPositions`, `cam` defaults) → diff generated .NC before/after; header `% / :1248 / G90`, footer `G53Z0 … M05M30`, modal coords, CRLF are validated against the real machine (James Template.nc). A wrong .NC can crash a physical machine — be paranoid.
+3. **CAM / .NC output** (`ncPegasus`, `tpPartMoves`, `tpSegsForSheet`, `tpDatumOff`, `ringPts`, `emitLapFrom`, `emitRampThenLap`, `camJob`/`toolDb`/`tpDefaults`) → diff generated .NC against `tests/golden/` before/after; header `% / :1248 / G90`, toolchange block, footer `G53Z0 … M05M30`, modal coords, CRLF, datum signs and the James cutting pattern (ramp 100mm, separate last pass 0.4mm, tabs off) are validated against the real machine. A wrong .NC can crash a physical machine — be paranoid.
 4. **Nesting / offcuts** (MaxRects + `offcut*`) → part-count conservation (no part lost, no phantom sheet), rules in `KABACAL_RULES.md` (7mm margin/gap, offcut min sizes, L-shape only, 3mm chamfer on the drawn line).
 5. **Quote / cut-list documents** (`buildQuoteHtml`, `buildCutListHtml`) → before/after print preview screenshots.
 
@@ -61,7 +61,8 @@ For any user-visible change, before committing:
 2. Serve + open the app, check console for errors
 3. Seed a real job (takeoff paste or `.fastcnc`), exercise the changed feature
 4. Runtime spot-invariants: `priceForSheet('MDF 18mm','10x4') === 75`; part count in `calcQuote().partN` matches seeded; NC text starts `%\r\n:1248` and ends `M05M30`; DXF from `buildDxfByThickness()` contains the expected layers
-5. Screenshot the changed UI
+5. **Golden diff**: regenerate the standard job's .NC + DXF and diff against `tests/golden/` (procedure in `tests/golden/README.md`). Differences must be intended, itemised, and the goldens regenerated in the same commit.
+6. Screenshot the changed UI
 The `/verify-kabacal` skill runs this end-to-end.
 
 ## Agents & skills

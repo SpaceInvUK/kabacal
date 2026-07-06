@@ -2,7 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
-## 2026-07-06 — Dev tooling: CLAUDE.md + subagents + skills + checker + CI
+## 2026-07-06 (c) — Golden files de CAM/DXF + cam-reviewer atualizado pras Fases 1–3
+
+Rede de regressão pro output de máquina (o app em si não mudou — `index.html` intocado).
+
+- **`tests/golden/`**: job padrão (12 peças: 600×400×6 · 715×495×2 · 300×300×4, defaults de fresh-load) → **.NC da chapa 1** com datum lower-left E datum centre (coords negativas), + **DXF 18mm**. Byte-exatos (CRLF preservado via `.gitattributes -text`), determinísticos (gerado 2× idêntico ✓). Receita completa de regeneração no `tests/golden/README.md`.
+- **Caveat honesto**: golden = estado CONHECIDO no commit `9582af0`, ainda não validado na máquina — vira "known good" depois do dry-run vs VCarve (próximo passo do roadmap).
+- **`/verify-kabacal`** ganhou o passo de golden-diff (`git diff --no-index`); API do passo de toolpaths atualizada pra `camPaths`/`tpDefaults`/`tpSegsForSheet`/`ncPegasus(segs)`.
+- **`cam-reviewer` reescrito** pras Fases 1–3: contrato de toolchange (G53Z0 + T#M06 + reset modal Z/F), padrão James (lastPass 0.4 separada, ramp 100mm re-coberta, tabs off default), datum só em X/Y (nunca Z), merge de segs da mesma fresa, checklist novo.
+- `CLAUDE.md`: mapa CAM atualizado (toolDb/camJob/camPaths, ring*, emit*, tp*), zona guardada 3 aponta pros goldens; `/deploy-kabacal` escaneia os nomes novos.
+
+### Testado (c)
+Job padrão determinístico (NC e DXF gerados 2× → idênticos) ✓ · partN 12, 2 chapas 8x4 ✓ · NC head `%/:1248/G90/…T1M6` e tail `…G55X0Y0/M05M30` + CRLF final (hex conferido no disco) ✓ · datum centre tem X e Y negativos ✓ · tamanhos 40279/40509/4517 bytes = strings do browser ✓ · `priceForSheet('MDF 18mm','10x4')===75` ✓ · `tools/check.mjs` ok ✓.
 
 Infraestrutura de desenvolvimento (não muda o app em si — `index.html` intocado).
 

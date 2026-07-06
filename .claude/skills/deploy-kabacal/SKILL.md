@@ -9,10 +9,10 @@ Push to `main` IS the deploy (GitHub Pages). So the gate lives here.
 
 1. `node tools/check.mjs` → `kabacal check ok`. On failure: stop, fix, restart the gate.
 2. `git status` + `git diff --stat` — confirm the change set is only what the current task intended. Unrelated files → ask the user before including them.
-3. **Guarded-zone scan**: if the diff touches `calcQuote|priceForSheet|cncForThickness|sprayCalc|machOf|PRICES|DXF_LAYERS|dxfForThickness|buildDxfByThickness|ncPegasus|camMovesForSheet|camPerimeter|tabPositions|mrInsert|autoPack|packMulti|offcut` then the matching evidence must already exist in this conversation:
+3. **Guarded-zone scan**: if the diff touches `calcQuote|priceForSheet|cncForThickness|sprayCalc|machOf|PRICES|DXF_LAYERS|dxfForThickness|buildDxfByThickness|ncPegasus|tpPartMoves|tpSegsForSheet|tpDatumOff|tpDefaults|ringPts|ringWalker|emitLapFrom|emitRampThenLap|camJob|toolDb|mrInsert|autoPack|packMulti|offcut` then the matching evidence must already exist in this conversation:
    - pricing → `/pricing-impact` table shown to the user
-   - DXF/nesting → `/verify-kabacal` + before/after DXF diff
-   - CAM → `/verify-kabacal` + before/after .NC diff
+   - DXF/nesting → `/verify-kabacal` incl. golden diff (`tests/golden/`)
+   - CAM → `/verify-kabacal` incl. golden diff; intended golden changes regenerated in the same commit
    Missing evidence → run it now; do not skip.
 4. `/verify-kabacal` ran green after the LAST edit (any edit after the last verify invalidates it).
 

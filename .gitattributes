@@ -1,0 +1,3 @@
+# Golden machine files: byte-exact, never EOL-normalise (NC is CRLF by machine contract)
+tests/golden/*.nc -text
+tests/golden/*.dxf -text
