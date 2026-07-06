@@ -12,3 +12,9 @@ Desktop.ini
 *.tmp
 *-BACKUP.*
 * - Copy.*
+
+# pricing-impact baseline (generated from git HEAD, never committed)
+tools/_baseline.html
+
+# Claude Code local-only settings
+.claude/settings.local.json

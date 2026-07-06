@@ -2,7 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
-## 2026-07-05 — CAM Fase 1a: aba Toolpaths → corte de perfil → .NC Pegasus/Syntec 🎉
+## 2026-07-06 — Dev tooling: CLAUDE.md + subagents + skills + checker + CI
+
+Infraestrutura de desenvolvimento (não muda o app em si — `index.html` intocado).
+
+- **`CLAUDE.md`**: mapa do app por função, zonas guardadas (pricing / DXF / .NC / nesting / docs de impressão) com evidência before/after obrigatória, regras de segurança (nunca commitar com check falhando, nunca force-push, `.fastcnc` retro-compatível, chaves `kab_*`), workflow do dia-a-dia e regras de trabalho paralelo (1 escritor por vez — arquivo único).
+- **`tools/check.mjs`** (zero dependências): compila o `<script>` inline + tripwires de produção — `PRICES`/`calcQuote` únicos, VAT 20%, MDF 18mm 10x4 = £75, layers DXF (`OFFCUT`, `OFFCUT_TEXT`, `GROOVE`…), header/footer do post Syntec (`:1248`, `G53Z0`, `M05M30`, CRLF). Modo `--hook` pronto pra PostToolUse.
+- **Subagents** (`.claude/agents/`): `pricing-guard`, `dxf-nesting-reviewer`, `cam-reviewer` — revisores read-only das zonas guardadas, com checklist e veredito.
+- **Skills** (`.claude/skills/`): `/verify-kabacal` (smoke test no browser com job padrão + invariantes runtime), `/pricing-impact` (tabela before/after HEAD vs working tree), `/deploy-kabacal` (gate → commit → push → confere Pages).
+- **CI**: `.github/workflows/check.yml` roda o checker a cada push (alarme pós-push; Pages continua publicando direto do main).
+- `.claude/launch.json` (server de preview na 8123) · `.gitignore` + README atualizados.
+
+### Testado
+`node tools/check.mjs` → ok no estado atual · modo `--hook` ignora outros arquivos e roda no index.html · app não foi alterado (git diff do index.html vazio).
 
 Kabacal deixou de ser só CAD — agora **gera código de máquina**.
 

@@ -19,6 +19,9 @@ Previously published as `order-entry-beta.html` inside the `cnc-calculator` repo
 
 - `index.html` — the entire app (one self-contained HTML file: inline CSS + one inline `<script>`).
 - `KABACAL_RULES.md` — confirmed nesting / offcut / DXF rules.
+- `CLAUDE.md` — development conventions, guarded zones, verify/deploy workflow (read by Claude Code).
+- `tools/check.mjs` — zero-dependency syntax + production-invariant checker (`node tools/check.mjs`); also runs in CI (`.github/workflows/check.yml`).
+- `.claude/` — Claude Code subagents (pricing-guard, dxf-nesting-reviewer, cam-reviewer) and skills (/verify-kabacal, /pricing-impact, /deploy-kabacal).
 - `.nojekyll` — tells GitHub Pages to serve files as-is.
 
 ## Notes
