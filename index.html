@@ -3844,19 +3844,23 @@
   // kind + insert thickness). One Flushback door therefore takes BOTH templates: 18mm body + 12mm insert.
   // Insert layer names stay the VCarve reference names (OUT_INSERT_15MM/OFFSET_5MM) and map to the insert
   // part's OUT/IN geometry in Kabacal's exports (see KABACAL_RULES.md "Flushback").
+  // ORDER: the .ToolpathTemplate binary stores the tree REVERSED (bottom-up) vs the VCarve toolpath list —
+  // Ednei confirmed 2026-07-07 that the 17mm rough runs BEFORE the 18mm FINISH. The ops below are therefore
+  // the binary order FLIPPED = the real cutting order (pockets/rebates while the sheet holds the part,
+  // through-cuts last). Always flip when converting future .ToolpathTemplate files.
   const TPL_FACTORY=[
-   {id:'tpl_flush18',name:'Flushback 18mm Frame/Body',auto:true,appliesTo:{part:'body',type:'flush',th:18},src:'18mm Flushback.ToolpathTemplate (2026-07-07)',ops:[
-    {name:'6mm OUT/IN FINISH',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:18,passes:1,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}},
-    {name:'2mm Shadow',layer:'SHADOW',kind:'profile',tool:{num:2,dia:2},side:'inside',params:{cutDepth:2,passes:1,lastPass:{on:false,val:0}}},
-    {name:'4mm In 18mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:18,passes:1,lastPass:{on:false,val:0}}},
-    {name:'4mm Insert 12mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'on',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
-    {name:'4mm pocket Insert 12.3mm',layer:'POKET_INSERT',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
+   {id:'tpl_flush18',name:'Flushback 18mm Frame/Body',auto:true,appliesTo:{part:'body',type:'flush',th:18},src:'18mm Flushback.ToolpathTemplate (2026-07-07, reversed to list order)',ops:[
+    {name:'6mm OUT/IN Frame 17mm',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:17,passes:1,allowance:0.15,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}},
     {name:'6mm Pocket Frame 6.5mm',layer:'OFFSET_A',kind:'profile',tool:{num:1,dia:6},side:'inside',params:{cutDepth:6.5,passes:1,lastPass:{on:false,val:0}}},
-    {name:'6mm OUT/IN Frame 17mm',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:17,passes:1,allowance:0.15,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}}
+    {name:'4mm pocket Insert 12.3mm',layer:'POKET_INSERT',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
+    {name:'4mm Insert 12mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'on',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
+    {name:'4mm In 18mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:18,passes:1,lastPass:{on:false,val:0}}},
+    {name:'2mm Shadow',layer:'SHADOW',kind:'profile',tool:{num:2,dia:2},side:'inside',params:{cutDepth:2,passes:1,lastPass:{on:false,val:0}}},
+    {name:'6mm OUT/IN FINISH',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:18,passes:1,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}}
    ]},
-   {id:'tpl_flushins12',name:'Flushback 12mm Insert',auto:true,appliesTo:{part:'insert',type:'flush',th:12},src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07)',ops:[
-    {name:'6mm Out Insert 12mm',layer:'OUT_INSERT_15MM',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:12,passes:1,ramp:{on:true,dist:100}}},
-    {name:'4mm Pocket 5.5mm',layer:'OFFSET_5MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:5.5,passes:1}}
+   {id:'tpl_flushins12',name:'Flushback 12mm Insert',auto:true,appliesTo:{part:'insert',type:'flush',th:12},src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07, reversed to list order)',ops:[
+    {name:'4mm Pocket 5.5mm',layer:'OFFSET_5MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:5.5,passes:1}},
+    {name:'6mm Out Insert 12mm',layer:'OUT_INSERT_15MM',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:12,passes:1,ramp:{on:true,dist:100}}}
    ]}];
   // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
   let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();

@@ -97,25 +97,30 @@ os `.ToolpathTemplate` do VCarve ("18mm Flushback", "12mm Flushback Insert"). Re
 
 ### Porta (todas as linhas com canto redondo r2.5; CAVIDADE = inset do frame; anel(d) = cavidade expandida d mm)
 
-| Layer | Anéis (d a partir da cavidade) | Operação (do template, ordem do arquivo) |
-|---|---|---|
-| `OUT` | contorno externo (reto) + anel(0) | 1. "6mm OUT/IN FINISH" — T1 Ø6, Profile Outside, 18mm, 1 passada, last pass 1.0, ramp 100 · 7. "6mm OUT/IN Frame 17mm" — T1, Outside, 17mm, allowance 0.15, last pass 1.0 |
-| `SHADOW` | anel(16) | 2. "2mm Shadow" — T2 Ø2, Inside, 2mm |
-| `IN_22MM` | anel(0) | 3. "4mm In 18mm" — T4 Ø4, Inside, 18mm · 4. "4mm Insert 12mm" — T4, **On**, 12.3mm, last pass 1.0 |
-| `POKET_INSERT` | anel(7) + anel(14) | 5. "4mm pocket Insert 12.3mm" — T4, Inside, 12.3mm, last pass 1.0 (banda do rebaixo) |
-| `OFFSET_A` | anel(0) + anel(7) | 6. "6mm Pocket Frame 6.5mm" — T1, Inside, 6.5mm (banda do pocket da face) |
-| `OUT_10MM` | anel(0) | (linha presente na referência; op não incluída nos templates enviados) |
+| Ordem | Operação (ordem REAL de corte — confirmada 2026-07-07) | Layer | Anéis (d a partir da cavidade) |
+|---|---|---|---|
+| 1 | "6mm OUT/IN Frame 17mm" — T1 Ø6, Profile Outside, **17mm**, allowance 0.15, last pass 1.0, ramp 100 (desbaste: deixa 1mm de piso + 0.15 de parede) | `OUT` | contorno externo (reto) + anel(0) |
+| 2 | "6mm Pocket Frame 6.5mm" — T1, Inside, 6.5mm (banda do pocket da face) | `OFFSET_A` | anel(0) + anel(7) |
+| 3 | "4mm pocket Insert 12.3mm" — T4 Ø4, Inside, 12.3mm, last pass 1.0 (banda do rebaixo) | `POKET_INSERT` | anel(7) + anel(14) |
+| 4 | "4mm Insert 12mm" — T4, **On**, 12.3mm, last pass 1.0 | `IN_22MM` | anel(0) |
+| 5 | "4mm In 18mm" — T4, Inside, 18mm (cavidade passante) | `IN_22MM` | anel(0) |
+| 6 | "2mm Shadow" — T2 Ø2, Inside, 2mm | `SHADOW` | anel(16) |
+| 7 | "6mm OUT/IN FINISH" — T1, Outside, **18mm**, 1 passada, last pass 1.0, ramp 100 (liberta a peça POR ÚLTIMO) | `OUT` | contorno externo (reto) + anel(0) |
 
+(`OUT_10MM` = anel(0) presente na referência; op não incluída nos templates enviados.)
+**Regra de conversão descoberta**: o binário `.ToolpathTemplate` (mcTemplateTree) guarda os toolpaths
+**INVERTIDOS** em relação à lista do VCarve — Ednei confirmou que o rough 17mm roda ANTES do FINISH 18mm,
+e o arquivo lista o FINISH primeiro. Sempre INVERTER a ordem do binário ao converter (vale para o insert
+também: pocket 5.5 primeiro, contorno 12mm por último). A ordem invertida bate com a lógica de produção:
+pockets/rebaixos com a peça presa na chapa, cortes passantes no final.
 No exemplo (F=65): insets 65 · 65+58 · 65 · 65 · 58+51 · 49 — os passos "7, 7, 2" do Ednei (65→58→51→49).
 As repetições da MESMA geometria em layers diferentes são INTENCIONAIS (cada layer alimenta uma op).
-**Pergunta em aberto**: a ordem acima é a ordem do ARQUIVO; a op 7 (17mm, +0.15) parece desbaste que
-rodaria ANTES da op 1 (FINISH 18mm) — confirmar a ordem real na lista do VCarve antes de gerar NC disso.
 
 ### Insert (12mm MR MDF)
 
 - Tamanho = cavidade + **13.95/lado** (=+27.9 total; ex.: cavidade 350×367 → insert **377.9×394.9**). Antes era 14/lado; o 0.05/lado é folga de encaixe no rebaixo de 12.3mm.
 - Contorno redondo r2.5 + **2 anéis internos** a **6.9** e **11.95** do contorno (banda de pocket 5.5mm). **3 polylines no total** — o DXF de referência tinha cada linha DUPLICADA (contorno ×2, anéis ×2); as duplicatas NÃO são recriadas.
-- Template do insert: 1. "6mm Out Insert 12mm" — T1, Outside, 12mm (layer ref `OUT_INSERT_15MM` ≙ `OUT` do insert no Kabacal) · 2. "4mm Pocket 5.5mm" — T4, Inside, 5.5mm (layer ref `OFFSET_5MM` ≙ `IN` do insert).
+- Template do insert (ordem real, binário invertido): 1. "4mm Pocket 5.5mm" — T4, Inside, 5.5mm (layer ref `OFFSET_5MM` ≙ `IN` do insert) · 2. "6mm Out Insert 12mm" — T1, Outside, 12mm (layer ref `OUT_INSERT_15MM` ≙ `OUT` do insert; corta a peça livre por último).
 - Trad continua overlay 12/lado e anéis 7/14 retos; **reeded continua 14/lado** até vir um arquivo de referência reeded.
 
 ### Templates por peça física (schema v2, confirmado 2026-07-07)
@@ -124,7 +129,7 @@ rodaria ANTES da op 1 (FINISH 18mm) — confirmar a ordem real na lista do VCarv
 - Motor: `params.role` em `tpPathParts` filtra por peça física (`insert` = só peças insert; `body` = só corpos; ausente = tudo, comportamento antigo). É filtro puro — cam-reviewer 2026-07-07 provou que é **obrigatório**: sem role, o op do corpo (18mm) cortaria a chapa do insert (12mm) até Z−6 no spoilboard (as chaves `3_0`/`3_0_i` colidem no parseInt do scope).
 - Layers cortáveis hoje: contorno (`OUT` no corpo; `OUT_INSERT_15MM`→`OUT`+role no insert). Demais ops entram DESLIGADOS ("next op") preservando a ordem do arquivo — a ordem NUNCA é reordenada sem regra explícita. Par desbaste+acabamento no OUT (17mm+18mm) é intencional (aviso de duplicado ganha nota).
 - Preview: **▶ Simulate** = player 2.5D passo-a-passo (vista de topo, remoção por profundidade codificada em cor, banda/furo/kerf na largura real da fresa, abas corpo/insert, medidor de profundidade por op). Simulação 3D real = fase futura.
-- Ao converter futuros `.ToolpathTemplate`: mapear nome/appliesTo/ops{name, layer, kind, tool{num,dia}, side, params{cutDepth, passes, lastPass, allowance, ramp}} — 1 op por toolpath do arquivo, na ordem do arquivo.
+- Ao converter futuros `.ToolpathTemplate`: mapear nome/appliesTo/ops{name, layer, kind, tool{num,dia}, side, params{cutDepth, passes, lastPass, allowance, ramp}} — 1 op por toolpath do arquivo, **na ordem INVERTIDA do binário** (o mcTemplateTree guarda a lista de trás pra frente — confirmado com o Ednei 2026-07-07 pelo par 17mm/18mm).
 
 ## Offset Depth — pockets (confirmado 2026-07-07, protótipo Kabacal 3D)
 

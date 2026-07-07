@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (j) — Ordem real dos templates confirmada: o binário do VCarve guarda INVERTIDO
+
+Ednei confirmou: o rough 17mm roda ANTES do FINISH 18mm — e o `.ToolpathTemplate` lista o FINISH primeiro, logo o binário (mcTemplateTree) guarda a árvore **de trás pra frente**. Regra de conversão registrada em `KABACAL_RULES.md`: **sempre inverter a ordem do binário** ao converter templates futuros.
+
+- Os dois templates de fábrica virados pra ordem real de corte (que bate com a lógica de produção — pockets com a peça presa, passante no fim): **corpo** = rough 17mm (LIVE) → Pocket Frame 6.5 → pocket Insert 12.3 → Insert 12.3 on → In 18 → Shadow → **FINISH 18mm (LIVE, liberta a peça por último)**; **insert** = Pocket 5.5 → contorno 12mm (LIVE, por último). Boot refresh por id atualiza quem já tinha os templates.
+- NC comprovado: no segmento T1 da chapa 18mm, os laps do rough (piso Z1.000) saem ANTES dos do FINISH (piso Z0.000), um único `T1M6`. Goldens byte-idênticos (mudança só de dados). cam-reviewer (delta sobre o veredito SAFE anterior): a inversão não muda nenhuma conclusão de segurança — cada op abre com retract a safeZ e os pisos não mudam.
+
+### Testado (j)
+Ops de fábrica na ordem nova (7 corpo + 2 insert) ✓ · Auto → 9 paths na ordem real (rough 1º LIVE, FINISH 7º LIVE, contorno do insert 9º LIVE) ✓ · NC 18mm: Z1.000 (rough) antes de Z0.000 (finish), 1 toolchange ✓ · chapa 12mm intocada (T1 insert) ✓ · Simulate passo 1 = rough 17mm ✓ · goldens ll/c/dxf byte-idênticos ✓ · `check.mjs` ok ✓ · console limpo ✓.
+
 ## 2026-07-07 (i) — Templates por peça física (corpo 18mm × insert 12mm) + Simulate 2.5D
 
 Clarificação do Ednei: uma porta Flushback tem DUAS peças físicas com templates próprios. Zona guardada (CAM: `tpPathParts`) → **cam-reviewer executado no diff: veredito SAFE** (31/31; goldens regenerados byte-idênticos no sandbox dele; provou que o `role` é obrigatório — sem ele o op do corpo cortaria a chapa 12mm até Z−6).
