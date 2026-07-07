@@ -64,10 +64,12 @@ Family: `cnc-calculator` repo = the production calculator Kabacal stays file-com
 
 ## How to work
 
+- **One-time per clone:** `git config core.hooksPath .githooks` — enables the pre-commit gate (`check.mjs --pre-commit`: blocks index.html commits without a ROADMAP entry; warns on guarded-zone edits without staged goldens). Works for every model and human.
 - **Validate:** `node tools/check.mjs` — compiles the inline script + production invariants (pricing, DXF layers, NC post) + executes the Panels engine behavioural tests. Run after every `index.html` edit.
 - **Run the app:** `python -m http.server 8123` in the repo root → http://127.0.0.1:8123/ (Claude Code: preview config `kabacal`).
-- **Verify runtime:** seed the standard job and check the invariants — the full copy-paste browser-console recipe is in `tests/golden/README.md`. It needs no special tooling; any model + any browser works.
-- **Goldens:** `tests/golden/*.nc` + `*.dxf` are byte-exact machine outputs. If your change alters them **intentionally**, itemise the diff and regenerate them in the same commit (procedure in that README). Unintended diff = your change is wrong.
+- **Verify runtime:** full model-neutral procedure in `docs/TESTING.md` (invariants table, quote baskets, golden self-check trick); seeding recipes in `tests/golden/README.md`.
+- **Goldens:** `tests/golden/` holds byte-exact NC / DXF / quote-JSON outputs for three fixed jobs (standard, rich doors, panels). If your change alters any of them **intentionally**, itemise the diff and regenerate in the same commit. Unintended diff = your change is wrong.
+- **Examples:** `examples/*.fastcnc.json` are the same jobs as loadable files — use them for manual tests and the save/load round-trip check (`docs/TESTING.md`).
 - **Deploy:** push to `main` (Pages serves it within ~1 min). CI (`.github/workflows/check.yml`) runs the checker post-push.
 
 ## Reading order by task

@@ -32,4 +32,4 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## Doc system
 
-`AGENTS.md` = entry point for every model. Planned (Phases 2–3 of the model-independence plan): `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/CONTRACT-CAM.md`, `docs/CONTRACT-DXF.md`, `docs/PRICING.md`; golden expansion (rich doors DXF, panels DXF, 2-tool NC, quote snapshots); `examples/*.fastcnc.json`; `.githooks/pre-commit`.
+`AGENTS.md` = entry point for every model. **Phase 2 done (2026-07-07):** `docs/TESTING.md`; goldens expanded to 13 files (rich doors DXF ×4 thicknesses, panels DXF, toolchange NC ×2, quote snapshots ×3); `examples/` (3 loadable jobs + takeoff sample, mixed one round-trip-verified); `.githooks/pre-commit` (enable per clone: `git config core.hooksPath .githooks`). Quote baskets do NOT yet cover formula mode / overrides / custom materials — extend when touching those paths. Phase 3 planned: `docs/ARCHITECTURE.md`, `docs/CONTRACT-CAM.md`, `docs/CONTRACT-DXF.md`, `docs/PRICING.md` (extract from subagents), KABACAL_RULES TOC.

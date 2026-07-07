@@ -2,6 +2,24 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (m) — Fase 2: goldens ricos + examples + docs/TESTING.md + pre-commit hook (app intocado)
+
+Rede de regressão expandida — `index.html` sem NENHUMA mudança (só docs/tooling/goldens).
+
+- **Goldens novos** (13 arquivos em `tests/golden/`, byte-exatos, receitas completas no README):
+  - **Job rico** (5 portas: flushback 480×497 F65 c/ hinges+spray · trad 2 painéis c/ groove+LED · reeded · flat q2 c/ linha B + verso custom A-only + scribe · trad Glass c/ beading + serviços 1/0.5/1h): `GOLDEN_RICH_{18,12,9,3}mm.dxf` — cobre SHADOW/POKET_INSERT/IN_22MM/OUT_10MM/GROOVE/LED_CHANNEL/OFFSET_A+B/SCRIBE/REEDED/BEADING/INSIDE/hinges/back-sheet/OFFCUT(+TEXT), 11 parts, 4 chapas, quote 664/133/797.
+  - **NC de toolchange real**: templates de fábrica do flushback aplicados (`tplApply` ×2, Shadow ligado) → `GOLDEN_TPL_S1_18mm.nc` com **3 segmentos T1→T2→T1** (rough 17 → shadow → FINISH 18) + `GOLDEN_TPL_S2_12mm.nc` (contorno do insert — prova do filtro `role`).
+  - **Panels**: 2 rooms / 3 paredes (2 encadeadas c/ emenda 40/40 + 1 vertical), Door + Window → `GOLDEN_PANELS_18mm.dxf` (INSIDE da janela, caps, PART_NUMBER em ordem visual; ids `pnNew*` PINADOS — `Date.now()` embutido quebraria o determinismo). Quote panels 2390 / 6 chapas.
+  - **Quote snapshots**: `QUOTE_standard.json` (basket A 300/60/360) · `QUOTE_rich.json` (panels.total=0 — invariante doors-only) · `QUOTE_mixed.json` (total 3665).
+  - Goldens ll/c existentes **re-verificados byte-a-byte** contra o código atual na captura ✓.
+- **`examples/`**: `standard-job` · `rich-doors-and-panels` · `panels-only` (.fastcnc.json, gerados pelo próprio `buildFastCnc`) + `sample-takeoff.txt`. **Round-trip provado**: load frio do mixed reproduz o QUOTE_mixed exato (partN 11, 3665, panels 2390, svc 98, spray 54, 2 rooms) ✓. Persistência CAM confirmada DENTRO de `kabacalQuote` (camJob/camPaths/camTools — roadmap (b) correto).
+- **`docs/TESTING.md`**: procedimento de verificação 100% modelo-neutro (node+git+browser console): invariantes runtime, baskets, truque do golden self-check via fetch, round-trip de save/load, gadget VCarve (manual), tabela evidência-por-zona. Lacuna anotada: baskets ainda não cobrem formula mode/overrides/custom mats.
+- **`.githooks/pre-commit`** + `check.mjs --pre-commit` (git-aware): index.html staged sem ROADMAP.md = **bloqueia**; funções guardadas no diff staged sem goldens staged = **aviso alto**. Ativação por clone: `git config core.hooksPath .githooks` (funciona pra qualquer modelo/humano — git-level, não Claude-level).
+- `.gitattributes` ampliado (goldens `-text` incluindo .json; examples LF) · AGENTS.md/STATUS.md atualizados.
+
+### Testado (m)
+`node tools/check.mjs` ok · `--pre-commit` com stage real (docs+goldens, sem index.html) passa · hook dispara no commit desta entrega (hooksPath configurado antes) · round-trip PASS ✓ · goldens gerados 2× idênticos (DXF rico, PANELS, NCs) ✓ · ids pinados: nenhum `pr_g|pw_g|po_g` vaza no DXF ✓ · tamanhos conferidos no disco = strings do browser ✓ · git diff do index.html vazio ✓.
+
 ## 2026-07-07 (l) — Docs modelo-independentes Fase 1: AGENTS.md + STATUS.md (app intocado em comportamento)
 
 Preparação para qualquer modelo de IA (Claude, Codex, GPT…) continuar o projeto sem depender de memória de conversa.

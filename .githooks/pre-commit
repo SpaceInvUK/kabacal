@@ -1,0 +1,4 @@
+#!/bin/sh
+# Kabacal pre-commit gate — model-independent (fires for ANY tool or human).
+# Enable once per clone:  git config core.hooksPath .githooks
+node tools/check.mjs --pre-commit || exit 1

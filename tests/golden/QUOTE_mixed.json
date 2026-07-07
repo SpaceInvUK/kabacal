@@ -1,0 +1,156 @@
+{
+  "rows": [
+    {
+      "mat": "MDF Hidrofugo Plus 18mm",
+      "sheets": 1,
+      "parts": 6,
+      "mc": 65,
+      "base": 85,
+      "cncEff": 100,
+      "pocketPct": 0.1304,
+      "reedPct": 0,
+      "drillPct": 0.05,
+      "extraPct": 0,
+      "extra": 0,
+      "timeMin": 0,
+      "timeCost": 0,
+      "discPct": 0,
+      "disc": 0,
+      "total": 165,
+      "uniform": true,
+      "sz": "8x4"
+    },
+    {
+      "mat": "MR MDF 12mm",
+      "sheets": 1,
+      "parts": 2,
+      "mc": 50,
+      "base": 65,
+      "cncEff": 72,
+      "pocketPct": 0,
+      "reedPct": 0.1,
+      "drillPct": 0,
+      "extraPct": 0,
+      "extra": 0,
+      "timeMin": 0,
+      "timeCost": 0,
+      "discPct": 0,
+      "disc": 0,
+      "total": 122,
+      "uniform": true,
+      "sz": "8x4"
+    },
+    {
+      "mat": "MR MDF 9mm",
+      "sheets": 1,
+      "parts": 2,
+      "mc": 40,
+      "base": 65,
+      "cncEff": 65,
+      "pocketPct": 0,
+      "reedPct": 0,
+      "drillPct": 0,
+      "extraPct": 0,
+      "extra": 0,
+      "timeMin": 0,
+      "timeCost": 0,
+      "discPct": 0,
+      "disc": 0,
+      "total": 105,
+      "uniform": true,
+      "sz": "8x4"
+    },
+    {
+      "mat": "MDF Hidrofugo Plus 3mm",
+      "sheets": 1,
+      "parts": 1,
+      "mc": 55,
+      "base": 65,
+      "cncEff": 65,
+      "pocketPct": 0,
+      "reedPct": 0,
+      "drillPct": 0,
+      "extraPct": 0,
+      "extra": 0,
+      "timeMin": 0,
+      "timeCost": 0,
+      "discPct": 0,
+      "disc": 0,
+      "total": 120,
+      "uniform": true,
+      "sz": "8x4"
+    }
+  ],
+  "sheetN": 4,
+  "partN": 11,
+  "matTot": 210,
+  "cncTot": 302,
+  "bodyTot": 512,
+  "doorsTot": 512,
+  "method": "production",
+  "formula": null,
+  "svc": {
+    "design": 35,
+    "cutting": 13,
+    "assembly": 50
+  },
+  "svcTot": 98,
+  "spray": {
+    "rows": [
+      {
+        "profile": "Shaker",
+        "rate": 65,
+        "area": 0.8365694199999999
+      }
+    ],
+    "area": 0.8365694199999999,
+    "base": 54,
+    "add": {
+      "sq": 0,
+      "hg": 0,
+      "gg": 0,
+      "prep": 0
+    },
+    "total": 54,
+    "parts": 1
+  },
+  "panels": {
+    "rows": [
+      {
+        "room": "Room 1",
+        "mat": "MDF 18mm",
+        "sheets": 3,
+        "parts": 4,
+        "mc": 185,
+        "matOv": null,
+        "cncRate": 330,
+        "cncEff": 990,
+        "total": 1175,
+        "szs": {
+          "10x4": 1,
+          "8x4": 2
+        }
+      },
+      {
+        "room": "Room 2",
+        "mat": "MDF 18mm",
+        "sheets": 3,
+        "parts": 3,
+        "mc": 225,
+        "matOv": null,
+        "cncRate": 330,
+        "cncEff": 990,
+        "total": 1215,
+        "szs": {
+          "10x4": 3
+        }
+      }
+    ],
+    "total": 2390,
+    "sheetN": 6,
+    "partN": 7
+  },
+  "sub": 3054,
+  "vat": 611,
+  "total": 3665
+}

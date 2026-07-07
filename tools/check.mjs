@@ -2,17 +2,21 @@
 // Kabacal invariant checker — zero dependencies, runs anywhere node runs.
 //
 // Usage:
-//   node tools/check.mjs          full check (syntax + invariants), exit 2 on failure
-//   node tools/check.mjs --hook   PostToolUse hook mode: reads the hook JSON on stdin
-//                                 and only checks when index.html was the edited file
+//   node tools/check.mjs               full check (syntax + invariants), exit 2 on failure
+//   node tools/check.mjs --hook        PostToolUse hook mode: reads the hook JSON on stdin
+//                                      and only checks when index.html was the edited file
+//   node tools/check.mjs --pre-commit  full check + git-aware rules (run by .githooks/pre-commit):
+//                                      index.html staged without ROADMAP.md = FAIL;
+//                                      guarded functions in staged diff without tests/golden/* staged = WARN
 //
 // This is a tripwire, not a test suite: it catches broken JS and accidental
 // edits to production-critical rules (pricing, DXF layers, NC post format).
-// Runtime behaviour is verified separately with the /verify-kabacal skill.
+// Runtime behaviour is verified separately — see docs/TESTING.md.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const file = join(root, 'index.html');
@@ -137,6 +141,35 @@ if (html) {
       }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
+}
+
+// --pre-commit: git-aware rules on top of the full check (wired via .githooks/pre-commit)
+if (process.argv.includes('--pre-commit')) {
+  try {
+    const git = cmd => execSync('git ' + cmd, { cwd: root, maxBuffer: 64 * 1024 * 1024 }).toString();
+    const staged = git('diff --cached --name-only').trim().split(/\r?\n/).filter(Boolean);
+    if (staged.includes('index.html')) {
+      // House rule: every app change ships with a dated ROADMAP entry.
+      must(staged.includes('ROADMAP.md'),
+        'index.html is staged without ROADMAP.md — add the dated entry (top of ROADMAP.md) and stage it too');
+      // Guarded-zone tripwire: warn when guarded functions appear in ADDED lines but no goldens are staged.
+      const GUARDED = ['calcQuote', 'priceForSheet', 'cncForThickness', 'sprayCalc', 'machOf', 'pnQuote',
+        'PRICES', 'DXF_LAYERS', 'dxfForThickness', 'buildDxfByThickness', 'pnDxfForThickness',
+        'ncPegasus', 'tpPartMoves', 'tpSegsForSheet', 'tpDatumOff', 'tpXform', 'tpDefaults',
+        'ringPts', 'ringWalker', 'emitLapFrom', 'emitRampThenLap',
+        'mrInsert', 'autoPack', 'packMulti', 'offcut', 'pnLayoutRoom', 'pnNestRoom'];
+      const added = git('diff --cached -U0 -- index.html').split('\n')
+        .filter(l => l.startsWith('+') && !l.startsWith('+++')).join('\n');
+      const hit = GUARDED.filter(g => added.includes(g));
+      const goldensStaged = staged.some(f => f.startsWith('tests/golden/'));
+      if (hit.length && !goldensStaged) {
+        console.error('\nWARNING (not blocking): staged index.html touches guarded functions ['
+          + hit.join(', ') + '] but no tests/golden/* files are staged.\n'
+          + 'If machine/price output changed intentionally: regenerate the goldens in THIS commit '
+          + '(tests/golden/README.md). If unchanged: prove it with a golden diff, then commit.\n');
+      }
+    }
+  } catch (e) { failures.push('pre-commit git checks failed to run: ' + (e && e.message || e)); }
 }
 
 if (failures.length) {

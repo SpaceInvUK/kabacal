@@ -1,0 +1,60 @@
+{
+  "rows": [
+    {
+      "mat": "MDF Hidrofugo Plus 18mm",
+      "sheets": 2,
+      "parts": 12,
+      "mc": 130,
+      "base": 170,
+      "cncEff": 170,
+      "pocketPct": 0,
+      "reedPct": 0,
+      "drillPct": 0,
+      "extraPct": 0,
+      "extra": 0,
+      "timeMin": 0,
+      "timeCost": 0,
+      "discPct": 0,
+      "disc": 0,
+      "total": 300,
+      "uniform": true,
+      "sz": "8x4"
+    }
+  ],
+  "sheetN": 2,
+  "partN": 12,
+  "matTot": 130,
+  "cncTot": 170,
+  "bodyTot": 300,
+  "doorsTot": 300,
+  "method": "production",
+  "formula": null,
+  "svc": {
+    "design": 0,
+    "cutting": 0,
+    "assembly": 0
+  },
+  "svcTot": 0,
+  "spray": {
+    "rows": [],
+    "area": 0,
+    "base": 0,
+    "add": {
+      "sq": 0,
+      "hg": 0,
+      "gg": 0,
+      "prep": 0
+    },
+    "total": 0,
+    "parts": 0
+  },
+  "panels": {
+    "rows": [],
+    "total": 0,
+    "sheetN": 0,
+    "partN": 0
+  },
+  "sub": 300,
+  "vat": 60,
+  "total": 360
+}
