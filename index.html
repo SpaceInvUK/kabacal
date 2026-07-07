@@ -883,7 +883,8 @@
       if(kq.matSizeDef&&typeof kq.matSizeDef==='object')matSizeDef=JSON.parse(JSON.stringify(kq.matSizeDef));   // per-material default sheet size
       if(kq.camJob&&typeof kq.camJob==='object')camJob=Object.assign({zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'},kq.camJob);
       if(Array.isArray(kq.camPaths)){camPaths=JSON.parse(JSON.stringify(kq.camPaths));tpSeq=camPaths.length+1;}
-      if(Array.isArray(kq.camTools)&&kq.camTools.length){kq.camTools.forEach(t=>{const i=toolDb.findIndex(x=>x.id===t.id);if(i>=0)toolDb[i]=t;else toolDb.push(t);});saveToolDb();}   // job's tools merge into the machine library
+      saveCamState();
+      if(Array.isArray(kq.camTools)&&kq.camTools.length){kq.camTools.forEach(t=>{const i=toolDb.findIndex(x=>x.id===t.id);if(i>=0)toolDb[i]=Object.assign({grp:toolDb[i].grp},t);else toolDb.push(Object.assign({grp:'My Tools'},t));});saveToolDb();}   // job's tools merge into the machine library
     }
     if(!project.number)genOrderNumber();
     syncClientBar();
@@ -2997,21 +2998,164 @@
   function dlBlob(content,mime,name){const b=new Blob([content],{type:mime});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
 
   // ============ CAM / Toolpaths — VCarve-style (Fases 1–3): Job Setup · Tool Database · Profile ============
-  // Post: Pegasus (Syntec), validated byte-for-byte against the machine reference .nc. Tools/feeds seeded from the
-  // real machine data (T1 6mm S18000 F8000/F3000 · T6 V-bit · T8 ball nose · T12 pocket).
-  let toolDb=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tooldb'));if(Array.isArray(s)&&s.length)return s;}catch(e){}
-    return [
-      {id:'t1', name:'6mm CUTTER',              num:1,  dia:6,   feed:8000,  plunge:3000, rpm:18000, passDepth:6},
-      {id:'t6', name:'V-Bit 90° (38.3mm)',      num:6,  dia:38.3,feed:4000,  plunge:3000, rpm:16000, passDepth:3},
-      {id:'t8', name:'Ball Nose 8mm',           num:8,  dia:8,   feed:8000,  plunge:2000, rpm:15000, passDepth:4},
-      {id:'t12',name:'TOOL 12 — pocket clear',  num:12, dia:12,  feed:10000, plunge:3000, rpm:18000, passDepth:6}];})();
+  // Post: Pegasus (Syntec), validated byte-for-byte against the machine reference .nc.
+  // Tool library imported from the workshop's real VCarve database (FASTCNCTOOLS.vtdb -> xlsx -> here).
+  // Regenerate after a new upload:  node tools/xlsx2tooldb.mjs <new.xlsx> tools/fastcnc-tools.json
+  //                                 node tools/embed-tooldb.mjs        (rewrites the block below)
+  // Material categories from VCarve are deliberately dropped; feeds normalised to mm/min.
+  // t1 = "(1) 6mm CUTTER" keeps the NC-validated feeds and a 6mm pass depth (the vtdb stores 25 —
+  // full-depth single pass; kept aside as passDepthDb until confirmed on the machine).
+  const TOOL_FACTORY=/*TOOLDB_START*/{ver:2,source:"FASTCNCTOOLS_extracted.xlsx",extractedAt:"2026-07-07",defaultGroup:"Standard Tools",
+ groups:["Standard Tools","Fast CNC Tools","Skimming Tools","Drills","V-bits","Form Tools","Cmt Collection","Ball Nose","New Group"],
+ tools:[
+  {"id":"v10d3daaf","grp":"Fast CNC Tools","name":"POINT ROUNDOVER arif","num":10,"type":"form","dia":10,"angle":null,"flutes":2,"passDepth":2.5,"stepover":2,"stepoverPct":20,"rpm":16000,"feed":4000,"plunge":3000},
+  {"id":"v18bdfe3b","grp":"Fast CNC Tools","name":"POINT ROUNDOVER","num":11,"type":"form","dia":4.998,"angle":null,"flutes":2,"passDepth":1.25,"stepover":1,"stepoverPct":20,"rpm":16000,"feed":8000,"plunge":3000},
+  {"id":"vc3affad8","grp":"Fast CNC Tools","name":"SKIM","num":1,"type":"ballnose","dia":2,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v3fa2f554","grp":"Fast CNC Tools","name":"SKIM","num":1,"type":"ballnose","dia":2,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v05c7f8f7","grp":"Fast CNC Tools","name":"SKIM","num":1,"type":"ballnose","dia":2,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v9129a89f","grp":"Fast CNC Tools","name":"angle durma","num":10,"type":"form","dia":6,"angle":null,"flutes":2,"passDepth":1.5,"stepover":0.6,"stepoverPct":10,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"vd3ebce76","grp":"Fast CNC Tools","name":"angle durma","num":12,"type":"form","dia":102.2,"angle":null,"flutes":2,"passDepth":25.55,"stepover":20.44,"stepoverPct":20,"rpm":10000,"feed":8000,"plunge":3000},
+  {"id":"vdc5ff5e9","grp":"Fast CNC Tools","name":"new","num":12,"type":"endmill","dia":32,"angle":null,"flutes":2,"passDepth":6,"stepover":12.8,"stepoverPct":40,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"t1","grp":"Standard Tools","name":"(1) 6mm CUTTER","num":1,"type":"endmill","dia":6,"angle":null,"flutes":2,"passDepth":6,"stepover":3,"stepoverPct":50,"rpm":18000,"feed":8000,"plunge":3000,"passDepthDb":25},
+  {"id":"v4d4b3e22","grp":"Standard Tools","name":"(1) 6mm CUTTER","num":11,"type":"endmill","dia":6,"angle":null,"flutes":2,"passDepth":25,"stepover":3,"stepoverPct":50,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v20b3b610","grp":"Standard Tools","name":"19mm","num":7,"type":"endmill","dia":19,"angle":null,"flutes":2,"passDepth":9.5,"stepover":7.6,"stepoverPct":40,"rpm":16000,"feed":4000,"plunge":3000},
+  {"id":"v27b53e74","grp":"Standard Tools","name":"(2) 2mm CUTTER","num":2,"type":"endmill","dia":2,"angle":null,"flutes":2,"passDepth":3,"stepover":1.6,"stepoverPct":80,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"vde099356","grp":"Standard Tools","name":"(3) 3mm CUTTER","num":3,"type":"endmill","dia":3,"angle":null,"flutes":2,"passDepth":12,"stepover":1.2,"stepoverPct":40,"rpm":5000,"feed":4500,"plunge":3000},
+  {"id":"v885587ac","grp":"Standard Tools","name":"(4) 4mm CUTTER","num":4,"type":"endmill","dia":4,"angle":null,"flutes":2,"passDepth":10,"stepover":1.4,"stepoverPct":35,"rpm":18000,"feed":6000,"plunge":3000},
+  {"id":"v1aff5d6b","grp":"Standard Tools","name":"(5) 5mm DRILL","num":5,"type":"drill","dia":5,"angle":179,"flutes":2,"passDepth":17,"stepover":null,"stepoverPct":null,"rpm":4000,"feed":null,"plunge":3000},
+  {"id":"t6","grp":"Standard Tools","name":"(6) V-Bit (90° - 38.3mm) Dimond","num":6,"type":"vbit","dia":38.3,"angle":90,"flutes":2,"passDepth":6,"stepover":1,"stepoverPct":2.6,"rpm":16000,"feed":4000,"plunge":3000},
+  {"id":"v592c1b96","grp":"Standard Tools","name":"(7) 25mm SKIMMING TOOL","num":7,"type":"endmill","dia":25.5,"angle":null,"flutes":2,"passDepth":6,"stepover":7.65,"stepoverPct":30,"rpm":18000,"feed":7000,"plunge":3000},
+  {"id":"v44353e85","grp":"Standard Tools","name":"(7) 38mm SKIMMING TOOL","num":7,"type":"endmill","dia":38.4,"angle":null,"flutes":2,"passDepth":19.2,"stepover":15.36,"stepoverPct":40,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"vcace0662","grp":"Standard Tools","name":"(8) 12mm DIAMOND TOOL","num":8,"type":"endmill","dia":12,"angle":null,"flutes":2,"passDepth":19,"stepover":6,"stepoverPct":50,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vc7ac83e2","grp":"Standard Tools","name":"2MM BY","num":12,"type":"endmill","dia":2,"angle":null,"flutes":2,"passDepth":30,"stepover":0.8,"stepoverPct":40,"rpm":5000,"feed":8000,"plunge":3000},
+  {"id":"vf1f5f319","grp":"Standard Tools","name":"(9) Drill (179° - 35mm)","num":9,"type":"drill","dia":35,"angle":179,"flutes":2,"passDepth":7,"stepover":null,"stepoverPct":null,"rpm":8000,"feed":null,"plunge":3000},
+  {"id":"v854296be","grp":"Skimming Tools","name":"SKIMMING 64.6MM","num":8,"type":"endmill","dia":64.6,"angle":null,"flutes":2,"passDepth":3,"stepover":25.84,"stepoverPct":40,"rpm":12000,"feed":7000,"plunge":3000},
+  {"id":"v9e81d207","grp":"Drills","name":"Drill (90° - 15mm)","num":9,"type":"drill","dia":15,"angle":90,"flutes":2,"passDepth":20,"stepover":null,"stepoverPct":null,"rpm":6000,"feed":null,"plunge":3000},
+  {"id":"v2472efdf","grp":"Drills","name":"Drill (179° - 8mm)","num":6,"type":"drill","dia":8,"angle":179,"flutes":2,"passDepth":6,"stepover":null,"stepoverPct":null,"rpm":8000,"feed":null,"plunge":1000},
+  {"id":"v2f35fe62","grp":"Drills","name":"Drill (179° - 10mm)","num":9,"type":"drill","dia":10,"angle":179,"flutes":2,"passDepth":7,"stepover":null,"stepoverPct":null,"rpm":6000,"feed":null,"plunge":3000},
+  {"id":"v96d76eb3","grp":"Drills","name":"Drill (90° - 3mm)","num":11,"type":"drill","dia":3,"angle":90,"flutes":2,"passDepth":20,"stepover":null,"stepoverPct":null,"rpm":5000,"feed":0,"plunge":3000},
+  {"id":"vf360661d","grp":"Drills","name":"Drill (90° - 8mm)","num":7,"type":"drill","dia":8,"angle":90,"flutes":2,"passDepth":9.5,"stepover":null,"stepoverPct":null,"rpm":6000,"feed":0,"plunge":4000},
+  {"id":"vdeebbd90","grp":"V-bits","name":"V-Bit (20° - 3mm)","num":3,"type":"vbit","dia":3,"angle":20,"flutes":2,"passDepth":6,"stepover":0.3,"stepoverPct":10,"rpm":16000,"feed":7000,"plunge":3000},
+  {"id":"v18fcd97a","grp":"V-bits","name":"V-Bit (90° - 50mm)","num":12,"type":"vbit","dia":50,"angle":90,"flutes":2,"passDepth":6,"stepover":1,"stepoverPct":2,"rpm":16000,"feed":4000,"plunge":3000},
+  {"id":"v46559340","grp":"V-bits","name":"angle","num":1,"type":"endmill","dia":50.9,"angle":null,"flutes":2,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v54ab491b","grp":"V-bits","name":"46/42","num":7,"type":"form","dia":69,"angle":null,"flutes":2,"passDepth":10,"stepover":13.8,"stepoverPct":20,"rpm":12000,"feed":5000,"plunge":2000},
+  {"id":"v7c5616ab","grp":"V-bits","name":"V-Bit (45° - 12mm)","num":11,"type":"vbit","dia":12,"angle":45,"flutes":2,"passDepth":5,"stepover":6,"stepoverPct":50,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v02b4b6c0","grp":"V-bits","name":"V-Bit (60° - 25mm)","num":6,"type":"vbit","dia":25,"angle":60,"flutes":2,"passDepth":5,"stepover":12.5,"stepoverPct":50,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v11c55dd3","grp":"V-bits","name":"V-Bit (45° - 40mm)","num":8,"type":"vbit","dia":40,"angle":45,"flutes":2,"passDepth":6,"stepover":0.8,"stepoverPct":2,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"ve197743a","grp":"V-bits","name":"V-Bit (120° - 50mm)","num":10,"type":"vbit","dia":50,"angle":120,"flutes":2,"passDepth":10,"stepover":1,"stepoverPct":2,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v9e083e0b","grp":"V-bits","name":"V-Bit (150° - 62.8mm)","num":9,"type":"vbit","dia":62.8,"angle":150,"flutes":2,"passDepth":7,"stepover":1.256,"stepoverPct":2,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"vc3ec0fff","grp":"Form Tools","name":"50 mm round","num":4,"type":"form","dia":51.019,"angle":null,"flutes":2,"passDepth":6,"stepover":10.204,"stepoverPct":20,"rpm":16000,"feed":6000,"plunge":2000},
+  {"id":"v3bf0299d","grp":"Form Tools","name":"22","num":6,"type":"form","dia":52.32,"angle":null,"flutes":null,"passDepth":13.08,"stepover":10.464,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v29038af5","grp":"Form Tools","name":"handle tool","num":11,"type":"form","dia":20,"angle":null,"flutes":2,"passDepth":5,"stepover":4,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"vb5c74d18","grp":"Form Tools","name":"angle","num":1,"type":"endmill","dia":6,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"vd334a95a","grp":"Form Tools","name":"SKIM","num":1,"type":"ballnose","dia":3,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v0835df43","grp":"Form Tools","name":"78'3 angle","num":1,"type":"form","dia":84.445,"angle":null,"flutes":2,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"vff93b3a0","grp":"Form Tools","name":"Ogee Groove","num":9,"type":"form","dia":41.157,"angle":null,"flutes":2,"passDepth":10.289,"stepover":8.231,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v7c39d265","grp":"Form Tools","name":"French","num":1,"type":"form","dia":37.991,"angle":null,"flutes":2,"passDepth":9.498,"stepover":7.598,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"va91d0d62","grp":"Form Tools","name":"PlyCo tool","num":10,"type":"form","dia":30,"angle":null,"flutes":2,"passDepth":20,"stepover":6,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"va4018c9b","grp":"Form Tools","name":"78 angle","num":1,"type":"form","dia":91.941,"angle":null,"flutes":2,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v0dcc24d4","grp":"Form Tools","name":"13","num":1,"type":"ballnose","dia":2,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"vcf53140a","grp":"Form Tools","name":"NEW DEAN","num":12,"type":"form","dia":12.7,"angle":null,"flutes":5,"passDepth":5,"stepover":2.54,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v8bb25f70","grp":"Form Tools","name":"OVLO","num":5,"type":"form","dia":12.7,"angle":null,"flutes":2,"passDepth":3.175,"stepover":2.54,"stepoverPct":20,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"vbe642ac3","grp":"Form Tools","name":"150 degrees","num":11,"type":"form","dia":62.802,"angle":null,"flutes":2,"passDepth":15.701,"stepover":12.56,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":3000},
+  {"id":"v8a928c7e","grp":"Form Tools","name":"22","num":6,"type":"form","dia":22.137,"angle":null,"flutes":2,"passDepth":5.534,"stepover":4.428,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":3000},
+  {"id":"va0faf0d5","grp":"Form Tools","name":"11mm LONG","num":11,"type":"ballnose","dia":3,"angle":null,"flutes":2,"passDepth":5,"stepover":0.3,"stepoverPct":10,"rpm":18000,"feed":3000,"plunge":2000},
+  {"id":"v5e5a4fee","grp":"Form Tools","name":"handle tool","num":11,"type":"form","dia":20,"angle":null,"flutes":2,"passDepth":5,"stepover":4,"stepoverPct":20,"rpm":18000,"feed":4000,"plunge":3000},
+  {"id":"v712e0d7a","grp":"Form Tools","name":"handle tool","num":12,"type":"form","dia":110.366,"angle":null,"flutes":2,"passDepth":10,"stepover":22.073,"stepoverPct":20,"rpm":10000,"feed":8000,"plunge":5000},
+  {"id":"vab5bd6ec","grp":"Form Tools","name":"handle tool","num":8,"type":"form","dia":25.3,"angle":null,"flutes":2,"passDepth":6.325,"stepover":5.06,"stepoverPct":20,"rpm":16000,"feed":5000,"plunge":3000},
+  {"id":"v6bf92486","grp":"Form Tools","name":"30MM CURVE","num":9,"type":"form","dia":31.9,"angle":null,"flutes":2,"passDepth":7.975,"stepover":6.38,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v6b014ae3","grp":"Form Tools","name":"ogee","num":6,"type":"form","dia":24.998,"angle":null,"flutes":2,"passDepth":6.25,"stepover":5,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":5000},
+  {"id":"v985ebb15","grp":"Form Tools","name":"handle tool","num":12,"type":"form","dia":95.827,"angle":null,"flutes":2,"passDepth":10,"stepover":19.165,"stepoverPct":20,"rpm":10000,"feed":6000,"plunge":3000},
+  {"id":"vfe0052b5","grp":"Form Tools","name":"Yonico 18138 - Ogee Groove","num":10,"type":"form","dia":6.399,"angle":null,"flutes":2,"passDepth":3,"stepover":1.28,"stepoverPct":20,"rpm":18000,"feed":4000,"plunge":3000},
+  {"id":"vd97f3d67","grp":"Form Tools","name":"30MM CURVE","num":10,"type":"form","dia":76.729,"angle":null,"flutes":null,"passDepth":3,"stepover":15.346,"stepoverPct":20,"rpm":12000,"feed":8000,"plunge":3000},
+  {"id":"v37da62cd","grp":"Form Tools","name":"handle tool","num":5,"type":"form","dia":20,"angle":null,"flutes":2,"passDepth":5,"stepover":4,"stepoverPct":20,"rpm":16000,"feed":6000,"plunge":2000},
+  {"id":"v8ebe6acc","grp":"Form Tools","name":"Yonico 18138 - Ogee Groove","num":9,"type":"form","dia":66.846,"angle":null,"flutes":2,"passDepth":3,"stepover":13.369,"stepoverPct":20,"rpm":12000,"feed":6000,"plunge":3000},
+  {"id":"v5204423c","grp":"Form Tools","name":"8MM CURVE","num":6,"type":"form","dia":7.75,"angle":null,"flutes":2,"passDepth":1.938,"stepover":1.55,"stepoverPct":20,"rpm":12000,"feed":4500,"plunge":3000},
+  {"id":"vde7dfa56","grp":"Form Tools","name":"Yonico 18138 -CURVE","num":1,"type":"form","dia":282.442,"angle":null,"flutes":null,"passDepth":70.611,"stepover":56.488,"stepoverPct":20,"rpm":18000,"feed":2500,"plunge":3000},
+  {"id":"v0c29df62","grp":"Form Tools","name":"Yonico 18138 - Ogee Groove","num":6,"type":"form","dia":3.371,"angle":null,"flutes":2,"passDepth":3,"stepover":0.674,"stepoverPct":20,"rpm":16000,"feed":3000,"plunge":3000},
+  {"id":"vc5f3f334","grp":"Form Tools","name":"OGEE ROMAN","num":12,"type":"form","dia":22,"angle":null,"flutes":null,"passDepth":5.5,"stepover":4.4,"stepoverPct":20,"rpm":18000,"feed":4000,"plunge":3000},
+  {"id":"v85417cac","grp":"Form Tools","name":"ovolo 2","num":4,"type":"form","dia":34.972,"angle":null,"flutes":2,"passDepth":6,"stepover":6.994,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":3000},
+  {"id":"v4613a8e7","grp":"Form Tools","name":"Yonico 18138 - Ogee Groove","num":1,"type":"form","dia":3.371,"angle":null,"flutes":null,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v243b4816","grp":"Form Tools","name":"OGEE ROMAN","num":6,"type":"form","dia":18.688,"angle":null,"flutes":2,"passDepth":4.672,"stepover":3.738,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"v41a4c616","grp":"Form Tools","name":"OGEE ROMAN","num":12,"type":"form","dia":69.3,"angle":null,"flutes":2,"passDepth":17.325,"stepover":13.86,"stepoverPct":20,"rpm":12000,"feed":3000,"plunge":2000},
+  {"id":"v21032943","grp":"Form Tools","name":"OGEE ROMAN NEW","num":9,"type":"form","dia":28.6,"angle":null,"flutes":2,"passDepth":7.15,"stepover":5.72,"stepoverPct":20,"rpm":15000,"feed":5000,"plunge":3000},
+  {"id":"va43681a7","grp":"Form Tools","name":"OVOLO","num":1,"type":"form","dia":38,"angle":null,"flutes":2,"passDepth":null,"stepover":null,"stepoverPct":null,"rpm":null,"feed":null,"plunge":null},
+  {"id":"v3b4fc62f","grp":"Form Tools","name":"OGEE ROMAN","num":8,"type":"form","dia":19,"angle":null,"flutes":2,"passDepth":4.75,"stepover":3.8,"stepoverPct":20,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"v12c05f49","grp":"Form Tools","name":"Cove Faux Panel","num":12,"type":"form","dia":76.4,"angle":null,"flutes":2,"passDepth":19.1,"stepover":15.28,"stepoverPct":20,"rpm":12000,"feed":5000,"plunge":3000},
+  {"id":"v3d34f253","grp":"Form Tools","name":"Cove Faux Panel","num":11,"type":"form","dia":18.9,"angle":null,"flutes":2,"passDepth":4.725,"stepover":3.78,"stepoverPct":20,"rpm":16000,"feed":3000,"plunge":2000},
+  {"id":"v451f7ad7","grp":"Form Tools","name":"Yonico 18138 -CURVE","num":5,"type":"form","dia":12.2,"angle":null,"flutes":2,"passDepth":6,"stepover":2.44,"stepoverPct":20,"rpm":16000,"feed":6000,"plunge":2000},
+  {"id":"vc62686d6","grp":"Form Tools","name":"OGEE ROMAN","num":10,"type":"form","dia":28.6,"angle":null,"flutes":2,"passDepth":7.15,"stepover":6,"stepoverPct":21,"rpm":15000,"feed":5000,"plunge":3000},
+  {"id":"v13f1f171","grp":"Form Tools","name":"10 degrees","num":8,"type":"form","dia":50,"angle":null,"flutes":2,"passDepth":12.5,"stepover":10,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"v3e74e0d3","grp":"Form Tools","name":"Cove LARGE","num":11,"type":"form","dia":37.943,"angle":null,"flutes":2,"passDepth":6,"stepover":7.589,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"vfb981c8d","grp":"Form Tools","name":"Round Over Groove","num":5,"type":"form","dia":12.7,"angle":null,"flutes":2,"passDepth":5,"stepover":2.54,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"v999a63aa","grp":"Form Tools","name":"Radius Round Over Groove","num":2,"type":"form","dia":22.057,"angle":null,"flutes":2,"passDepth":20,"stepover":4.411,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":3000},
+  {"id":"v857331c9","grp":"Form Tools","name":"Point Cutting Round","num":7,"type":"form","dia":50,"angle":null,"flutes":2,"passDepth":12.5,"stepover":10,"stepoverPct":20,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"vb18bd40f","grp":"Form Tools","name":"Point Cutting Round","num":12,"type":"form","dia":38,"angle":null,"flutes":2,"passDepth":9.5,"stepover":19,"stepoverPct":50,"rpm":16000,"feed":8000,"plunge":2000},
+  {"id":"v09ba29b5","grp":"Form Tools","name":"JPULL","num":12,"type":"endmill","dia":16,"angle":null,"flutes":null,"passDepth":30,"stepover":6.096,"stepoverPct":38.1,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"v4b308086","grp":"Form Tools","name":"Point Cutting Round","num":12,"type":"form","dia":12.7,"angle":null,"flutes":2,"passDepth":20,"stepover":2.54,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":3000},
+  {"id":"v96660657","grp":"Form Tools","name":"OGEE ROMAN","num":11,"type":"form","dia":18.8,"angle":null,"flutes":2,"passDepth":4.7,"stepover":3.76,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":3000},
+  {"id":"v45b589ea","grp":"Form Tools","name":"Point Cutting Round","num":6,"type":"form","dia":12.7,"angle":null,"flutes":2,"passDepth":20,"stepover":2.54,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":3000},
+  {"id":"vf8acc2ff","grp":"Form Tools","name":"45/22","num":7,"type":"form","dia":22,"angle":null,"flutes":2,"passDepth":5.5,"stepover":4.4,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":3000},
+  {"id":"v06a7f557","grp":"Form Tools","name":"13074 R3/8","num":10,"type":"form","dia":18.75,"angle":null,"flutes":2,"passDepth":4.688,"stepover":3.75,"stepoverPct":20,"rpm":16000,"feed":4000,"plunge":3000},
+  {"id":"v6f265561","grp":"Form Tools","name":"Yonico 18138 -CURVE","num":8,"type":"form","dia":31.6,"angle":null,"flutes":2,"passDepth":7.9,"stepover":6.32,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v6ad7ddfd","grp":"Cmt Collection","name":"22","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v70d9998d","grp":"Cmt Collection","name":"21","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v528fa703","grp":"Cmt Collection","name":"20","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v81a4bde2","grp":"Cmt Collection","name":"19","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vd783471d","grp":"Cmt Collection","name":"18","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v4252c90b","grp":"Cmt Collection","name":"17","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"va07db148","grp":"Cmt Collection","name":"16","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vcc3bf682","grp":"Cmt Collection","name":"15","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v18638666","grp":"Cmt Collection","name":"14","num":3,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":6000,"plunge":5000},
+  {"id":"v4a998372","grp":"Cmt Collection","name":"13","num":10,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v1a98fe3b","grp":"Cmt Collection","name":"12","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v75f63e6f","grp":"Cmt Collection","name":"11","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vc63ce184","grp":"Cmt Collection","name":"09","num":1,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vbb111735","grp":"Cmt Collection","name":"08","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v1ace238a","grp":"Cmt Collection","name":"07","num":1,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v7f29b8af","grp":"Cmt Collection","name":"05","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"ve3c401b9","grp":"Cmt Collection","name":"04","num":1,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v574d512f","grp":"Cmt Collection","name":"10","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v65f53f40","grp":"Cmt Collection","name":"03","num":1,"type":"form","dia":19.993,"angle":null,"flutes":2,"passDepth":4.998,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v0b611b03","grp":"Cmt Collection","name":"02","num":1,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.999,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"v8d62217a","grp":"Cmt Collection","name":"01","num":1,"type":"form","dia":19.994,"angle":null,"flutes":2,"passDepth":4.999,"stepover":3.999,"stepoverPct":20,"rpm":18000,"feed":8000,"plunge":5000},
+  {"id":"vef376ec8","grp":"Ball Nose","name":"Ball Nose (50mm)TOOL 12","num":8,"type":"ballnose","dia":50,"angle":null,"flutes":2,"passDepth":7,"stepover":5,"stepoverPct":10,"rpm":15000,"feed":8000,"plunge":2000},
+  {"id":"v41501ff6","grp":"Ball Nose","name":"Ball Nose (1mm)TOOL 6","num":7,"type":"ballnose","dia":1,"angle":null,"flutes":2,"passDepth":10,"stepover":0.1,"stepoverPct":10,"rpm":18000,"feed":5000,"plunge":2000},
+  {"id":"v7df52c2b","grp":"Ball Nose","name":"Ball Nose (2mm)TOOL 12","num":6,"type":"ballnose","dia":2,"angle":null,"flutes":2,"passDepth":50,"stepover":0.6,"stepoverPct":30,"rpm":18000,"feed":8000,"plunge":2000},
+  {"id":"v76d6bde8","grp":"Ball Nose","name":"Ball Nose (22mm)TOOL 5","num":6,"type":"ballnose","dia":22,"angle":null,"flutes":2,"passDepth":3,"stepover":2.2,"stepoverPct":10,"rpm":15000,"feed":6000,"plunge":5000},
+  {"id":"v5a85dc2c","grp":"New Group","name":"8mm cutter","num":11,"type":"endmill","dia":8,"angle":null,"flutes":3,"passDepth":10,"stepover":3.2,"stepoverPct":40,"rpm":18000,"feed":4000,"plunge":3000}
+ ]}/*TOOLDB_END*/;
+  function factoryTools(){return TOOL_FACTORY?JSON.parse(JSON.stringify(TOOL_FACTORY.tools)):[];}
+  function migrateToolDb(arr){
+    if(arr.some(t=>t&&t.grp!=null))return arr;                       // already grouped (v2)
+    // pre-group library: merge into the factory set — the user's edits win by id, unknown customs keep working under "My Tools"
+    const fac=factoryTools();
+    arr.forEach(t=>{const i=fac.findIndex(x=>x.id===t.id);
+      if(i>=0)fac[i]=Object.assign({},fac[i],t);
+      else fac.push(Object.assign({grp:'My Tools'},t));});
+    return fac;
+  }
+  let toolDb=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tooldb'));if(Array.isArray(s)&&s.length)return migrateToolDb(s);}catch(e){}
+    return factoryTools();})();
   function saveToolDb(){try{localStorage.setItem('kab_tooldb',JSON.stringify(toolDb));}catch(e){}}
   function toolById(id){return toolDb.find(t=>t.id===id)||null;}
+  // ordered group list: factory order first (Standard Tools leads), then any extra groups in the library
+  function toolGroups(){
+    const base=TOOL_FACTORY?TOOL_FACTORY.groups.slice():[];
+    toolDb.forEach(t=>{const g=t.grp||'My Tools';if(base.indexOf(g)<0)base.push(g);});
+    return base.filter(g=>toolDb.some(t=>(t.grp||'My Tools')===g));
+  }
+  let tdbGroup='Standard Tools';                                     // group open in the Tool Database (default per user rule)
   // Job Setup — defaults match the real machine (bed zero, lower-left datum, PORTRAIT sheet: the Pegasus
   // runs the 2440×1220 sheet with the SHORT side across X (Job Setup 1220×2440 + reference file X≤1220).
   // Kabacal nests landscape, so NC coordinates are rotated into the machine's portrait frame on output.
-  let camJob={zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'};
-  let camPaths=[],tpSeq=1,tpUI={mode:'home',editId:null,sel:null},tpFilter='all',tpForm=null;
+  // camJob + camPaths persist in localStorage so closing/reopening the app keeps the machine setup and the
+  // toolpath list (a .fastcnc file still carries them per job and overwrites these on load).
+  let camJob=(function(){const d={zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'};
+    try{const s=JSON.parse(localStorage.getItem('kab_camjob'));if(s&&typeof s==='object')return Object.assign(d,s);}catch(e){}return d;})();
+  let camPaths=(function(){try{const s=JSON.parse(localStorage.getItem('kab_campaths'));if(Array.isArray(s))return s;}catch(e){}return [];})();
+  let tpSeq=camPaths.length+1,tpUI={mode:'home',editId:null,sel:null},tpFilter='all',tpForm=null;
+  function saveCamState(){try{localStorage.setItem('kab_camjob',JSON.stringify(camJob));localStorage.setItem('kab_campaths',JSON.stringify(camPaths));}catch(e){}}
   const TP_COLORS=['#2563eb','#d97706','#0d9488','#9333ea','#dc2626','#0891b2','#65a30d'];
   const TP_ANCH={ll:'lower-left',lc:'lower-centre',lr:'lower-right',mr:'right-middle',ur:'upper-right',uc:'upper-centre',ul:'upper-left',ml:'left-middle'};
   function thicknessOf(mat){const t=parseFloat(parseMat(mat).th);return isNaN(t)?18:t;}
@@ -3288,6 +3432,21 @@
       <button class="btn ghost tiny" onclick="openTpSummary()">${ic('list',13)} Summary</button>
       <button class="btn primary tiny" onclick="openTpSaveNC()">${ic('export',13)} Save NC</button>
     </div>
+    <div class="tp-tree" style="margin-bottom:8px">
+      <div class="tp-tree-h"><span>Templates</span>
+        <button class="btn ghost tiny" style="margin-left:auto" title="Pick the best Auto template for the selected parts' layers and apply it" onclick="tplAutoRun()">⚡ Auto</button>
+        <button class="btn ghost tiny" onclick="document.getElementById('tplImp').click()">${ic('open',12)} Import</button>
+        <button class="btn ghost tiny" onclick="tplExport()">${ic('save',12)} Export</button>
+        <input id="tplImp" type="file" accept=".json" style="display:none" onchange="tplImport(event)">
+      </div>
+      ${tpTemplates.length?tpTemplates.map(t=>{const ids=tplTargets(),m=tplMatchInfo(t,ids);
+        return `<div class="tp-row"><span class="dot" style="background:${m.full?'#16a34a':(m.matched?'#d97706':'#94a3b8')}" title="${m.matched}/${m.total} operations match the ${((typeof selSet!=='undefined'&&selSet.size)?'selected':'job')} parts' layers"></span>
+        <span class="nm">${esc(t.name)}${t.auto?' <span style="color:#7c3aed;font-weight:800;font-size:10px">AUTO</span>':''}</span>
+        <span class="sub2">${(t.ops||[]).length} ops · ${m.matched}/${m.total} match</span>
+        <button class="btn ghost tiny" onclick="tplApply('${t.id}')">Apply</button>
+        <button class="iconbtn" style="width:22px;height:22px" onclick="tplDel('${t.id}')">${ic('trash',11)}</button></div>`;}).join('')
+      :`<div class="tp-empty" style="padding:10px">No templates yet. Import a template .json — it lists the operations <b>in your order</b> (layers + tools); Kabacal applies it to the selected parts (or all) and never invents the sequence.</div>`}
+    </div>
     <div class="tp-tree">
       <div class="tp-tree-h"><span>Toolpaths</span>
         <select style="margin-left:auto;padding:3px 5px;border:1px solid var(--line);border-radius:6px;font-size:11.5px" onchange="tpFilter=this.value;renderToolpaths()">
@@ -3446,7 +3605,7 @@
     </div>`;
   }
   // ---- panel actions ----
-  function tpSide(){const s=document.getElementById('tpSide');if(s)s.innerHTML=tpSideHtml();}
+  function tpSide(){saveCamState();const s=document.getElementById('tpSide');if(s)s.innerHTML=tpSideHtml();}
   function tpSetDatum(k){if(k==='c')camJob.datum='c';else camJob.datum=k;tpSide();}
   function tpSetStartAt(k){if(tpForm)tpForm.params.startAt=k;tpSide();}
   function tpF(k,v){if(!tpForm)return;const seg=k.split('.');let o=tpForm.params;for(let i=0;i<seg.length-1;i++)o=o[seg[i]];o[seg[seg.length-1]]=v;tpSide();}
@@ -3490,26 +3649,70 @@
   function tpPreviewAll(){renderToolpaths();const c=document.getElementById('tpCanvas');if(c)c.scrollIntoView({behavior:'smooth',block:'start'});}
   // ---- Tool Database ----
   function tpCloseModal(){if(typeof closeModal==='function')closeModal();else{const o=document.getElementById('modalOv');if(o)o.remove();}}
+  // Tool Database — VCarve-style: group rail on the left (Standard Tools default), full settings table on the
+  // right (columns match the workshop's extracted spreadsheet). Everything edits in place, keyed by tool id.
+  const TOOL_TYPES={endmill:'End Mill',ballnose:'Ball Nose',vbit:'V-Bit',drill:'Drill',form:'Form Tool'};
+  function tdbOpen(g){tdbGroup=g;tpCloseModal();openToolDb();}
   function openToolDb(){
-    const rows=toolDb.map((t,i)=>`<tr>
-      <td><input type="text" value="${esc(t.name)}" style="width:150px" onchange="tdbSet(${i},'name',this.value)"></td>
-      <td><input type="number" value="${t.num}" style="width:46px" onchange="tdbSet(${i},'num',Math.max(1,Math.round(+this.value||1)))"></td>
-      <td><input type="number" step="0.1" value="${t.dia}" style="width:56px" onchange="tdbSet(${i},'dia',Math.max(0.1,+this.value||6))"></td>
-      <td><input type="number" step="100" value="${t.feed}" style="width:64px" onchange="tdbSet(${i},'feed',Math.max(1,+this.value||8000))"></td>
-      <td><input type="number" step="100" value="${t.plunge}" style="width:64px" onchange="tdbSet(${i},'plunge',Math.max(1,+this.value||3000))"></td>
-      <td><input type="number" step="500" value="${t.rpm}" style="width:64px" onchange="tdbSet(${i},'rpm',Math.max(1000,+this.value||18000))"></td>
-      <td><input type="number" step="0.5" value="${t.passDepth}" style="width:52px" onchange="tdbSet(${i},'passDepth',Math.max(0.1,+this.value||1))"></td>
-      <td><button class="iconbtn" onclick="tdbDel(${i})">${ic('trash',12)}</button></td></tr>`).join('');
-    openModal('Tool Database',`<div class="sub" style="margin-bottom:8px">Seeded from your machine's proven production job. Feeds in mm/min. Tool № = ATC pocket.</div>
-      <table class="ptbl" style="font-size:12px"><tr><th>Name</th><th>T№</th><th>Ø mm</th><th>Feed</th><th>Plunge</th><th>RPM</th><th>Pass</th><th></th></tr>${rows}</table>
-      <div style="margin-top:10px"><button class="btn ghost tiny" onclick="tdbAdd()">${ic('plus',12)} Add tool</button></div>`,true);
+    const groups=toolGroups();
+    if(groups.indexOf(tdbGroup)<0)tdbGroup=groups[0]||'Standard Tools';
+    const rail=groups.map(g=>{const n=toolDb.filter(t=>(t.grp||'My Tools')===g).length;
+      return `<div class="tpl-item" style="cursor:pointer;padding:7px 9px;${g===tdbGroup?'background:#dbeafe;border-color:#93c5fd':''}" onclick="tdbOpen('${esc(g)}')"><div class="tpl-meta"><b style="font-size:12px">${esc(g)}</b><div class="sub">${n} tool${n===1?'':'s'}</div></div></div>`;}).join('');
+    const inG=toolDb.filter(t=>(t.grp||'My Tools')===tdbGroup);
+    const numIn=(t,k,step,w,min)=>`<input type="number" step="${step}" value="${t[k]==null?'':t[k]}" style="width:${w}px" onchange="tdbSet('${t.id}','${k}',this.value===''?null:Math.max(${min},+this.value||${min}))">`;
+    const rows=inG.map(t=>`<tr>
+      <td><input type="number" value="${t.num||1}" style="width:44px;font-weight:800" title="Tool number — becomes T${t.num}/H${t.num} in the NC file" onchange="tdbSet('${t.id}','num',Math.max(1,Math.round(+this.value||1)))"></td>
+      <td><input type="text" value="${esc(t.name)}" style="width:180px" onchange="tdbSet('${t.id}','name',this.value)"></td>
+      <td><select style="padding:4px" onchange="tdbSet('${t.id}','type',this.value)">${Object.keys(TOOL_TYPES).map(k=>`<option value="${k}" ${((t.type||'endmill')===k)?'selected':''}>${TOOL_TYPES[k]}</option>`).join('')}</select></td>
+      <td>${numIn(t,'dia','0.1',56,0.1)}</td>
+      <td>${numIn(t,'angle','1',46,1)}</td>
+      <td>${numIn(t,'flutes','1',40,1)}</td>
+      <td title="${t.passDepthDb?('The VCarve database stores '+t.passDepthDb+'mm (full-depth single pass). Kept at '+t.passDepth+'mm — the machine reference job cuts 18mm in 3×6mm. Type '+t.passDepthDb+' here to adopt the database value.'):''}">${numIn(t,'passDepth','0.5',50,0.1)}${t.passDepthDb?' <span style="color:#b45309;font-weight:800" title="vtdb: '+t.passDepthDb+'mm">✱</span>':''}</td>
+      <td>${numIn(t,'stepover','0.1',52,0.1)}</td>
+      <td>${numIn(t,'stepoverPct','1',46,1)}</td>
+      <td>${numIn(t,'rpm','500',60,1000)}</td>
+      <td>${numIn(t,'feed','100',60,1)}</td>
+      <td>${numIn(t,'plunge','100',60,1)}</td>
+      <td><select style="padding:4px;max-width:110px" title="Move to another group" onchange="tdbSet('${t.id}','grp',this.value)">${toolGroups().concat(toolDb.some(x=>(x.grp||'My Tools')==='My Tools')?[]:['My Tools']).map(g=>`<option value="${esc(g)}" ${(t.grp||'My Tools')===g?'selected':''}>${esc(g)}</option>`).join('')}</select></td>
+      <td><button class="iconbtn" onclick="tdbDel('${t.id}')">${ic('trash',12)}</button></td></tr>`).join('');
+    openModal('Tool Database — '+esc(tdbGroup),
+      `<div class="sub" style="margin-bottom:8px">Imported from your VCarve tool database (${TOOL_FACTORY?esc(TOOL_FACTORY.source):''}, ${TOOL_FACTORY?TOOL_FACTORY.extractedAt:''}) — material categories dropped, feeds in <b>mm/min</b>. <b>T№ drives the T/H numbers in the NC file.</b> Changes save automatically.</div>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="width:190px;flex:none;display:flex;flex-direction:column;gap:4px;max-height:420px;overflow:auto">${rail}</div>
+        <div style="flex:1;min-width:0;overflow:auto;max-height:420px">
+          <table class="ptbl" style="font-size:11.5px;white-space:nowrap"><tr><th>T№</th><th>Tool Name</th><th>Type</th><th>Ø (D)</th><th>Angle°</th><th>Flutes</th><th>Pass</th><th>Step</th><th>Step %</th><th>Spindle</th><th>Feed</th><th>Plunge</th><th>Group</th><th></th></tr>${rows||'<tr><td colspan="14" class="sub" style="padding:14px">No tools in this group.</td></tr>'}</table>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost tiny" onclick="tdbAdd()">${ic('plus',12)} Add tool to ${esc(tdbGroup)}</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost tiny" onclick="tdbExport()">${ic('export',12)} Save tools (.json)</button>
+        <button class="btn ghost tiny" onclick="document.getElementById('tdbImp').click()">${ic('open',12)} Load tools (.json)</button>
+        <button class="btn ghost tiny" onclick="tdbReset()" title="Restore the imported VCarve library (your customs in My Tools are kept)">${ic('reset',12)} Reset to factory</button>
+        <input id="tdbImp" type="file" accept=".json" style="display:none" onchange="tdbImport(event)">
+      </div>`,true);
   }
-  function tdbSet(i,k,v){if(!toolDb[i])return;toolDb[i][k]=v;saveToolDb();renderToolpaths();}
-  function tdbDel(i){if(!toolDb[i])return;if(!confirm('Delete tool "'+toolDb[i].name+'"?'))return;toolDb.splice(i,1);saveToolDb();tpCloseModal();openToolDb();renderToolpaths();}
-  function tdbAdd(){toolDb.push({id:'t'+Date.now().toString(36),name:'New tool',num:1,dia:6,feed:8000,plunge:3000,rpm:18000,passDepth:6});saveToolDb();tpCloseModal();openToolDb();}
+  function tdbSet(id,k,v){const t=toolById(id);if(!t)return;t[k]=(k==='name'||k==='type'||k==='grp')?v:v;if(k==='passDepth'&&t.passDepthDb&&+v===+t.passDepthDb)delete t.passDepthDb;saveToolDb();renderToolpaths();}
+  function tdbDel(id){const i=toolDb.findIndex(t=>t.id===id);if(i<0)return;if(!confirm('Delete tool "'+toolDb[i].name+'"?'))return;toolDb.splice(i,1);saveToolDb();tpCloseModal();openToolDb();renderToolpaths();}
+  function tdbAdd(){toolDb.push({id:'t'+Date.now().toString(36),grp:tdbGroup,name:'New tool',num:1,type:'endmill',dia:6,angle:null,flutes:2,feed:8000,plunge:3000,rpm:18000,passDepth:6,stepover:3,stepoverPct:50});saveToolDb();tpCloseModal();openToolDb();}
+  function tdbExport(){dlBlob(JSON.stringify({ver:2,exportedAt:new Date().toISOString().slice(0,10),groups:toolGroups(),tools:toolDb},null,1),'application/json','KABACAL_TOOLS.json');}
+  function tdbImport(ev){const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{try{const d=JSON.parse(r.result);const arr=Array.isArray(d)?d:d.tools;
+      if(!Array.isArray(arr)||!arr.length)throw new Error('no tools[] in the file');
+      arr.forEach(t=>{if(!t.id)t.id='t'+Math.random().toString(36).slice(2,9);const i=toolDb.findIndex(x=>x.id===t.id);if(i>=0)toolDb[i]=t;else toolDb.push(t);});
+      saveToolDb();tpCloseModal();openToolDb();renderToolpaths();alert('Loaded '+arr.length+' tool(s) — merged by id into the library.');
+    }catch(e){alert('Invalid tools file: '+e.message);}};
+    r.readAsText(f);ev.target.value='';}
+  function tdbReset(){if(!confirm('Reset the library to the imported VCarve factory tools?\nTools in "My Tools" are kept; every other group returns to the imported values.'))return;
+    const mine=toolDb.filter(t=>(t.grp||'My Tools')==='My Tools');
+    toolDb=factoryTools().concat(mine);saveToolDb();tpCloseModal();tdbGroup='Standard Tools';openToolDb();renderToolpaths();}
   function openToolPick(){
-    const rows=toolDb.map(t=>`<div class="tpl-item" style="cursor:pointer" onclick="tpPickTool('${t.id}')"><div class="tpl-meta"><b>(${t.num}) ${esc(t.name)}</b><div class="sub">Ø${t.dia}mm · F${t.feed} · plunge F${t.plunge} · S${t.rpm} · pass ${t.passDepth}mm</div></div></div>`).join('');
-    openModal('Select tool',rows||'<div class="sub">Tool database is empty.</div>',true);
+    const groups=toolGroups();
+    const secs=groups.map(g=>{const inG=toolDb.filter(t=>(t.grp||'My Tools')===g);if(!inG.length)return '';
+      return `<div class="sub" style="font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:8px 0 4px">${esc(g)}</div>`+
+        inG.map(t=>`<div class="tpl-item" style="cursor:pointer" onclick="tpPickTool('${t.id}')"><div class="tpl-meta"><b>(${t.num}) ${esc(t.name)}</b><div class="sub">${TOOL_TYPES[t.type||'endmill']} · Ø${t.dia}mm${t.angle?' · '+t.angle+'°':''} · F${t.feed||'—'} · plunge F${t.plunge||'—'} · S${t.rpm||'—'} · pass ${t.passDepth||'—'}mm</div></div></div>`).join('');
+    }).join('');
+    openModal('Select tool — Standard Tools first',secs||'<div class="sub">Tool database is empty.</div>',true);
   }
   function tpPickTool(id){if(tpForm){tpForm.toolId=id;const t=toolById(id);if(t&&+t.passDepth>0){tpForm.params.passDepth=+t.passDepth;tpForm.params.passes=null;}}tpCloseModal();tpSide();}   // picking a tool pulls its pass depth (editable after)
   // ---- templates (Save/Load Selected Toolpath) ----
@@ -3529,6 +3732,78 @@
   }
   function tpApplyTpl(name){const t=tpTpls()[name];if(!t)return;tpCloseModal();
     tpUI.mode='profile';tpUI.editId=null;tpForm={name:'Profile '+tpSeq,toolId:t.toolId,params:JSON.parse(JSON.stringify(t.params))};tpSide();}
+  // ---- Toolpath TEMPLATES (sequence templates) ----
+  // A template is a user-provided ORDERED list of operations; Kabacal never invents the sequence.
+  // Schema (import .json = one template object or an array of them):
+  //   {id, name, auto:true|false, desc,
+  //    ops:[{layer:'OUT'|'INSIDE'|'OFFSET_A'..'OFFSET_G'|'GROOVE'|'LED_CHANNEL'|'SCRIBE'|'hinges',
+  //          kind:'profile'|'pocket'|'drill',            // only profile+OUT generates NC today; others land disabled ("next op")
+  //          tool:{num:6}|{id:'t1'}|{dia:25},            // resolved against the Tool Database, Standard Tools first
+  //          side:'outside'|'inside'|'on', params:{...}}]}   // params merge over tpDefaults(tool)
+  // Applying uses the CURRENT selection (1 part, several, or all when nothing is selected); each op only
+  // targets the parts that actually have that op's layer. "Auto" templates can be matched by layers alone.
+  let tpTemplates=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tp_templates'));if(Array.isArray(s))return s;}catch(e){}return [];})();
+  function saveTpTemplates(){try{localStorage.setItem('kab_tp_templates',JSON.stringify(tpTemplates));}catch(e){}}
+  function itemLayers(it){
+    const s=new Set(['OUT']);
+    enabledLines(it).forEach(l=>s.add('OFFSET_'+l.L));
+    if(hingeInfo(it).on)s.add('hinges');
+    const g=grooveOf(it);if(g.on){s.add('GROOVE');if(g.led.on)s.add('LED_CHANNEL');}
+    if(scribeOf(it).on)s.add('SCRIBE');
+    if(isGlassItem(it)){s.add('INSIDE');s.add('BEADING');}
+    return s;
+  }
+  function tplResolveTool(spec){
+    if(!spec)return null;
+    if(spec.id){const t=toolById(spec.id);if(t)return t;}
+    const ordered=[];toolGroups().forEach(g=>toolDb.forEach(t=>{if((t.grp||'My Tools')===g)ordered.push(t);}));   // Standard Tools first
+    if(spec.num!=null){const t=ordered.find(t=>+t.num===+spec.num);if(t)return t;}
+    if(spec.dia!=null){const t=ordered.find(t=>Math.abs(+t.dia-+spec.dia)<0.05);if(t)return t;}
+    return null;
+  }
+  function tplTargets(){const ids=(typeof selSet!=='undefined'&&selSet.size)?[...selSet]:items.map((_,i)=>i);return ids.filter(i=>items[i]);}
+  function tplOpItems(op,ids){const L=op.layer||'OUT';return ids.filter(i=>itemLayers(items[i]).has(L));}
+  function tplMatchInfo(tpl,ids){const ops=tpl.ops||[];let m=0;ops.forEach(op=>{if(tplOpItems(op,ids).length)m++;});return {matched:m,total:ops.length,full:m===ops.length&&ops.length>0};}
+  function tplApply(id){
+    const tpl=tpTemplates.find(t=>t.id===id);if(!tpl)return;
+    const ids=tplTargets();
+    if(!ids.length){alert('No parts in the job yet.');return;}
+    const report=[];let made=0;
+    (tpl.ops||[]).forEach((op,k)=>{
+      const its=tplOpItems(op,ids);
+      if(!its.length){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): no selected part has this layer — skipped');return;}
+      const tool=tplResolveTool(op.tool);
+      if(!tool){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): tool '+JSON.stringify(op.tool)+' not in the Tool Database — skipped');return;}
+      const live=(op.kind||'profile')==='profile'&&(op.layer||'OUT')==='OUT';
+      const params=Object.assign(tpDefaults(tool),{layer:op.layer||'OUT',scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
+      camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
+        name:tpl.name+' '+(k+1)+' — '+(op.layer||'OUT')+(live?'':' (next op)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params))});
+      tpSeq++;made++;
+      if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
+    });
+    renderToolpaths();
+    alert('Template "'+tpl.name+'": '+made+' toolpath(s) created for '+ids.length+' part(s), in the template\'s order.'+(report.length?'\n\n'+report.join('\n'):''));
+  }
+  function tplAutoRun(){
+    const ids=tplTargets();
+    if(!ids.length){alert('No parts in the job yet.');return;}
+    const autos=tpTemplates.filter(t=>t.auto);
+    if(!autos.length){alert('No template is set to Auto. Import templates (or mark one Auto in its .json: "auto": true).');return;}
+    let best=null,bs=-1;
+    autos.forEach(t=>{const m=tplMatchInfo(t,ids);const score=(m.full?1000:0)+m.matched/(m.total||1);if(m.matched&&score>bs){bs=score;best=t;}});
+    if(!best){alert('No Auto template matches the layers on the selected parts.');return;}
+    tplApply(best.id);
+  }
+  function tplDel(id){const i=tpTemplates.findIndex(t=>t.id===id);if(i<0)return;if(!confirm('Remove template "'+tpTemplates[i].name+'"?'))return;tpTemplates.splice(i,1);saveTpTemplates();tpSide();}
+  function tplExport(){if(!tpTemplates.length){alert('No templates to save yet.');return;}dlBlob(JSON.stringify(tpTemplates,null,1),'application/json','KABACAL_TEMPLATES.json');}
+  function tplImport(ev){const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{try{let d=JSON.parse(r.result);if(!Array.isArray(d))d=[d];
+      let n=0;d.forEach(t=>{if(!t||!Array.isArray(t.ops)||!t.name)return;if(!t.id)t.id='tpl'+Math.random().toString(36).slice(2,9);
+        const i=tpTemplates.findIndex(x=>x.id===t.id||x.name===t.name);if(i>=0)tpTemplates[i]=t;else tpTemplates.push(t);n++;});
+      if(!n)throw new Error('no valid template objects (need name + ops[])');
+      saveTpTemplates();tpSide();alert('Loaded '+n+' template(s).');
+    }catch(e){alert('Invalid template file: '+e.message);}};
+    r.readAsText(f);ev.target.value='';}
   // ---- Summary + Save NC ----
   function openTpSummary(){
     const vis=camPaths.filter(p=>p.on);
@@ -3577,6 +3852,7 @@
     dlBlob(nc,'text/plain;charset=utf-8',nm);
   }
   function renderToolpaths(){
+    saveCamState();
     const c=document.getElementById('tpCanvas'),s=document.getElementById('tpSide');
     if(!c||!s)return;
     c.innerHTML=tpCanvasHtml();

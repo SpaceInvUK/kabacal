@@ -64,6 +64,10 @@ if (html) {
   }
   once(/const DXF_LAYERS=\{/g, 'DXF_LAYERS table');
 
+  // 4b. Tool library: the embedded factory block must exist and keep the NC-validated t1
+  must(/\/\*TOOLDB_START\*\/[\s\S]*\/\*TOOLDB_END\*\//.test(html), 'TOOL_FACTORY markers missing (tools/embed-tooldb.mjs)');
+  must(html.includes('"id":"t1"'), 'factory tool t1 (the NC-validated 6mm cutter) missing');
+
   // 5. CNC post invariants (Pegasus/Syntec — validated vs the machine reference .nc)
   for (const tok of [":1248'", "'G40G17G80G49'", "'G53Z0'", "'M05M30'"]) {
     must(html.includes(tok), `NC post invariant missing: ${tok}`);

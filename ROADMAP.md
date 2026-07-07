@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (d) — Tool Database real (import do VCarve), persistência de CAM e motor de templates
+
+Import do banco de ferramentas REAL da oficina (`FASTCNCTOOLS.vtdb` → xlsx extraído → app), com a UI no formato da planilha de referência. **Goldens NC/DXF byte-idênticos** (nenhuma mudança de saída de máquina; cam-reviewer não exigido pela regra).
+
+- **Import Excel → biblioteca**: 116 ferramentas em 9 grupos (`tools/fastcnc-tools.json`), embutidas no app entre marcadores `/*TOOLDB_START*/…/*TOOLDB_END*/`. **Material do VCarve ignorado** (pedido do user); feeds normalizados pra **mm/min** (linhas m/min ×1000); Tool # da coluna da máquina. Pipeline pra updates futuros via Claude: `node tools/xlsx2tooldb.mjs <novo.xlsx>` → `node tools/embed-tooldb.mjs` (zero dependências, parser de xlsx em stdlib).
+- **Standard Tools = grupo default**: a Tool Database abre nele (13 ferramentas numeradas T1–T12); rail à esquerda troca de grupo (Drills, V-bits, Form Tools, CMT, Ball Nose…). Tabela com as colunas da imagem: **T№ · Tool Name · Type · Ø · Angle · Flutes · Pass · Step · Step% · Spindle · Feed · Plunge · Group** — tudo editável inline, salvo automático; T№ editável **alimenta direto o T{n}/H{n} do NC** (provado: tdbSet num=3 → `T3M6`/`G43H3`).
+- **Compat/segurança**: `t1` = "(1) 6mm CUTTER" mantém id + feeds validados no NC (F8000/P3000/S18000); **passDepth fica 6mm** (job de referência corta 18mm em 3×6) — o vtdb guarda **25** (passada única full-depth), preservado como `passDepthDb` + marcador ✱ na UI pra adoção deliberada. `t6` = V-Bit 90°. Biblioteca v1 do usuário migra (edits ganham por id; customs → "My Tools"); `.fastcnc` antigos seguem carregando (camTools merge preserva/atribui grupo).
+- **Persistência (reclamação "settings temporários")**: `camJob` + `camPaths` agora persistem em `kab_camjob`/`kab_campaths` — fechar/reabrir o app mantém setup da máquina e a lista de toolpaths. `.fastcnc` continua mandando por job (e re-salva o estado ao carregar). Tool DB: botões **Save tools (.json) / Load tools (.json) / Reset to factory** (customs de My Tools sobrevivem ao reset).
+- **Templates (preparação pedida)**: motor + storage (`kab_tp_templates`) + UI no painel Toolpaths (lista com badge AUTO, indicador N/M layers casando, Apply, Import/Export .json). Schema documentado no código: `{name, auto, ops:[{layer, kind, tool:{num|id|dia}, side, params}]}` — **a ordem vem 100% do template** (Kabacal não inventa sequência). Aplica na **seleção** (1 peça, várias, ou o job todo sem seleção); cada op só atinge peças que têm a layer; ops de tipos ainda não suportados (pocket/drill) entram **desligados** ("next op") mantendo a ordem; **⚡ Auto** escolhe o melhor template `auto:true` pelas layers presentes. Tool resolvida por id → nº → Ø (Standard Tools primeiro).
+- `check.mjs`: tripwire novo — marcadores TOOLDB + `t1` presente.
+
+### Testado (d)
+Fresh: 116 tools/9 grupos, default Standard Tools (13), t1 F8000/P3000/S18000 pass 6 (db:25), drills T5/S4000 + T9/S8000 corretos ✓ · **goldens ll/c/dxf byte-idênticos** (8358/8402/4517) ✓ · migração v1→v2 (t1 editado ganha, t8 custom → My Tools, 117 total) ✓ · reload restaura camPaths+camJob (datum c, gap 25) ✓ · tdbSet T№=3 → NC `T3M6`+`G43H3`, revertido ✓ · template 2 ops aplicado na seleção: pocket OFFSET_A entra off ("next op"), profile OUT ativo com scope [0], ordem mantida ✓ · ⚡ Auto na peça sem shaker: aplica só o op OUT e reporta o skip ✓ · segs do path de template → NC header/footer ok ✓ · tpPickTool puxa passDepth ✓ · modal renderizado (screenshot + a11y snapshot) ✓ · `check.mjs` ok ✓ · console limpo ✓.
+
 ## 2026-07-07 (c) — Edição por instância (split de quantidade), barra flutuante com 1, Scribe + reorganização
 
 Rodada de UX/edição a partir do teste do user (8 pedidos). Toca zonas guardadas (nesting = conservação de peças; DXF = layer nova) → **provado por goldens byte-idênticos + conservação de contagem**.
