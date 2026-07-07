@@ -58,7 +58,7 @@ if (html) {
   must(html.includes("size==='10x4')return 75"), "production price rule missing: MDF 18mm on 10x4 = 75");
 
   // 4. DXF layer contract (consumed by VCarve gadgets downstream)
-  for (const layer of ['OFFCUT', 'OFFCUT_TEXT', 'GROOVE', 'LED_CHANNEL', 'OFFSET_A',
+  for (const layer of ['OFFCUT', 'OFFCUT_TEXT', 'GROOVE', 'SCRIBE', 'LED_CHANNEL', 'OFFSET_A',
                        'REEDED', 'BEADING', 'PART_NUMBER', 'INSIDE']) {
     must(html.includes(`'${layer}'`), `DXF layer missing from source: ${layer}`);
   }

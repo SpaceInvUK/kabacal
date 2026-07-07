@@ -2,6 +2,21 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (c) — Edição por instância (split de quantidade), barra flutuante com 1, Scribe + reorganização
+
+Rodada de UX/edição a partir do teste do user (8 pedidos). Toca zonas guardadas (nesting = conservação de peças; DXF = layer nova) → **provado por goldens byte-idênticos + conservação de contagem**.
+
+- **(1) Barra flutuante com 1 selecionado**: FAB aparece com `selSet.size >= 1` (antes ≥2). "Clear selection" agora **esvazia de fato** a seleção → a barra some (o inspector continua no `selItem`).
+- **(2/3) Seleção de instância individual (qty > 1) + split no edit**: nova seleção a nível de **cópia física** (`selInst`, chaves `i_n`). No nesting, **Ctrl/Cmd+click** marca/desmarca uma cópia (clique simples = item inteiro, como antes). Editar **qualquer** campo com uma seleção parcial → `applyInstanceSplits()` **separa** as cópias marcadas num item próprio (qty = nº marcadas) e devolve as não-marcadas às configs antigas. Ex.: 600×400 qty3, marca 2, muda frame/material → **qty2 novo + qty1 antigo**. Funciona para material (`moveSelTo`), frame, W/H, grain, etc. — tudo passa por `render()` e o split é detectado por diff vs snapshot. Se **todas** as cópias estão marcadas, edita o item inteiro sem split.
+- **(4) Clareza do grupo de quantidade**: cópias marcadas = realce forte; **irmãs não-marcadas do mesmo grupo** = contorno âmbar tracejado (`.npart.sib`, sutil); banner no inspector "**N de M cópias** … muda-as splitando as N". Peças de outros itens ficam neutras.
+- **(5) Ordem dos campos de add-part**: **Material · Frame · Part Type · Width · Height · Qty · Text** — Frame saiu de perto de Width/Height (Part Type separa), evitando trocar o frame por engano ao digitar tamanho.
+- **(6) Ordem das seções do editor**: Parts · Door Type · **Grain** · Offset · Hinges · Groove · **Scribe** · **Spray** (Grain sobe pra baixo de Door Type; Spray desce pra depois de Groove).
+- **(7) Scroll próprio da barra de edição**: `#inspector` com `max-height:calc(100vh-20px)` + `overflow-y:auto` — abrir muitas seções não empurra mais nada pra fora do alcance; a área do desenho continua usável.
+- **(8) Nova seção Scribe**: linha central única no meio do lado curto, correndo o comprimento todo (200×800 → linha em 100mm, full 800mm). Layer própria **SCRIBE** no preview (magenta) e no **DXF** (aditiva — só sai quando ligada; jobs sem scribe não mudam). É linha marcada/toolpath, não corte passante. `SCRIBE` fixada como contrato no `check.mjs`.
+
+### Testado (c)
+Split: qty3 marca 2 → setFrame → item(q1,frame50)+item(q2,frame80), **partN 3→3** ✓ · material via moveSelTo (1 de 3) → q2+q1, partN 3 ✓ · width/grain via `upd` também splitam, contagem conservada ✓ · todas marcadas → sem split (q intacto) ✓ · toggle Ctrl+click on/off ✓ · `partSelState` = sel/sib/'' (2 sel + 1 sib no nesting, item vizinho neutro) ✓ · FAB visível com 1, some no clear (inspector mantém item) ✓ · ordem das seções e dos campos conferida no DOM ✓ · sidebar scrollHeight 2608 > client 431, overflow auto ✓ · Scribe: preview magenta ✓, DXF layer+LINE com **comprimento 800** só quando ligada ✓ · **goldens NC(ll/c)+DXF byte-idênticos** (8358/8402/4517) ✓ · `check.mjs` ok ✓ · console limpo ✓.
+
 ## 2026-07-07 (b) — Seleção de linhas de corte no Toolpaths (canvas + zoom) + limpeza de nome
 
 - **Linhas de corte clicáveis**: no canvas do Toolpaths, cada contorno OUT de peça é um vetor selecionável (clique = seleciona, **Ctrl+click adiciona**, cópias da mesma peça selecionam juntas); clicar no anel de kerf também seleciona; hover azul; chapa tem checkbox no card. **Área vazia da chapa (ou ⤢) abre o zoom próprio do Toolpaths** — pan/zoom (motor `setupZoomPanZoom` parametrizado), label "N line(s) selected", checkbox "Sheet for toolpaths" no cabeçalho, Esc/Close.

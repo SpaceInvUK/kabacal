@@ -243,8 +243,10 @@
   .maincol{min-width:0;display:flex;flex-direction:column}
   .nest-controls{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0 12px}
   .nest-controls .grp-h{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
-  @media(max-width:780px){.applayout{grid-template-columns:1fr}.inspector-card{order:2;position:static;max-height:none}}
+  @media(max-width:780px){.applayout{grid-template-columns:1fr}.inspector-card{order:2;position:static;max-height:none}#inspector{max-height:none;overflow:visible}}
   .inspector-card{position:sticky;top:10px;padding:0;overflow:hidden;order:-1;align-self:start;max-height:calc(100vh - 20px)}
+  /* the editing sidebar scrolls inside itself so opening many sections never pushes controls out of reach */
+  #inspector{max-height:calc(100vh - 20px);overflow-y:auto;overflow-x:hidden}
   .item-row{cursor:pointer}
   .item.sel{outline:2px solid var(--blue);outline-offset:-1px}
   .item.sel .item-row{background:rgba(37,99,235,.05)}
@@ -485,6 +487,7 @@
 
         <div class="quickadd">
           <div class="qa-field"><label>Material</label><select id="qaMat" onchange="orderMaterial=this.value;updateMatPricing()" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:170px"></select></div>
+          <div class="qa-field"><label>Frame (mm)</label><input id="qaFrame" type="number" value="50" style="width:74px"></div>
           <div class="qa-field"><label>Part Type</label>
             <select id="qaType">
               <option value="flat">Flat</option>
@@ -493,7 +496,6 @@
               <option value="reeded">Reeded</option>
             </select>
           </div>
-          <div class="qa-field"><label>Frame (mm)</label><input id="qaFrame" type="number" value="50" style="width:74px"></div>
           <div class="qa-div"></div>
           <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600"></div>
           <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400"></div>
@@ -643,6 +645,10 @@
   function setGrooveLedOn(i,v){ensureGroove(i).led.on=!!v;render();}
   function setGrooveLedWidth(i,v){const g=ensureGroove(i);const x=+v;g.led.width=(x>0)?x:4;render();}
   function setGrooveLedStart(i,v){ensureGroove(i).led.start=Math.max(0,+v||0);render();}
+  // ---- Scribe: a single centre line marked down the LONG axis of the part (DXF/toolpath layer SCRIBE) ----
+  // Not a cut-through — a marking/toolpath line at the mid-point of the short side, running the full length.
+  function scribeOf(it){return {on:!!(it&&it.scribe&&it.scribe.on)};}
+  function setScribeOn(i,v){const it=items[i];it.scribe=it.scribe||{};it.scribe.on=!!v;render();}
   // target-spacing fitted to the edges: first line at 0, last at L, intermediates even, gap as close to target as possible
   function groovePositions(L,spacing){const t=Math.max(1,+spacing||10);const n=Math.max(1,Math.round(L/t));const step=L/n,out=[];for(let k=0;k<=n;k++)out.push(Math.round(k*step*100)/100);return out;}
   // Recipe VERIFIED against the production app (getSecondaryThickness + panelOverlayForFrame):
@@ -736,7 +742,63 @@
   function toggleSec(k){inspOpen[k]=!inspOpen[k];renderInspector();}
   // multi-select: selSet = selected item indices (selItem stays the "primary" that feeds the inspector)
   let selSet=new Set([0]), multiBase=null, collapsedGroups={}, marqJustEnded=false;
-  function resetSel(i){selItem=items.length?Math.max(0,Math.min(i,items.length-1)):-1;selSet=new Set(items.length?[selItem]:[]);multiBase=null;}
+  // instance-level selection: keys 'i_n' = one physical copy. Empty = whole-item selection (selSet, all copies).
+  // Non-empty = only these copies are picked; editing a setting SPLITS them out of their quantity group.
+  let selInst=new Set(), instBase=null;
+  function resetSel(i){selItem=items.length?Math.max(0,Math.min(i,items.length-1)):-1;selSet=new Set(items.length?[selItem]:[]);multiBase=null;selInst=new Set();instBase=null;}
+  function itemOfKey(key){const m=/^(\d+)/.exec(String(key||''));return m?+m[1]:-1;}
+  function instKeyOf(key){const m=/^(\d+)_(\d+)/.exec(String(key||''));return m?(m[1]+'_'+m[2]):null;}   // parent copy of a part/insert/beading key
+  // select from the nesting. plain click = whole item (all its copies). Ctrl/Cmd+click = toggle THIS one physical copy.
+  function nestPick(key,ev){
+    const i=itemOfKey(key),ik=instKeyOf(key);
+    if(i<0||i>=items.length)return;
+    if(ev&&(ev.ctrlKey||ev.metaKey)&&ik){
+      if(selInst.has(ik))selInst.delete(ik);else selInst.add(ik);   // toggle just this one physical copy
+      selItem=i;syncSelFromInst();
+    }else{selInst=new Set();instBase=null;selSet=new Set([i]);selItem=i;multiBase=null;}
+    refreshSelUI();
+  }
+  // rebuild the item-level selection + the split baseline from the instance selection
+  function syncSelFromInst(){
+    if(!selInst.size){selSet=new Set();instBase=null;return;}
+    const its=new Set();selInst.forEach(k=>its.add(itemOfKey(k)));
+    selSet=new Set([...its]);if(!its.has(selItem))selItem=[...its][its.size-1];
+    multiBase=null;
+    instBase={};its.forEach(i=>{if(items[i])instBase[i]=JSON.parse(JSON.stringify(items[i]));});   // pre-edit snapshot per affected item
+  }
+  // if a PARTIAL set of an item's copies is selected and a field was just edited, split those copies into their own item.
+  function applyInstanceSplits(){
+    if(!selInst.size||!instBase)return;
+    const byItem=new Map();selInst.forEach(k=>{const i=itemOfKey(k);byItem.set(i,(byItem.get(i)||0)+1);});
+    const movedObjs=[];let changed=false;
+    [...byItem.keys()].sort((a,b)=>b-a).forEach(i=>{
+      const cur=items[i],base=instBase[i];if(!cur||!base)return;
+      if(JSON.stringify(Object.assign({},cur,{q:0}))===JSON.stringify(Object.assign({},base,{q:0})))return;   // nothing edited yet
+      const selN=byItem.get(i),total=+base.q||0;
+      if(selN>=total)return;                                   // all copies selected -> edit applies to the whole item, no split
+      changed=true;
+      const keep=JSON.parse(JSON.stringify(base));keep.q=total-selN;   // untouched copies keep the OLD settings
+      const moved=JSON.parse(JSON.stringify(cur));moved.q=selN;        // selected copies take the NEW settings
+      items[i]=keep;items.splice(i+1,0,moved);movedObjs.push(moved);
+    });
+    if(changed){selInst=new Set();instBase=null;multiBase=null;
+      const idxs=movedObjs.map(o=>items.indexOf(o)).filter(x=>x>=0);
+      if(idxs.length){selSet=new Set(idxs);selItem=idxs[idxs.length-1];}}
+  }
+  // how many copies of each affected item are selected, and whether any is a partial pick (drives the split banner + sibling hint)
+  function instPartial(){
+    if(!selInst.size)return null;
+    const byItem=new Map();selInst.forEach(k=>{const i=itemOfKey(k);byItem.set(i,(byItem.get(i)||0)+1);});
+    let anyPartial=false;byItem.forEach((n,i)=>{if(n<(items[i]?+items[i].q||0:0))anyPartial=true;});
+    return {byItem,anyPartial};
+  }
+  // selection state for one drawn part: 'sel' (picked), 'sib' (unpicked sibling of a partially-picked group), '' (none)
+  function partSelState(key){
+    if(key===selKey)return 'sel';
+    const i=itemOfKey(key),ik=instKeyOf(key);
+    if(selInst.size){if(ik&&selInst.has(ik))return 'sel';return (i>=0&&selSet.has(i))?'sib':'';}
+    return (i>=0&&selSet.has(i))?'sel':'';
+  }
 
   // ---- import .fastcnc.json ----
   function typeFromDoor(dt){dt=(dt||'').toLowerCase();if(dt==='traditional')return'trad';if(dt==='flushback')return'flush';if(dt==='reeded')return'reeded';return'flat';}
@@ -915,7 +977,7 @@
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -1064,6 +1126,10 @@
             if(gr.dir==='vertical'){if(st>=0&&st+wd<=p.w+0.01){var lr=rRectD(bx+st,by,wd,p.h);body+=dxfRect('LED_CHANNEL',lr.x,lr.y,lr.w,lr.h);}}
             else{if(st>=0&&st+wd<=p.h+0.01){var lr2=rRectD(bx,by+st,p.w,wd);body+=dxfRect('LED_CHANNEL',lr2.x,lr2.y,lr2.w,lr2.h);}}
           }
+        }
+        if(p.scribe){layers.add('SCRIBE');
+          if(p.h>=p.w){var sa=rPtD(bx+p.w/2,by),sb=rPtD(bx+p.w/2,by+p.h);body+=dxfLine('SCRIBE',sa.x,sa.y,sb.x,sb.y);}
+          else{var sa2=rPtD(bx,by+p.h/2),sb2=rPtD(bx+p.w,by+p.h/2);body+=dxfLine('SCRIBE',sa2.x,sa2.y,sb2.x,sb2.y);}
         }
         // text = SIZE + label, reading along the part's long side (0deg wide / 90deg tall), starting from the
         // left (wide) / bottom (tall); part number on its own layer in a reserved corner — production rules.
@@ -1242,6 +1308,7 @@
 
   // ---- render list ----
   function render(){
+    applyInstanceSplits();   // instance edit: split partially-selected copies into their own item before anything else
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
     const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
@@ -1306,6 +1373,7 @@
   }
   // plain click = single select · Ctrl/Cmd+click = add/remove · Shift+click = range (list order)
   function sel(i,ev){
+    selInst=new Set();instBase=null;   // list/plain selection is whole-item; drop any instance pick
     if(ev&&(ev.ctrlKey||ev.metaKey)){
       if(selSet.has(i)){selSet.delete(i);if(selItem===i&&selSet.size)selItem=[...selSet][selSet.size-1];}
       else{selSet.add(i);selItem=i;}
@@ -1314,22 +1382,22 @@
     }else{selSet=new Set([i]);selItem=i;}
     multiBase=null;refreshSelUI();
   }
-  function cbSel(i,on){if(on){selSet.add(i);selItem=i;}else selSet.delete(i);multiBase=null;refreshSelUI();}
-  function selGroup(mat,on){items.forEach((it,i)=>{if(it.mat===mat){if(on)selSet.add(i);else selSet.delete(i);}});if(on&&selSet.size)selItem=[...selSet][selSet.size-1];multiBase=null;refreshSelUI();}
+  function cbSel(i,on){selInst=new Set();instBase=null;if(on){selSet.add(i);selItem=i;}else selSet.delete(i);multiBase=null;refreshSelUI();}
+  function selGroup(mat,on){selInst=new Set();instBase=null;items.forEach((it,i)=>{if(it.mat===mat){if(on)selSet.add(i);else selSet.delete(i);}});if(on&&selSet.size)selItem=[...selSet][selSet.size-1];multiBase=null;refreshSelUI();}
   function toggleGroup(mat){collapsedGroups[mat]=!collapsedGroups[mat];render();}
-  function clearSel(){resetSel(selItem);refreshSelUI();}
+  function clearSel(){selSet=new Set();selInst=new Set();instBase=null;multiBase=null;refreshSelUI();}   // deselect all -> floating bar disappears; inspector stays on selItem
   // light refresh: row highlights + group checkboxes + bar + nesting highlights + inspector (no pricing recalc)
   function refreshSelUI(){
     document.querySelectorAll('#list .item').forEach(el=>{const i=+el.dataset.idx;el.classList.toggle('sel',selSet.has(i)||(!selSet.size&&i===selItem));const cb=el.querySelector('.selcb');if(cb)cb.checked=selSet.has(i);});
     document.querySelectorAll('#list .grp-head').forEach(gh=>{const mat=gh.dataset.mat,idxs=[];items.forEach((it,i)=>{if(it.mat===mat)idxs.push(i);});const cb=gh.querySelector('.selcb');if(cb){const all=idxs.length&&idxs.every(k=>selSet.has(k));cb.checked=all;cb.indeterminate=!all&&idxs.some(k=>selSet.has(k));}});
     renderSelBar();renderNest();renderInspector();
   }
-  // floating action button: appears (bottom-right, fixed) whenever 2+ parts are selected.
+  // floating action button: appears (bottom-right, fixed) whenever 1+ parts are selected.
   // Collapsed = blue circle with the selection count; click = satellites fan out; centre becomes ✕ (close menu).
   let fabOpen=false;
   function renderSelBar(){
     let fab=document.getElementById('selFab');
-    if(selSet.size<2){if(fab)fab.remove();fabOpen=false;return;}
+    if(selSet.size<1){if(fab)fab.remove();fabOpen=false;return;}
     if(!fab){fab=document.createElement('div');fab.id='selFab';document.body.appendChild(fab);}
     const sats=[['pencil','Edit selected','edit'],['plus','New group','new'],['foldermove','Move to group','move'],['xcircle','Clear selection','clear']];
     const R=78;
@@ -1393,6 +1461,7 @@
     const g=uni(it=>grainOf(it));H.grain=g==='off'?'Off':(g==='long'?'Longest side':(g==='short'?'Shortest side':''));
     const gon=uni(it=>grooveOf(it).on?1:0);
     if(gon===1){const gd=uni(it=>grooveOf(it).dir),gs=uni(it=>grooveOf(it).spacing);H.groove=(gd?cap(gd):'On')+(gs!=null?' · '+gs+'mm':'');}else H.groove='';
+    H.scribe=(uni(it=>scribeOf(it).on?1:0)===1)?'On':'';
     return H;
   }
   function renderInspector(){
@@ -1400,14 +1469,19 @@
     const has=selItem>=0&&selItem<items.length;
     const i=has?selItem:-1,it=has?items[i]:null,d=has?TYPES[it.type]:null;
     if(has&&lastInspected!==selItem){groupSnap={mat:it.mat,size:it.size,type:it.type};lastInspected=selItem;}
-    const M=has&&selSet.size>1;
+    const M=has&&selSet.size>1&&!selInst.size;   // instance mode never cross-copies to other items (it splits instead)
     if(M&&!multiBase)multiBase=JSON.parse(JSON.stringify(it));   // baseline for change detection
     if(!M)multiBase=null;
+    let instBanner='';
+    if(has&&selInst.size){const n=[...selInst].filter(k=>itemOfKey(k)===i).length,t=+it.q||0;
+      instBanner=(n<t)
+        ?`<div class="multinote">Instance pick — <b>${n} of ${t}</b> copies of this item are selected. Changing any setting below <b>splits</b> those ${n} into their own item; the other ${t-n} keep their current settings.</div>`
+        :`<div class="multinote">All <b>${t}</b> copies of this item selected — edits apply to every copy.</div>`;}
     let html='';
     if(has){
       html+=`<div class="insp-head">${d.icon(d.color)}<span class="insp-title">${M?selSet.size+' parts selected · base item '+(i+1):'Item '+(i+1)+' · '+it.w+'×'+it.h+' mm'}</span></div>
         <div class="insp-mat" title="Click to move this part to another material group" onclick="openGroupPicker('move')"><i style="background:${matColor(it.mat)}"></i><b>${esc(it.mat)}</b><span class="sub">click to change</span></div>
-        ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}`;
+        ${M?`<div class="multinote">Editing <b>${selSet.size} selected parts</b> — every change here applies to all of them. Width and Height are locked in multi-edit.</div>`:''}${instBanner}`;
     }else{
       html+=`<div class="insp-empty" style="padding:14px 12px">No part selected — click one in the list or nesting to edit it. The <b>Nesting</b> and <b>Sheet Size</b> sections below apply to the whole job.</div>`;
     }
@@ -1416,11 +1490,12 @@
     if(has){
       secs.push(['part','Parts',secParts(i,it),St.part]);
       secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
+      secs.push(['grain','Grain',secGrain(i,it),St.grain]);
       secs.push(['offset','Offset',tabOffset(i,it),St.offset]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
-      secs.push(['spray','Spray',tabSpray(i,it),St.spray]);
-      secs.push(['grain','Grain',secGrain(i,it),St.grain]);
       secs.push(['groove','Groove',secGroove(i,it),St.groove]);
+      secs.push(['scribe','Scribe',secScribe(i,it),St.scribe]);
+      secs.push(['spray','Spray',tabSpray(i,it),St.spray]);
     }
     const shScope=selSheets.size?(selSheets.size+' sheet'+(selSheets.size>1?'s':'')):null;
     secs.push(['nesting','Nesting',secNesting(),shScope||'whole job']);
@@ -1463,6 +1538,10 @@
         <label class="sub">Start <input type="number" min="0" value="${gr.led.start}" onchange="setGrooveLedStart(${i},this.value)" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px"> mm from edge</label>
       </div><div class="sub" style="margin-top:4px">A ${gr.led.width}mm rectangular channel running the full ${gr.dir==='vertical'?'height':'width'}, starting ${gr.led.start}mm from the ${gr.dir==='vertical'?'left':'top'} edge (DXF layer LED_CHANNEL).</div>`:''}
     </div>`:'<div class="sub" style="margin-top:6px">Draw evenly-spaced grooves across a flat panel (DXF layer GROOVE), with an optional LED channel.</div>'}`;}
+  function secScribe(i,it){const sc=scribeOf(it);const long=Math.max(+it.w||0,+it.h||0),short=Math.min(+it.w||0,+it.h||0);return `
+    <label class="tg" style="font-weight:700"><input type="checkbox" ${sc.on?'checked':''} onchange="setScribeOn(${i},this.checked)"> Scribe centre line</label>
+    ${sc.on?`<div class="sub" style="margin-top:6px">A single line down the middle of the part: at <b>${(short/2)||0}mm</b> across the ${short}mm side, running the full ${long}mm length (DXF/toolpath layer <b>SCRIBE</b>). It's a marked line, not a cut-through.</div>`
+      :'<div class="sub" style="margin-top:6px">Mark one centre line down the long axis of the part — used later for toolpaths and exported on its own <b>SCRIBE</b> layer.</div>'}`;}
   function secNesting(){const n=selSheets.size,mg=n?selSheetMG('margin'):nestMargin,gp=n?selSheetMG('gap'):nestGap;return `
     ${n?`<div class="sub" style="margin-bottom:6px">Applying to <b>${n} selected sheet${n>1?'s':''}</b> · <span class="link" onclick="clearSheetSel()">clear</span></div>`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1757,7 +1836,7 @@
     const end=e=>{const d=drag;drag=null;scroll.style.cursor='grab';
       if(d&&!d.moved&&zoomEdit&&e&&e.clientX!=null){
         const el=document.elementFromPoint(e.clientX,e.clientY),g=(el&&el.closest)?el.closest('.npart'):null;
-        if(g&&g.getAttribute('data-key')!=null){const i=parseInt(g.getAttribute('data-key'),10);if(!isNaN(i)&&i>=0&&i<items.length)sel(i,e);}
+        if(g&&g.getAttribute('data-key')!=null){const key=g.getAttribute('data-key');if(itemOfKey(key)>=0)nestPick(key,e);}
       }};
     scroll.addEventListener('pointerup',end);
     scroll.addEventListener('pointercancel',()=>{drag=null;scroll.style.cursor='grab';});
@@ -1773,8 +1852,8 @@
     if(marqJustEnded){marqJustEnded=false;return;}                 // a marquee drag just ended — swallow this click
     if(ev.shiftKey){if(ev.preventDefault)ev.preventDefault();if(window.getSelection)try{window.getSelection().removeAllRanges();}catch(e){}openZoom(zi);return;}
     const g=ev.target&&ev.target.closest?ev.target.closest('.npart'):null;
-    if(g&&g.getAttribute('data-key')!=null){const i=parseInt(g.getAttribute('data-key'),10);if(!isNaN(i)&&i>=0&&i<items.length){
-      sel(i,ev);                                                    // Ctrl/Cmd+click adds to the selection
+    if(g&&g.getAttribute('data-key')!=null){const key=g.getAttribute('data-key');if(itemOfKey(key)>=0){
+      nestPick(key,ev);                                             // plain = whole item · Ctrl/Cmd = toggle this copy
       // if a sheet is open in the zoom, refresh it so the selection highlight shows there too
       const ov=document.getElementById('zoomOverlay');
       if(ov&&ov.classList.contains('show')&&_zoom&&nestSvgs[zi])_zoom.refresh(nestSvgs[zi].svg);
@@ -1811,6 +1890,7 @@
       const r=g.getBoundingClientRect();
       if(r.left<x1&&r.right>x0&&r.top<y1&&r.bottom>y0){const idx=parseInt(g.getAttribute('data-key'),10);if(!isNaN(idx)&&idx>=0&&idx<items.length)hits.add(idx);}
     });
+    selInst=new Set();instBase=null;
     if(m.add)hits.forEach(k=>selSet.add(k));else selSet=new Set(hits);
     if(hits.size)selItem=[...hits][hits.size-1];
     multiBase=null;refreshSelUI();
@@ -1833,7 +1913,7 @@
       const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
       const bead=beadingSpecFor(it);const el=bead?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
@@ -2171,7 +2251,7 @@
         let svg=`<svg class="sheet-svg${editMode?' editing':''}" data-group="${esc(mat)}" data-sheet="${idx}" data-size="${sh.sz}" ${clickAttr} viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
         if(sh.parts.some(p=>grainActive(p)))svg+=woodgrainSvg(vbW,vbH);   // production rule: woodgrain texture when grain is on
         if(S.uh&&S.uh<S.h)svg+=`<rect x="0.25" y="${(S.uh/10).toFixed(1)}" width="${(vbW-0.5).toFixed(1)}" height="${((S.h-S.uh)/10).toFixed(1)}" fill="#fee2e2"/>`;
-        sh.parts.forEach(p=>{svg+=drawPart(p,p.key===selKey||selSet.has(parseInt(p.key,10)));});
+        sh.parts.forEach(p=>{svg+=drawPart(p,partSelState(p.key));});
         if(sh.offcut){const o=sh.offcut,rects=o.rects||[o];
           rects.forEach(r=>{svg+=`<rect x="${(r.x/10).toFixed(1)}" y="${(r.y/10).toFixed(1)}" width="${(r.w/10).toFixed(1)}" height="${(r.h/10).toFixed(1)}" fill="#0d948814"/>`;});
           const poly=offcutChamfer(offcutTrace(rects),o.W,o.H,OFFCUT_NOTCH);
@@ -2211,7 +2291,7 @@
     document.querySelectorAll('#nest .sheet-svg.editing .npart').forEach(g=>{g.addEventListener('pointerdown',e=>startDrag(e,g.closest('.sheet-svg'),g));});
   }
   function startDrag(e,svg,g){
-    if(e.ctrlKey||e.metaKey){e.preventDefault();e.stopPropagation();const i=parseInt(g.getAttribute('data-key'),10);if(!isNaN(i)&&i>=0&&i<items.length)sel(i,e);return;}   // Ctrl+click = multi-select, no drag
+    if(e.ctrlKey||e.metaKey){e.preventDefault();e.stopPropagation();const key=g.getAttribute('data-key');if(itemOfKey(key)>=0)nestPick(key,e);return;}   // Ctrl+click = toggle this copy, no drag
     e.preventDefault();e.stopPropagation();materialize();
     const key=g.getAttribute('data-key');selKey=key;
     document.querySelectorAll('#nest .npart.sel').forEach(n=>n.classList.remove('sel'));g.classList.add('sel');
@@ -2246,9 +2326,10 @@
 
   // draw one packed part (coords in mm; svg units = mm/10)
   function drawPart(p,sel){
+    const st=(sel===true?'sel':(sel||''));const selOn=st==='sel',sibOn=st==='sib';
     const X=p.x/10,Y=p.y/10,W=p.w/10,H=p.h/10;let s='';
-    s+=`<g class="npart${sel?' sel':''}" data-key="${p.key||''}" data-w="${p.w}" data-h="${p.h}">`;
-    s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${sel?'#d97706':DXFC.OUT}" stroke-width="${sel?'0.9':'0.4'}"><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
+    s+=`<g class="npart${selOn?' sel':(sibOn?' sib':'')}" data-key="${p.key||''}" data-w="${p.w}" data-h="${p.h}">`;
+    s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
     if(p.isInsert){
       // concentric insert step lines (cavity + overlay) + reeded hatch
       const a=Math.min(W,H);const cols=[OFFCOL.A,OFFCOL.B];
@@ -2306,6 +2387,11 @@
         if(gr.dir==='vertical'){const lx=X+st;if(lx>=X&&lx+wd<=X+W+0.01)s+=`<rect x="${lx.toFixed(1)}" y="${Y.toFixed(1)}" width="${wd.toFixed(2)}" height="${H.toFixed(1)}" fill="#f59e0b55" stroke="#d97706" stroke-width="0.15"/>`;}
         else{const ly=Y+st;if(ly>=Y&&ly+wd<=Y+H+0.01)s+=`<rect x="${X.toFixed(1)}" y="${ly.toFixed(1)}" width="${W.toFixed(1)}" height="${wd.toFixed(2)}" fill="#f59e0b55" stroke="#d97706" stroke-width="0.15"/>`;}
       }
+    }
+    // scribe: single centre line down the long axis (marked line, SCRIBE layer)
+    if(p.scribe){const col='#c026d3',sw=0.28,da='1.2 0.8';
+      if(H>=W){const cx=X+W/2;s+=`<line x1="${cx.toFixed(2)}" y1="${Y.toFixed(1)}" x2="${cx.toFixed(2)}" y2="${(Y+H).toFixed(1)}" stroke="${col}" stroke-width="${sw}" stroke-dasharray="${da}"/>`;}
+      else{const cy=Y+H/2;s+=`<line x1="${X.toFixed(1)}" y1="${cy.toFixed(2)}" x2="${(X+W).toFixed(1)}" y2="${cy.toFixed(2)}" stroke="${col}" stroke-width="${sw}" stroke-dasharray="${da}"/>`;}
     }
     // grain always runs along the sheet X — centred double-arrow, clearly visible (item 5)
     if(grainActive(p)&&Math.min(W,H)>=5){const horiz=true,cx=X+W/2,cy=Y+H/2,L=(horiz?W:H)*0.55,a=Math.max(1.4,Math.min(3.2,L*0.16)),col='#16a34a',sw=Math.max(0.5,Math.min(1.1,Math.min(W,H)/22));
