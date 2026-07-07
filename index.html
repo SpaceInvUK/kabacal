@@ -355,7 +355,10 @@
   .pn-tab.add{border-style:dashed}
   .pn-layout{display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:14px;align-items:start}
   @media(max-width:900px){.pn-layout{grid-template-columns:1fr}}
-  .pn-canvas{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;position:relative;min-height:200px}
+  .pn-canvas{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;position:relative;height:calc(100vh - 282px);min-height:340px;overflow:hidden;display:flex;flex-direction:column}
+  .pn-canvas.scroll{display:block;overflow-y:auto}
+  .pn-canvas svg{touch-action:none}
+  .pn-canvas.grabbing,.pn-canvas.grabbing *{cursor:grabbing!important}
   .pn-insp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow-y:auto}
   .pn-ihead{padding:10px 12px;display:flex;align-items:center;gap:8px}
   .pn-ihead .t{font-weight:800;font-size:14px;color:var(--ink)}
@@ -442,7 +445,7 @@
     <div class="appicons">
       <button title="Open / Load .fastcnc" onclick="document.getElementById('fileIn').click()">⤒</button>
       <button title="Save .fastcnc" onclick="downloadFastCnc()">⤓</button>
-      <button title="Export DXF" onclick="downloadDxf()" style="width:auto;padding:0 8px;font-size:11px;font-weight:800">DXF</button>
+      <button title="Export DXF (Doors mode: order · Panels mode: panels)" onclick="(curMode==='panels'?pnDownloadDxf:downloadDxf)()" style="width:auto;padding:0 8px;font-size:11px;font-weight:800">DXF</button>
       <div class="hdr-mode"><button id="modeDoors" class="on" onclick="setMode('doors')">Doors</button><button id="modePanels" onclick="setMode('panels')" title="Wall panelling — rooms, walls, shaker panels">Panels</button></div>
     </div>
     <div class="tabs">
@@ -4492,27 +4495,28 @@
       if(Math.max(p.w,p.h)>PN_CAP['10x4']+0.5)warns.push(p.name+' is longer than a 10x4 sheet allows.');
       if(Math.min(p.w,p.h)>PN_CROSS+0.5)warns.push(p.name+' is wider than the sheet cross limit ('+PN_CROSS+'mm).');
     });
-    // per-panel overrides (shaker count / sides), keyed by pid on the piece's wall
+    // per-panel overrides (shaker count / sides), keyed by pid on the piece's wall.
+    // ANY override (count OR a side rule) re-flows this panel's cells immediately so
+    // the preview always matches the settings; joints/slices never move.
     pieces.forEach(p=>{
       const w=walls[p.wi],ov=w&&w.panelOv&&w.panelOv[p.pid];if(!ov)return;
       const f=D.frame;
-      if(ov.sideL){p.sides.l={rule:ov.sideL,mm:pnSideMM(ov.sideL,D)};}
-      if(ov.sideR){p.sides.r={rule:ov.sideR,mm:pnSideMM(ov.sideR,D)};}
-      if(+ov.count>0&&p.dir==='h'){
-        const inner=p.w-p.sides.l.mm-p.sides.r.mm,c=Math.max(1,Math.round(+ov.count)),cw=(inner-f*(c-1))/c;
+      const seen={},bands=[];
+      (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
+      const colsBefore=bands.length?Math.max(1,Math.round((p.cells||[]).length/bands.length)):Math.max(1,(p.cells||[]).length);
+      if(ov.sideL)p.sides.l={rule:ov.sideL,mm:pnSideMM(ov.sideL,D)};
+      if(ov.sideR)p.sides.r={rule:ov.sideR,mm:pnSideMM(ov.sideR,D)};
+      const inner=p.w-p.sides.l.mm-p.sides.r.mm;
+      const c=Math.max(1,Math.round(+ov.count>0?+ov.count:colsBefore));
+      const cw=(inner-f*(c-1))/c;
+      if(!(cw>40))return;
+      if(p.dir==='h'){
         const cy0=p.sides.b,cy1=p.h-p.sides.t;
-        p.cells=[];if(cw>40&&cy1-cy0>=60)for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:cy0,w:cw,h:cy1-cy0});
-        p.ovCount=c;
-      } else if(+ov.count>0&&p.dir==='v'){
-        // vertical override = shaker COLUMNS per panel; keep the existing row bands
-        const c=Math.max(1,Math.round(+ov.count)),inner=p.w-p.sides.l.mm-p.sides.r.mm,cw=(inner-f*(c-1))/c;
-        if(cw>40){
-          const seen={},bands=[];
-          (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
-          p.cells=[];bands.forEach(b=>{for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:b[0],w:cw,h:b[1]});});
-          p.ovCount=c;
-        }
+        p.cells=[];if(cy1-cy0>=60)for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:cy0,w:cw,h:cy1-cy0});
+      }else{
+        p.cells=[];bands.forEach(b=>{for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:b[0],w:cw,h:b[1]});});
       }
+      if(+ov.count>0)p.ovCount=c;
     });
     return {pieces,runs,warns,D};
   }
@@ -4528,7 +4532,7 @@
   function pnDefaultLines(){return [0,1,2,3,4,5,6].map(()=>({en:false,mm:0,rd:false}));}
   function pnNewWall(){return {id:'pw'+(++pnUid)+'_'+Date.now(),w:5200,h:3200,dir:'h',sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:[],panelOv:{}};}
   function pnNewRoom(n){return {id:'pr'+(++pnUid)+'_'+Date.now(),name:'Room '+n,mat:'MDF 18mm',frame:80,target:350,doorAllow:175,
-    skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',lines:pnDefaultLines(),walls:[pnNewWall()]};}
+    skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',matCost:null,cncCost:330,lines:pnDefaultLines(),walls:[pnNewWall()]};}
   function pnNewOpening(type,wall){
     const d=type==='door'?{w:900,h:2100,bottom:0}:(type==='window'?{w:1200,h:1100,bottom:900}:{w:2000,h:2000,bottom:0});
     return {id:'po'+(++pnUid)+'_'+Date.now(),type,name:type==='door'?'Door':(type==='window'?'Window':'Object'),
@@ -4549,7 +4553,7 @@
   // room nesting: pieces >2400 go on 10x4 sheets; smaller pieces first try to RIDE the free space of those
   // 10x4 sheets (offcut sharing), only then open 8x4 sheets. 7mm margin + 7mm gap (production rule).
   function pnNestRoom(room,pieces){
-    const parts=pieces.map((p,i)=>({key:'pn'+i,w:Math.max(1,Math.round(p.w)),h:Math.max(1,Math.round(p.h)),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false},label:p.name||('P'+(i+1))}));
+    const parts=pieces.map((p,i)=>({key:'pn'+i,w:Math.max(1,Math.round(p.w)),h:Math.max(1,Math.round(p.h)),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false},label:p.name||('P'+(i+1)),pnPiece:p}));
     const big=parts.filter(p=>Math.max(p.w,p.h)>PN_CAP['8x4']);
     const small=parts.filter(p=>Math.max(p.w,p.h)<=PN_CAP['8x4']).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
     const bins10=big.length?packMulti(big,SHEETS['10x4'],7,7):[];
@@ -4567,8 +4571,9 @@
     sheets.forEach(s=>{cost+=priceForSheet(room.mat,s.sz);sheetA+=s.S.w*s.S.h;s.parts.forEach(p=>{area+=p.w*p.h;});});
     return {sheets,cost,waste:Math.max(0,sheetA-area)};
   }
-  // Panels section of the quote: sheets × material + CNC per sheet, plus the same area→minutes pocketing
-  // uplift as doors (shaker cavities are pockets). Empty panelRooms = zero rows = doors-only quote unchanged.
+  // Panels section of the quote — panelling pricing (like the production panneling app): per room,
+  // material £/sheet (default = price book per sheet size, overridable) + CNC service £/sheet
+  // (default £330, overridable). Empty panelRooms = zero rows = doors-only quote unchanged.
   function pnQuote(){
     const out={rows:[],total:0,sheetN:0,partN:0};
     if(!panelRooms||!panelRooms.length)return out;
@@ -4576,14 +4581,14 @@
       let L;try{L=pnRoom(room);}catch(e){return;}
       if(!L.pieces.length)return;
       const nest=pnNestRoom(room,L.pieces);
-      let mc=0;nest.sheets.forEach(s=>{mc+=priceForSheet(room.mat,s.sz);});
-      const base=cncForThickness(room.mat)*nest.sheets.length;
-      let pocketMin=0;L.pieces.forEach(p=>(p.cells||[]).forEach(c=>{pocketMin+=(c.w/1000)*(c.h/1000)*12;}));
-      const pocketPct=minToPct(pocketMin,false);
-      const cncEff=Math.round(base*(1+pocketPct));
+      const matOv=(room.matCost!=null&&room.matCost!=='')?+room.matCost:null;
+      const cncRate=(room.cncCost!=null&&room.cncCost!=='')?+room.cncCost:330;
+      let mc=0;nest.sheets.forEach(s=>{mc+=(matOv!=null)?matOv:priceForSheet(room.mat,s.sz);});
+      mc=Math.round(mc);
+      const cncEff=Math.round(cncRate*nest.sheets.length);
       const total=mc+cncEff;
       const szs={};nest.sheets.forEach(s=>{szs[s.sz]=(szs[s.sz]||0)+1;});
-      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,base,pocketPct,cncEff,total,szs});
+      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,matOv,cncRate,cncEff,total,szs});
       out.total+=total;out.sheetN+=nest.sheets.length;out.partN+=L.pieces.length;
     });
     return out;
@@ -4597,6 +4602,89 @@
         return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'</td><td class="c">'+r.sheets+'<div style="font-size:9px;color:#64748b">'+szs+'</div></td><td class="c">'+r.parts+'</td><td class="r">'+moneyP(r.mc)+'</td><td class="r">'+moneyP(r.cncEff)+'</td><td class="r">'+moneyP(r.total)+'</td></tr>';}).join('')
       +'</tbody></table>'
       +'<table class="msum"><tbody><tr><td><b>Doors total</b></td><td class="r"><b>'+moneyP(d.bodyTot)+'</b></td></tr><tr><td><b>Panels total</b></td><td class="r"><b>'+moneyP(d.panels.total)+'</b></td></tr></tbody></table>';
+  }
+  // ---- Panels DXF export — same discipline as the Doors writer (portrait doc, SHEET caption inside the
+  // sheet, OUT outline, OFFSET_A per shaker cavity (or enabled A–G inset lines), INSIDE for window
+  // cut-outs, PART_NUMBER corner + fitted size/name text; 7mm margins/gaps come from the nesting) ----
+  function pnCellRects(part){
+    const pc=part.pnPiece;if(!pc)return {cells:[],notches:[]};
+    const rot=part.rot===90||part.rot===1||part.rot===true;
+    const W0=Math.max(1,Math.round(pc.w)),H0=Math.max(1,Math.round(pc.h));
+    const tf=r=>rot?{x:H0-r.y-r.h,y:W0-r.x-r.w,w:r.h,h:r.w}:{x:r.x,y:r.y,w:r.w,h:r.h};
+    return {cells:(pc.cells||[]).map(tf),notches:(pc.notches||[]).map(tf)};
+  }
+  function pnDxfForThickness(th,list){
+    const SHEETGAP=250;let body='';const layers=new Set(['0','text']);let yOrigin=0,sheetNo=0,pnum=0;
+    list.forEach(entry=>{
+      const sh=entry.sh,S=sh.S;sheetNo++;
+      const Wn=S.w,Hn=S.h,Wp=Hn,Hp=Wn,oy=yOrigin;
+      const rRectD=(x,y,w,h)=>({x:Hn-(y+h),y:oy+x,w:h,h:w});
+      layers.add('SHEET');
+      body+=dxfRect('SHEET',0,oy,Wp,Hp);
+      body+=dxfText('text',40,oy+Hp-28,20,'SHEET '+sheetNo+' PANELS '+(entry.room?entry.room+' ':'')+parseMat(entry.mat).name+' '+th,false);
+      const parts=sh.parts.slice().sort((a,b)=>(Math.abs(a.y-b.y)>80?(a.y-b.y):(a.x-b.x)));
+      parts.forEach(p=>{
+        pnum++;
+        const bx=p.x,by=Hn-(p.y+p.h);
+        layers.add('OUT');
+        const o=rRectD(bx,by,p.w,p.h);
+        body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        const geo=pnCellRects(p);
+        const lines=(entry.lines||[]).map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en);
+        geo.cells.forEach(c=>{
+          if(c.w<=2||c.h<=2)return;
+          if(!lines.length){layers.add('OFFSET_A');const r=rRectD(bx+c.x,by+c.y,c.w,c.h);body+=dxfRect('OFFSET_A',r.x,r.y,r.w,r.h);}
+          lines.forEach(l=>{
+            const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw<=1||ih<=1)return;
+            const lyr='OFFSET_'+l.L;layers.add(lyr);
+            const r=rRectD(bx+c.x+l.mm,by+c.y+l.mm,iw,ih);
+            body+=(l.rd?dxfRoundRect(lyr,r.x,r.y,r.w,r.h,2.5):dxfRect(lyr,r.x,r.y,r.w,r.h));
+          });
+        });
+        geo.notches.forEach(n=>{if(n.w>2&&n.h>2){layers.add('INSIDE');const r=rRectD(bx+n.x,by+n.y,n.w,n.h);body+=dxfRect('INSIDE',r.x,r.y,r.w,r.h);}});
+        const R=o,partNo=String(pnum);
+        const M=dxfPartMetrics(R.x,R.y,R.w,R.h,partNo);
+        if(M.numberFont>0){layers.add('PART_NUMBER');
+          if(M.vertical){const ntx=Math.min(R.x+R.w-M.numberInset,R.x+M.numberInset+M.numberFont),nty=Math.max(R.y+M.numberInset,R.y+R.h-M.numberInset-M.numberW);body+=dxfText('PART_NUMBER',ntx,nty,M.numberFont,partNo,false,M.rotation);}
+          else{const ntx=R.x+M.numberInset,nty=Math.max(R.y+M.numberInset,R.y+R.h-M.numberInset-M.numberFont);body+=dxfText('PART_NUMBER',ntx,nty,M.numberFont,partNo,false,M.rotation);}
+        }
+        const pc=p.pnPiece||{};
+        const sizeText=Math.round(pc.w!=null?pc.w:p.w)+' x '+Math.round(pc.h!=null?pc.h:p.h);
+        const fit=fitDxfPartText(sizeText,p.label||'',Math.max(1,M.vertical?M.contentH:M.contentW),Math.max(1,M.vertical?M.contentW:M.contentH));
+        if(fit&&fit.lines.length)fit.lines.forEach((lt,li)=>{
+          const ltx=M.vertical?M.contentX+fit.font+li*fit.linePitch:M.contentX;
+          const lty=M.vertical?M.contentY:M.contentY+fit.font+li*fit.linePitch;
+          body+=dxfText('text',ltx,lty,fit.font,lt,false,M.rotation);
+        });
+      });
+      yOrigin+=Hp+SHEETGAP;
+    });
+    const layerArr=Array.from(layers);
+    let s='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n';
+    s+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n'+layerArr.length+'\n';
+    layerArr.forEach(l=>{s+='0\nLAYER\n2\n'+l+'\n70\n0\n62\n'+(DXF_LAYERS[l]||7)+'\n6\nCONTINUOUS\n';});
+    s+='0\nENDTAB\n0\nENDSEC\n';
+    s+='0\nSECTION\n2\nENTITIES\n'+body+'0\nENDSEC\n0\nEOF\n';
+    return s;
+  }
+  function pnBuildDxfByThickness(){
+    const byTh=new Map();
+    panelRooms.forEach(room=>{
+      let L;try{L=pnRoom(room);}catch(e){return;}
+      if(!L.pieces.length)return;
+      const th=parseMat(room.mat).th;
+      const nest=pnNestRoom(room,L.pieces);
+      if(!byTh.has(th))byTh.set(th,[]);
+      const lines=(room.lines&&room.lines.length===7)?room.lines:[];
+      nest.sheets.forEach(sh=>byTh.get(th).push({mat:room.mat,room:room.name||'',lines,sh}));
+    });
+    const files={};byTh.forEach((list,th)=>{files['PANELS_'+th]=pnDxfForThickness(th,list);});
+    return files;
+  }
+  function pnDownloadDxf(){
+    const files=pnBuildDxfByThickness(),ks=Object.keys(files);
+    if(!ks.length){alert('No panels to export — create a room with walls first.');return;}
+    ks.forEach((k,i)=>{setTimeout(()=>{const blob=new Blob([files[k]],{type:'application/dxf'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=k+'.dxf';document.body.appendChild(a);a.click();a.remove();},i*350);});
   }
   // legacy import: old production panelling quotes (.fastcnc blocks with calcMode 'panel') → panelRooms
   function pnImportLegacy(doc){
@@ -4615,7 +4703,9 @@
       rooms.push({id:'pr'+(++pnUid),name:b.roomName||('Room '+(++rn)),mat:(b.material||'MDF')+' '+(b.thickness||'18mm'),
         frame:+b.frameSize||80,target:350,doorAllow:+b.panelDoorAllowance||175,
         skirtOn:(b.panelSkirtingEnabled||'')==='Yes',skirtH:+b.panelSkirtingHeight||225,sillH:22,
-        hPanelH:+b.panelHorizontalHeight||1030,vPanelH:+b.panelVerticalHeight||3000,sheetPref:'auto',lines:pnDefaultLines(),walls});
+        hPanelH:+b.panelHorizontalHeight||1030,vPanelH:+b.panelVerticalHeight||3000,sheetPref:'auto',
+        matCost:(+b.materialCost>0?+b.materialCost:null),cncCost:(+b.cncServiceCost>0?+b.cncServiceCost:330),
+        lines:pnDefaultLines(),walls});
     });
     return rooms;
   }
@@ -4634,18 +4724,19 @@
   }
   // ---- Panels UI: room/wall tabs · wall canvas (SVG) · right inspector · sheets subview ----
   function pnRefresh(){pnSave();captureHistory();renderPanels();}
-  function pnSelRoom(i){pnSel={room:i,wall:0,kind:'room',id:null};renderPanels();}
-  function pnAddRoom(){panelRooms.push(pnNewRoom(panelRooms.length+1));pnSel={room:panelRooms.length-1,wall:0,kind:'room',id:null};pnRefresh();}
+  function pnSelRoom(i){pnSel={room:i,wall:0,kind:'room',id:null};pnVb=null;renderPanels();}
+  function pnAddRoom(){panelRooms.push(pnNewRoom(panelRooms.length+1));pnSel={room:panelRooms.length-1,wall:0,kind:'room',id:null};pnVb=null;pnRefresh();}
   function pnDelRoom(){if(!panelRooms.length)return;if(!confirm('Delete this room and its walls?'))return;panelRooms.splice(pnSel.room,1);pnSel={room:Math.max(0,pnSel.room-1),wall:0,kind:'room',id:null};pnRefresh();}
   function pnDupRoom(){const r=pnRoomObj();if(!r)return;const c=JSON.parse(JSON.stringify(r));c.id='pr'+(++pnUid)+'_'+Date.now();c.name=(c.name||'Room')+' copy';c.walls.forEach(w=>{w.id='pw'+(++pnUid);});panelRooms.splice(pnSel.room+1,0,c);pnSel={room:pnSel.room+1,wall:0,kind:'room',id:null};pnRefresh();}
-  function pnSelWall(i){pnSel={room:pnSel.room,wall:i,kind:'wall',id:null};renderPanels();}
-  function pnAddWall(){const r=pnRoomObj();if(!r)return;r.walls.push(pnNewWall());pnSel={room:pnSel.room,wall:r.walls.length-1,kind:'wall',id:null};pnRefresh();}
+  function pnSelWall(i){pnSel={room:pnSel.room,wall:i,kind:'wall',id:null};pnVb=null;renderPanels();}
+  function pnAddWall(){const r=pnRoomObj();if(!r)return;r.walls.push(pnNewWall());pnSel={room:pnSel.room,wall:r.walls.length-1,kind:'wall',id:null};pnVb=null;pnRefresh();}
   function pnDelWall(){const r=pnRoomObj();if(!r||r.walls.length<=1)return;r.walls.splice(pnSel.wall,1);pnSel={room:pnSel.room,wall:Math.max(0,pnSel.wall-1),kind:'wall',id:null};pnRefresh();}
   function pnSelOpening(id){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id};renderPanels();}
   function pnSelPiece(pid,wi){pnSel={room:pnSel.room,wall:(wi!=null?wi:pnSel.wall),kind:'piece',id:pid};renderPanels();}
   function pnNum(v){const n=+v;return isNaN(n)?0:n;}
   function pnSet(scope,field,val){
     const r=pnRoomObj();if(!r)return;
+    if(field==='matCost'||field==='cncCost'){const t=String(val).trim();r[field]=(t==='')?null:Math.max(0,pnNum(t));pnRefresh();return;}
     const numeric=['frame','target','doorAllow','skirtH','sillH','hPanelH','vPanelH','w','h','shakerCount','vRows','vCols'];
     const v=numeric.indexOf(field)>=0?pnNum(val):val;
     if(scope==='room')r[field]=v;else{const w=pnWallObj();if(!w)return;w[field]=v;}
@@ -4669,7 +4760,7 @@
     const l=r.lines[i];if(!l)return;
     if(field==='en')l.en=!l.en;else if(field==='rd')l.rd=!l.rd;else l.mm=Math.max(0,pnNum(val));
     pnRefresh();}
-  function pnSetView(v){pnView=v;renderPanels();}
+  function pnSetView(v){pnView=v;pnVb=null;renderPanels();}
   function pnOpCollisions(wall){
     const ids={};const ops=(wall.openings||[]).map(o=>({id:o.id,r:pnOpRect(o,wall),b0:+o.bottom||0,b1:(+o.bottom||0)+(+o.h||0)}));
     for(let i=0;i<ops.length;i++)for(let j=i+1;j<ops.length;j++){
@@ -4687,7 +4778,7 @@
     const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),D=L.D,f=D.frame;
     const pad=34,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=hpx+pad+30;
     const X=x=>pad+x*sc, Y=y=>pad-14+(H-y)*sc;
-    let s='<svg viewBox="0 0 '+vbW+' '+Math.round(vbH)+'" style="width:100%;display:block" id="pnSvg">';
+    let s='<svg viewBox="0 0 '+vbW+' '+Math.round(vbH)+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0" id="pnSvg">';
     s+='<rect x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
     s+='<line x1="'+(X(0)-12)+'" y1="'+Y(0)+'" x2="'+(X(W)+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
     s+='<text x="'+X(W/2)+'" y="'+(Y(H)-8)+'" text-anchor="middle" font-size="11" fill="var(--muted)">'+Math.round(W)+' mm</text>';
@@ -4714,6 +4805,7 @@
       });
       const lbl=p.name.replace(/^.*Wall \d+ - /,'');
       s+='<text x="'+(px+pw/2)+'" y="'+(py+12)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(selp?'#2563eb':'var(--muted)')+'">'+lbl+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
+      if(pw>56&&ph>36)s+='<text x="'+(px+pw/2)+'" y="'+(py+ph/2+4)+'" text-anchor="middle" font-size="9.5" fill="var(--muted)" fill-opacity="0.85">'+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
       s+='</g>';
     });
     // wall seams of chained runs (drawn where a run crosses this wall boundary)
@@ -4767,6 +4859,73 @@
     });
     return '<svg viewBox="0 0 '+vbW+' '+Math.round(y+4)+'" style="width:100%;display:block">'+s+'</svg>';
   }
+  // panoramic room view: every wall side by side, click a wall to open it
+  function pnPanoSvg(room,L){
+    const walls=room.walls||[];if(!walls.length)return '<div class="pn-hint">No walls.</div>';
+    const gap=420;
+    let totW=0,maxH=0;walls.forEach(w=>{totW+=Math.max(200,+w.w||0);maxH=Math.max(maxH,+w.h||0);});
+    totW+=gap*Math.max(0,walls.length-1);
+    const vbW=1240,pad=40,labH=64;
+    const sc=(vbW-2*pad)/Math.max(1,totW);
+    const floorY=maxH*sc+26;
+    const vbH=Math.round(floorY+labH);
+    let x=pad;
+    let s='<svg viewBox="0 0 '+vbW+' '+vbH+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0">';
+    s+='<line x1="'+(pad-14)+'" y1="'+floorY+'" x2="'+(vbW-pad+14)+'" y2="'+floorY+'" stroke="var(--muted)" stroke-width="1"/>';
+    walls.forEach((w,wi)=>{
+      const W=Math.max(200,+w.w||0),H=Math.max(200,+w.h||0),wpx=W*sc,hpx=H*sc,x0=x,y0=floorY-hpx;
+      const on=wi===pnSel.wall;
+      s+='<g class="pnw" data-wi="'+wi+'" style="cursor:pointer">';
+      s+='<rect x="'+x0+'" y="'+y0+'" width="'+wpx+'" height="'+hpx+'" fill="var(--bg)" stroke="'+(on?'#2563eb':'var(--muted)')+'" stroke-width="'+(on?1.6:0.8)+'"/>';
+      L.pieces.filter(p=>p.wi===wi).forEach(p=>{
+        s+='<rect x="'+(x0+p.x0*sc)+'" y="'+(floorY-p.y1*sc)+'" width="'+((p.x1-p.x0)*sc)+'" height="'+((p.y1-p.y0)*sc)+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3)s+='<rect x="'+(x0+(p.x0+c.x)*sc)+'" y="'+(floorY-(p.y0+c.y+c.h)*sc)+'" width="'+(c.w*sc)+'" height="'+(c.h*sc)+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';});
+      });
+      (w.openings||[]).forEach(o=>{
+        const r=pnOpRect(o,w),b0=+o.bottom||0,col=o.type==='door'?'#db2777':(o.type==='window'?'#0891b2':'#78716c');
+        s+='<rect x="'+(x0+r.x0*sc)+'" y="'+(floorY-(b0+(+o.h||0))*sc)+'" width="'+((r.x1-r.x0)*sc)+'" height="'+((+o.h||0)*sc)+'" fill="var(--bg)" stroke="'+col+'" stroke-width="0.8"'+(o.type==='object'?' stroke-dasharray="4 3"':'')+'/>';
+      });
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+18)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(on?'#2563eb':'var(--ink)')+'">Wall '+(wi+1)+(w.dir==='v'?' · V':'')+'</text>';
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">'+Math.round(W)+' × '+Math.round(H)+' · click to open</text>';
+      s+='</g>';
+      x+=wpx+gap*sc;
+    });
+    s+='</svg>';
+    return s;
+  }
+  // ---- canvas zoom / pan (wheel + drag; viewBox only, no re-render) ----
+  let pnVb=null,pnPan=null,pnSupress=0;
+  function pnCurSvg(){const c=document.querySelector('#pnRoot .pn-canvas');return c?c.querySelector('svg'):null;}
+  function pnVbOf(svg){return (pnVb||String(svg.getAttribute('viewBox')).split(' ').map(Number)).slice();}
+  function pnZoom(f){const svg=pnCurSvg();if(!svg)return;const vb=pnVbOf(svg);const cx=vb[0]+vb[2]/2,cy=vb[1]+vb[3]/2,w=Math.max(40,vb[2]*f),h=vb[3]*(w/vb[2]);pnVb=[cx-w/2,cy-h/2,w,h];svg.setAttribute('viewBox',pnVb.join(' '));}
+  function pnFit(){pnVb=null;const svg=pnCurSvg();if(svg&&svg.dataset.nat)svg.setAttribute('viewBox',svg.dataset.nat);}
+  function pnZoomWire(svg){
+    svg.dataset.nat=svg.getAttribute('viewBox');
+    if(pnVb)svg.setAttribute('viewBox',pnVb.join(' '));
+    svg.addEventListener('wheel',e=>{
+      e.preventDefault();
+      const vb=pnVbOf(svg),r=svg.getBoundingClientRect();
+      const px=vb[0]+(e.clientX-r.left)/r.width*vb[2],py=vb[1]+(e.clientY-r.top)/r.height*vb[3];
+      const f=e.deltaY>0?1.15:0.87,w=Math.max(40,vb[2]*f),k=w/vb[2],h=vb[3]*k;
+      pnVb=[px-(px-vb[0])*k,py-(py-vb[1])*k,w,h];
+      svg.setAttribute('viewBox',pnVb.join(' '));
+    },{passive:false});
+    svg.addEventListener('mousedown',e=>{pnPan={svg,x:e.clientX,y:e.clientY,vb:pnVbOf(svg),moved:false};});
+  }
+  window.addEventListener('mousemove',e=>{
+    if(!pnPan)return;
+    const dx=e.clientX-pnPan.x,dy=e.clientY-pnPan.y;
+    if(Math.abs(dx)+Math.abs(dy)>3){pnPan.moved=true;const c=document.querySelector('#pnRoot .pn-canvas');if(c)c.classList.add('grabbing');}
+    if(!pnPan.moved)return;
+    const r=pnPan.svg.getBoundingClientRect();
+    pnVb=[pnPan.vb[0]-dx*(pnPan.vb[2]/r.width),pnPan.vb[1]-dy*(pnPan.vb[3]/r.height),pnPan.vb[2],pnPan.vb[3]];
+    pnPan.svg.setAttribute('viewBox',pnVb.join(' '));
+  });
+  window.addEventListener('mouseup',()=>{
+    if(pnPan&&pnPan.moved)pnSupress=Date.now();
+    pnPan=null;
+    const c=document.querySelector('#pnRoot .pn-canvas');if(c)c.classList.remove('grabbing');
+  });
   function pnInspectorHtml(room,L){
     const wall=room.walls[pnSel.wall];
     const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
@@ -4850,6 +5009,10 @@
       +SEC('Sheets',
         '<div class="pn-row"><label>Sheet use</label>'+pnSegHtml([['auto','Auto 8x4/10x4'],['8x4','8x4 only']],room.sheetPref==='8x4'?'8x4':'auto','pnSet(\'room\',\'sheetPref\',\'%V\')')+'</div>'
         +'<div class="pn-hint">Auto: runs ≤ '+PN_CAP['10x4']+'mm stay one piece on 10x4; longer runs split at frame centrelines with the cheapest 8x4/10x4 mix.</div>')
+      +SEC('Pricing (per sheet)',
+        '<div class="pn-row"><label>Material £/sheet</label><input type="number" value="'+(room.matCost==null?'':room.matCost)+'" placeholder="book" onchange="pnSet(\'room\',\'matCost\',this.value)"></div>'
+        +'<div class="pn-row"><label>CNC £/sheet</label><input type="number" value="'+(room.cncCost==null?330:room.cncCost)+'" onchange="pnSet(\'room\',\'cncCost\',this.value)"></div>'
+        +'<div class="pn-hint">empty material = price book per sheet size · CNC default £330/sheet (panelling rate)</div>')
       +SEC('Offset lines (A–G)',
         lines.map((l,i)=>{
           const Lt='ABCDEFG'[i];
@@ -4886,10 +5049,17 @@
     const wallTabs='<div class="pn-tabs"><span class="lb">Walls</span>'
       +room.walls.map((w,i)=>'<span class="pn-tab '+(i===pnSel.wall?'on':'')+'" onclick="pnSelWall('+i+')">Wall '+(i+1)+' · '+Math.round(w.w)+'×'+Math.round(w.h)+(w.dir==='v'?' · V':'')+'</span>').join('')
       +'<span class="pn-tab add" onclick="pnAddWall()">+ wall</span></div>';
-    const views='<div class="pn-views"><button class="pn-mini '+(pnView==='wall'?'on':'')+'" onclick="pnSetView(\'wall\')">Wall</button><button class="pn-mini '+(pnView==='sheets'?'on':'')+'" onclick="pnSetView(\'sheets\')">Sheets</button></div>';
+    const views='<div class="pn-views">'
+      +'<button class="pn-mini" onclick="pnDownloadDxf()" title="Export panels DXF (one file per thickness, same layers as Doors)" style="font-weight:800">⬇ DXF</button>'
+      +'<button class="pn-mini '+(pnView==='wall'?'on':'')+'" onclick="pnSetView(\'wall\')">'+(pnSel.kind==='room'?'Room':'Wall')+'</button>'
+      +'<button class="pn-mini '+(pnView==='sheets'?'on':'')+'" onclick="pnSetView(\'sheets\')">Sheets</button>'
+      +(pnView!=='sheets'?'<button class="pn-mini" onclick="pnZoom(0.8)" title="Zoom in">+</button><button class="pn-mini" onclick="pnZoom(1.25)" title="Zoom out">−</button><button class="pn-mini" onclick="pnFit()" title="Fit to view">⤢</button>':'')
+      +'</div>';
     let canvas='';
     if(lerr)canvas='<div class="pn-warn">Panel layout error: '+esc(lerr)+'</div>';
-    else canvas=(pnView==='sheets')?pnSheetsSvg(room,L):pnWallSvg(room,L,pnSel.wall);
+    else if(pnView==='sheets')canvas=pnSheetsSvg(room,L);
+    else if(pnSel.kind==='room')canvas=pnPanoSvg(room,L);
+    else canvas=pnWallSvg(room,L,pnSel.wall);
     let warnsH='';
     if(L&&L.warns.length)warnsH='<div class="pn-warn">⚠ '+L.warns.map(esc).join('<br>⚠ ')+'</div>';
     let status='';
@@ -4903,10 +5073,13 @@
         +'<span>Job <b>'+money(q.sub)+'</b> ex VAT</span></div>';
     }catch(e){status='';}
     root.innerHTML=roomTabs+wallTabs
-      +'<div class="pn-layout"><div class="pn-canvas">'+views+canvas+warnsH+status+'</div>'
+      +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+warnsH+status+'</div>'
       +'<aside class="pn-insp">'+pnInspectorHtml(room,L)+'</aside></div>';
-    root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>pnSelPiece(g.dataset.pid,+g.dataset.wi);});
-    root.querySelectorAll('.pno').forEach(g=>{g.onclick=(ev)=>{ev.stopPropagation();pnSelOpening(g.dataset.oid);};});
+    root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});
+    root.querySelectorAll('.pno').forEach(g=>{g.onclick=(ev)=>{ev.stopPropagation();if(Date.now()-pnSupress<250)return;pnSelOpening(g.dataset.oid);};});
+    root.querySelectorAll('.pnw').forEach(g=>{g.onclick=()=>{if(Date.now()-pnSupress<250)return;pnSelWall(+g.dataset.wi);};});
+    const svg=root.querySelector('.pn-canvas svg');
+    if(svg&&pnView!=='sheets')pnZoomWire(svg);
   }
 
   // ---- main views: Order entry (parts) <-> Quote (customer + pricing + totals) ----
@@ -4949,7 +5122,7 @@
       +(d.panels&&d.panels.rows.length?('<div class="sub" style="margin:10px 0 3px;font-weight:700">Wall panelling (Panels mode)</div>'
         +'<table class="ptbl"><thead><tr><th>Room</th><th>Material</th><th style="text-align:center">Sheets</th><th style="text-align:center">Panels</th><th style="text-align:right">Material</th><th style="text-align:right">CNC/svc</th><th style="text-align:right">Total</th></tr></thead><tbody>'
         +d.panels.rows.map(r=>{const szs=Object.keys(r.szs).map(k=>r.szs[k]+'× '+k).join(' · ');
-          return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'<div class="sub" style="font-size:11px;color:#64748b">'+szs+' · CNC base '+money(r.base)+(r.pocketPct?' · Pocket '+pctTxt(r.pocketPct):'')+' → '+money(r.cncEff)+'</div></td><td style="text-align:center">'+r.sheets+'</td><td style="text-align:center">'+r.parts+'</td><td style="text-align:right">'+money(r.mc)+'</td><td style="text-align:right">'+money(r.cncEff)+'</td><td style="text-align:right;font-weight:700">'+money(r.total)+'</td></tr>';}).join('')
+          return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'<div class="sub" style="font-size:11px;color:#64748b">'+szs+' · material '+(r.matOv!=null?money(r.matOv)+'/sheet':'book')+' · CNC '+money(r.cncRate)+'/sheet</div></td><td style="text-align:center">'+r.sheets+'</td><td style="text-align:center">'+r.parts+'</td><td style="text-align:right">'+money(r.mc)+'</td><td style="text-align:right">'+money(r.cncEff)+'</td><td style="text-align:right;font-weight:700">'+money(r.total)+'</td></tr>';}).join('')
         +'</tbody></table>'):'')
       +'<div class="sub" style="margin:8px 0 3px;font-weight:700">Additional services</div>'
       +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">'+svcInput('Design','design',d.svc.design,'£35/hr')+svcInput('Cutting list','cutting',d.svc.cutting,'£25/hr')+svcInput('Assembly','assembly',d.svc.assembly,'£50/hr')+'</div>'

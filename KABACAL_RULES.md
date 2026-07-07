@@ -38,12 +38,22 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 
 ### Offset lines A–G
 
-- Mesmo modelo do Doors ({en, mm, round}) no room, desenhadas dentro de CADA cavidade de shaker no preview. Fase 2: exportam para as layers DXF `OFFSET_A`–`OFFSET_G` já existentes (contrato das gadgets/CAM) e para as operations do CAM.
+- Mesmo modelo do Doors ({en, mm, round}) no room, desenhadas dentro de CADA cavidade de shaker no preview e EXPORTADAS no DXF: linha ativa = retângulo recuado `mm` dentro de cada cavidade na layer `OFFSET_X` (round corners r2.5 como Doors); **sem nenhuma linha ativa, a própria cavidade sai em `OFFSET_A`** — exatamente a disciplina do Doors (linha ativa substitui a base).
+
+### DXF dos painéis (confirmado/entregue 2026-07-07)
+
+- Botão DXF do header (modo Panels) e botão ⬇ DXF do canvas exportam `PANELS_<espessura>.dxf` (um arquivo por espessura, rooms juntos).
+- Mesma disciplina do writer do Doors: doc portrait com chapas empilhadas (gap 250), `SHEET` + caption dentro da chapa ("SHEET n PANELS <room> <material> <esp>"), `OUT` = contorno da peça, cavidades/linhas como acima, `INSIDE` = recortes de janela (corte passante), `PART_NUMBER` no canto reservado + texto tamanho/nome ajustado (mesmas métricas do Doors), margens/gap de 7mm herdados do nesting; peças rotacionadas no nesting têm as cavidades transformadas junto.
+- Toolpaths/CAM dos painéis = Fase 2.
+
+### Preço dos painéis (regra do panneling, confirmada 2026-07-07)
+
+- Por room: **material £/chapa** (campo vazio = price book pelo tamanho real de cada chapa, ex. MDF 18: 55 em 8x4 / 75 em 10x4) + **CNC serviço £/chapa** (default **£330** — a taxa de panelling do app antigo). Total do room = Σ material + CNC×chapas. Editáveis no inspector do Room.
+- Import legacy traz `materialCost`/`cncServiceCost` do bloco antigo. Job só-Doors continua byte-idêntico (invariante testado).
 
 ### Persistência / nomes
 
-- `.fastcnc` ganha o campo ADITIVO `panelRooms` (arquivos antigos seguem carregando); quotes antigos do app de panneling (`calcMode:'panel'`) importam para rooms automaticamente (`empty`→Object). Nomes: `Wall N - P1`, `P2V` (V = vertical), com prefixo do nome do room.
-- DXF/Toolpaths dos painéis = Fase 2 (a geometria já sai como dados: outline + cavidades + offsets).
+- `.fastcnc` ganha o campo ADITIVO `panelRooms` (arquivos antigos seguem carregando, inclusive saves da Fase 1 sem os campos novos de preço); quotes antigos do app de panneling (`calcMode:'panel'`) importam para rooms automaticamente (`empty`→Object). Nomes: `Wall N - P1`, `P2V` (V = vertical), com prefixo do nome do room.
 
 ## Nesting
 

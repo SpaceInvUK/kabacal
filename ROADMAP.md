@@ -2,6 +2,22 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (g) — Panels rodada 2 (teste do Ednei): DXF dos painéis, panorâmica, zero-scroll, preço do panneling
+
+Seis pedidos urgentes do teste real. **DXF era o bloqueador de produção** — entregue com a disciplina do Doors.
+
+- **DXF dos painéis**: `PANELS_<espessura>.dxf` por espessura (botão DXF do header em modo Panels + ⬇ DXF no canvas). Writer espelha o do Doors: doc portrait, `SHEET`+caption dentro da chapa, `OUT` contorno, **cavidades de shaker em `OFFSET_A`** (sem linhas ativas) ou **linhas A–G ativas** recuadas `mm` em cada cavidade (round r2.5), `INSIDE` = recorte de janela, `PART_NUMBER` + texto tamanho/nome com as mesmas métricas, margens/gap 7mm do nesting, cavidades transformadas quando a peça rotaciona no nesting.
+- **Panorâmica**: clicar a tab do Room mostra TODAS as paredes lado a lado (peças/cavidades/aberturas resumidas, "click to open"); clicar uma parede abre a vista normal.
+- **Zero-scroll + zoom/pan**: canvas com altura fixa `100vh−282px` (SVG "meet" dentro), sem scroll de página; **roda do mouse = zoom no cursor, arrastar = pan**, botões + − ⤢ (fit); vista Sheets rola dentro do próprio canvas. Arrastar não dispara clique (supressão 250ms).
+- **Preço do panneling**: por room, material £/chapa (vazio = price book por tamanho de chapa) + **CNC £330/chapa default** (taxa do app antigo), editáveis no inspector; import legacy traz materialCost/cncServiceCost do bloco. Substitui o "CNC de porta + % pocketing" da Fase 1 (era o motivo dos valores não baterem).
+- **Overrides redesenham na hora**: QUALQUER override de painel (lados OU count) reflui as células imediatamente (h e v); Auto volta ao grid do run. (Era o bug: mudar só o lado não refluía.)
+- **Tamanhos nos painéis**: label sutil "L × A" no centro de cada peça (muted, some em peça pequena).
+- check.mjs: presença do writer DXF + nome `PANELS_` + default £330.
+
+### Testado (g)
+
+`node tools/check.mjs` ok ✓ · **goldens NC ll/c + DXF do Doors byte-idênticos** (IDENTICAL ×3 na comparação binária) ✓ · quote só-Doors nos valores provados (£300/£360, panels zerado) ✓ · **DXF Panels verificado por conteúdo**: 6 OUT = 6 peças, 6 SHEET = 6 chapas, 34 OFFSET_B = 34 cavidades com linha B ativa E 34 OFFSET_A com linhas desligadas (disciplina Doors nos dois sentidos), 2 INSIDE = 2 recortes de janela, PART_NUMBER ×6, tabela de layers só com as usadas, borda mínima 7mm, shell HEADER→EOF válido ✓ · panorâmica renderiza as paredes e o clique abre a parede ✓ · zero-scroll em 1440×900 (doc 900 = viewport; canvas 618px) ✓ · zoom muda o viewBox e ⤢ restaura ✓ · override de lado `corner` reflui células (recuo 80→98 = frame+espessura exatos) ✓ · labels "2600 × 1030" nas peças ✓ · preço: 6 chapas → material book £430 / CNC £1.980 / total £2.410; com material £70 → £2.400 ✓ · save da Fase 1 SEM os campos novos carrega e precifica com defaults (330/book) ✓ · import legacy traz 70/330 do bloco ✓ · console limpo ✓ · screenshot do preview segue travando (limitação do ambiente de captura; verificação via eval/a11y).
+
 ## 2026-07-07 (f) — Kabacal Panels Fase 1: modo Panels completo (rooms → walls → painéis shaker)
 
 Modo **Panels** dentro do Kabacal (o botão "Panelling ↗" que abria o app antigo virou o toggle **Doors | Panels**). Workflow separado do Doors, preço junto no Quote. Regras confirmadas com o Ednei em 2026-07-07 (plano + 2 rodadas de correção) — agora em `KABACAL_RULES.md` seção "Panels".

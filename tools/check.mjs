@@ -81,6 +81,12 @@ if (html) {
   must(!!pnSrc, 'PN_ENGINE markers missing (panels engine)');
   must(html.includes('base.panelRooms='), 'buildFastCnc must save the additive panelRooms field');
   must(html.includes("localStorage.setItem('kab_panels'"), 'kab_panels persistence missing');
+  // Panels DXF export must exist and follow the Doors layer discipline
+  once(/function pnDxfForThickness\(/g, 'pnDxfForThickness (panels DXF writer)');
+  once(/function pnBuildDxfByThickness\(/g, 'pnBuildDxfByThickness');
+  once(/function pnDownloadDxf\(/g, 'pnDownloadDxf');
+  must(html.includes("'PANELS_'+th"), 'panels DXF files must be named PANELS_<thickness>');
+  must(html.includes("cncRate=(room.cncCost!=null&&room.cncCost!=='')?+room.cncCost:330"), 'panels CNC default £330/sheet missing');
   if (pnSrc) {
     try {
       const api = new Function(pnSrc + ';return {pnLayoutRoom:pnLayoutRoom,PN_CAP:PN_CAP,PN_CROSS:PN_CROSS};')();
