@@ -8,7 +8,7 @@ Any code change that alters these outputs will show up as a diff — which must 
 > **Status: regenerated 2026-07-07 for the PORTRAIT machine frame.** The user's
 > datum test revealed the whole frame was rotated 90° vs the machine (Kabacal
 > nests landscape; the Pegasus mounts the sheet portrait, X across 1220 — see
-> their VCarve Job Setup 1220×2440 and James Template X≤1220). `camJob.orient`
+> their VCarve Job Setup 1220×2440 and the machine reference file X≤1220). `camJob.orient`
 > now defaults to `'portrait'` and `tpXform` rotates coordinates (x_m = 1220−y,
 > y_m = x) before the datum offset — all 5 datum labels now match the physical
 > sheet corners. The golden diff vs the previous files is a PURE X/Y rotation

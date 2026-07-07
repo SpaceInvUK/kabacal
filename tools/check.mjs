@@ -64,7 +64,7 @@ if (html) {
   }
   once(/const DXF_LAYERS=\{/g, 'DXF_LAYERS table');
 
-  // 5. CNC post invariants (Pegasus/Syntec — validated vs James Template.nc)
+  // 5. CNC post invariants (Pegasus/Syntec — validated vs the machine reference .nc)
   for (const tok of [":1248'", "'G40G17G80G49'", "'G53Z0'", "'M05M30'"]) {
     must(html.includes(tok), `NC post invariant missing: ${tok}`);
   }
