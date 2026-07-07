@@ -118,6 +118,14 @@ rodaria ANTES da op 1 (FINISH 18mm) — confirmar a ordem real na lista do VCarv
 - Template do insert: 1. "6mm Out Insert 12mm" — T1, Outside, 12mm (layer ref `OUT_INSERT_15MM` ≙ `OUT` do insert no Kabacal) · 2. "4mm Pocket 5.5mm" — T4, Inside, 5.5mm (layer ref `OFFSET_5MM` ≙ `IN` do insert).
 - Trad continua overlay 12/lado e anéis 7/14 retos; **reeded continua 14/lado** até vir um arquivo de referência reeded.
 
+### Templates por peça física (schema v2, confirmado 2026-07-07)
+
+- Todo template declara o alvo físico: `appliesTo:{part:'body'|'insert', type:'flush'|…, th:18|12}`. **Uma porta Flushback recebe DOIS templates**: "Flushback 18mm Frame/Body" (7 ops) no corpo e "Flushback 12mm Insert" (2 ops) no insert — o ⚡ Auto aplica TODOS os templates auto que casarem por completo, cada um com escopo e `role` próprios.
+- Motor: `params.role` em `tpPathParts` filtra por peça física (`insert` = só peças insert; `body` = só corpos; ausente = tudo, comportamento antigo). É filtro puro — cam-reviewer 2026-07-07 provou que é **obrigatório**: sem role, o op do corpo (18mm) cortaria a chapa do insert (12mm) até Z−6 no spoilboard (as chaves `3_0`/`3_0_i` colidem no parseInt do scope).
+- Layers cortáveis hoje: contorno (`OUT` no corpo; `OUT_INSERT_15MM`→`OUT`+role no insert). Demais ops entram DESLIGADOS ("next op") preservando a ordem do arquivo — a ordem NUNCA é reordenada sem regra explícita. Par desbaste+acabamento no OUT (17mm+18mm) é intencional (aviso de duplicado ganha nota).
+- Preview: **▶ Simulate** = player 2.5D passo-a-passo (vista de topo, remoção por profundidade codificada em cor, banda/furo/kerf na largura real da fresa, abas corpo/insert, medidor de profundidade por op). Simulação 3D real = fase futura.
+- Ao converter futuros `.ToolpathTemplate`: mapear nome/appliesTo/ops{name, layer, kind, tool{num,dia}, side, params{cutDepth, passes, lastPass, allowance, ramp}} — 1 op por toolpath do arquivo, na ordem do arquivo.
+
 ## Offset Depth — pockets (confirmado 2026-07-07, protótipo Kabacal 3D)
 
 - Cada offset line (A–G) ganha um campo `depth` (mm). `depth > 0` = pocket/recesso a partir daquela linha.

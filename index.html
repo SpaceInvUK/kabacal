@@ -3324,7 +3324,12 @@
     else a.sort((x,y)=>parseInt(x.key)-parseInt(y.key));
     return a;}
   function tpPathParts(f,pp){let parts=(f.sh.parts||[]).filter(p=>!p.isBack);
-    const P=pp.params;if(P.scope&&P.scope.items&&P.scope.items.length)parts=parts.filter(p=>P.scope.items.indexOf(parseInt(p.key,10))>=0);
+    const P=pp.params;
+    // template ops target ONE physical role: 'insert' cuts only insert pieces, 'body' only the main
+    // door bodies. Absent role (every pre-template toolpath) = all parts, exactly as before. Pure filter.
+    if(P.role==='insert')parts=parts.filter(p=>p.isInsert);
+    else if(P.role==='body')parts=parts.filter(p=>!p.isInsert&&!p.isBeading);
+    if(P.scope&&P.scope.items&&P.scope.items.length)parts=parts.filter(p=>P.scope.items.indexOf(parseInt(p.key,10))>=0);
     return tpOrderParts(parts,f.sh.S,P.order||'narrow');}
   function tpPathMovesForSheet(f,pp,tool){const mv=[];if(pp.kind!=='profile')return mv;
     tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
@@ -3523,7 +3528,8 @@
     </div>
     <div class="tp-tree" style="margin-bottom:8px">
       <div class="tp-tree-h"><span>Templates</span>
-        <button class="btn ghost tiny" style="margin-left:auto" title="Pick the best Auto template for the selected parts' layers and apply it" onclick="tplAutoRun()">⚡ Auto</button>
+        <button class="btn ghost tiny" style="margin-left:auto" title="Apply EVERY fully-matching Auto template — a Flushback takes the 18mm body + 12mm insert templates together" onclick="tplAutoRun()">⚡ Auto</button>
+        <button class="btn ghost tiny" title="Step-by-step machining preview (2.5D) of the matching templates on the selected part" onclick="openTplSim()">▶ Simulate</button>
         <button class="btn ghost tiny" onclick="document.getElementById('tplImp').click()">${ic('open',12)} Import</button>
         <button class="btn ghost tiny" onclick="tplExport()">${ic('save',12)} Export</button>
         <input id="tplImp" type="file" accept=".json" style="display:none" onchange="tplImport(event)">
@@ -3531,7 +3537,7 @@
       ${tpTemplates.length?tpTemplates.map(t=>{const ids=tplTargets(),m=tplMatchInfo(t,ids);
         return `<div class="tp-row"><span class="dot" style="background:${m.full?'#16a34a':(m.matched?'#d97706':'#94a3b8')}" title="${m.matched}/${m.total} operations match the ${((typeof selSet!=='undefined'&&selSet.size)?'selected':'job')} parts' layers"></span>
         <span class="nm">${esc(t.name)}${t.auto?' <span style="color:#7c3aed;font-weight:800;font-size:10px">AUTO</span>':''}</span>
-        <span class="sub2">${(t.ops||[]).length} ops · ${m.matched}/${m.total} match</span>
+        <span class="sub2">${t.appliesTo?esc((t.appliesTo.type||'any')+' · '+(t.appliesTo.th?t.appliesTo.th+'mm ':'')+(t.appliesTo.part||'body'))+' · ':''}${(t.ops||[]).length} ops · ${m.matched}/${m.total} match</span>
         <button class="btn ghost tiny" onclick="tplApply('${t.id}')">Apply</button>
         <button class="iconbtn" style="width:22px;height:22px" onclick="tplDel('${t.id}')">${ic('trash',11)}</button></div>`;}).join('')
       :`<div class="tp-empty" style="padding:10px">No templates yet. Import a template .json — it lists the operations <b>in your order</b> (layers + tools); Kabacal applies it to the selected parts (or all) and never invents the sequence.</div>`}
@@ -3833,10 +3839,13 @@
   // targets the parts that actually have that op's layer. "Auto" templates can be matched by layers alone.
   // Factory templates — converted 1:1 from the user's VCarve .ToolpathTemplate files (NOT invented).
   // Ops are in FILE order; every op in these files is a Profile (outside/inside/on) with ONE full-depth pass.
-  // Layer names match the reference DXFs; the two insert layers (OUT_INSERT_15MM/OFFSET_5MM) map to the
-  // insert part's OUT/IN layers in Kabacal's own exports (see KABACAL_RULES.md "Flushback").
+  // appliesTo = which PHYSICAL piece the template machines: part 'body' (the door face, matched by item
+  // type + sheet thickness) or 'insert' (the auto-generated insert piece, matched via insertSpecFor —
+  // kind + insert thickness). One Flushback door therefore takes BOTH templates: 18mm body + 12mm insert.
+  // Insert layer names stay the VCarve reference names (OUT_INSERT_15MM/OFFSET_5MM) and map to the insert
+  // part's OUT/IN geometry in Kabacal's exports (see KABACAL_RULES.md "Flushback").
   const TPL_FACTORY=[
-   {id:'tpl_flush18',name:'18mm Flushback',auto:true,src:'18mm Flushback.ToolpathTemplate (2026-07-07)',ops:[
+   {id:'tpl_flush18',name:'Flushback 18mm Frame/Body',auto:true,appliesTo:{part:'body',type:'flush',th:18},src:'18mm Flushback.ToolpathTemplate (2026-07-07)',ops:[
     {name:'6mm OUT/IN FINISH',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:18,passes:1,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}},
     {name:'2mm Shadow',layer:'SHADOW',kind:'profile',tool:{num:2,dia:2},side:'inside',params:{cutDepth:2,passes:1,lastPass:{on:false,val:0}}},
     {name:'4mm In 18mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:18,passes:1,lastPass:{on:false,val:0}}},
@@ -3845,12 +3854,14 @@
     {name:'6mm Pocket Frame 6.5mm',layer:'OFFSET_A',kind:'profile',tool:{num:1,dia:6},side:'inside',params:{cutDepth:6.5,passes:1,lastPass:{on:false,val:0}}},
     {name:'6mm OUT/IN Frame 17mm',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:17,passes:1,allowance:0.15,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}}
    ]},
-   {id:'tpl_flushins12',name:'12mm Flushback Insert',auto:false,src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07)',ops:[
+   {id:'tpl_flushins12',name:'Flushback 12mm Insert',auto:true,appliesTo:{part:'insert',type:'flush',th:12},src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07)',ops:[
     {name:'6mm Out Insert 12mm',layer:'OUT_INSERT_15MM',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:12,passes:1,ramp:{on:true,dist:100}}},
     {name:'4mm Pocket 5.5mm',layer:'OFFSET_5MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:5.5,passes:1}}
    ]}];
   // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
   let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();
+  // factory-owned entries refresh from the factory on boot (user's own templates untouched; deletions respected)
+  TPL_FACTORY.forEach(ft=>{const i=tpTemplates.findIndex(t=>t&&t.id===ft.id);if(i>=0)tpTemplates[i]=JSON.parse(JSON.stringify(ft));});
   function saveTpTemplates(){try{localStorage.setItem('kab_tp_templates',JSON.stringify(tpTemplates));}catch(e){}}
   function itemLayers(it){
     const s=new Set(['OUT']);
@@ -3871,37 +3882,63 @@
     return null;
   }
   function tplTargets(){const ids=(typeof selSet!=='undefined'&&selSet.size)?[...selSet]:items.map((_,i)=>i);return ids.filter(i=>items[i]);}
-  function tplOpItems(op,ids){const L=op.layer||'OUT';return ids.filter(i=>itemLayers(items[i]).has(L));}
-  function tplMatchInfo(tpl,ids){const ops=tpl.ops||[];let m=0;ops.forEach(op=>{if(tplOpItems(op,ids).length)m++;});return {matched:m,total:ops.length,full:m===ops.length&&ops.length>0};}
-  function tplApply(id){
-    const tpl=tpTemplates.find(t=>t.id===id);if(!tpl)return;
+  // which layer set an item exposes FOR THIS TEMPLATE's physical role — or null when the template
+  // simply doesn't apply to the item (wrong part type / thickness / no insert generated).
+  function tplRoleLayers(it,tpl){
+    const A=tpl.appliesTo||{},part=A.part||'body';
+    if(part==='insert'){
+      const ins=insertSpecFor(it);if(!ins)return null;
+      if(A.type&&ins.kind!==A.type)return null;
+      if(A.th&&+ins.insTh!==+A.th)return null;
+      return (ins.kind==='flush')?new Set(['OUT_INSERT_15MM','OFFSET_5MM']):new Set(['OUT_INSERT_15MM']);
+    }
+    if(A.type&&it.type!==A.type)return null;
+    if(A.th&&thicknessOf(it.mat)!==+A.th)return null;
+    return itemLayers(it);
+  }
+  function tplOpItems(op,ids,tpl){const L=op.layer||'OUT';return ids.filter(i=>{const s=tplRoleLayers(items[i],tpl);return !!s&&s.has(L);});}
+  function tplMatchInfo(tpl,ids){const ops=tpl.ops||[];let m=0;ops.forEach(op=>{if(tplOpItems(op,ids,tpl).length)m++;});return {matched:m,total:ops.length,full:m===ops.length&&ops.length>0};}
+  function tplApply(id,quiet){
+    const tpl=tpTemplates.find(t=>t.id===id);if(!tpl)return null;
     const ids=tplTargets();
-    if(!ids.length){alert('No parts in the job yet.');return;}
+    if(!ids.length){if(!quiet)alert('No parts in the job yet.');return null;}
+    const role=((tpl.appliesTo||{}).part==='insert')?'insert':'body';
     const report=[];let made=0;
     (tpl.ops||[]).forEach((op,k)=>{
-      const its=tplOpItems(op,ids);
-      if(!its.length){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): no selected part has this layer — skipped');return;}
+      const its=tplOpItems(op,ids,tpl);
+      if(!its.length){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): no matching part has this layer — skipped');return;}
       const tool=tplResolveTool(op.tool);
       if(!tool){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): tool '+JSON.stringify(op.tool)+' not in the Tool Database — skipped');return;}
-      const live=(op.kind||'profile')==='profile'&&(op.layer||'OUT')==='OUT';
-      const params=Object.assign(tpDefaults(tool),{layer:op.layer||'OUT',scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
+      // engine-cuttable today: profile on the piece OUTLINE — 'OUT' for bodies, 'OUT_INSERT_15MM' for
+      // inserts (mapped to the internal OUT layer + role filter). Everything else lands DISABLED in order.
+      let engLayer=op.layer||'OUT',live=false;
+      if((op.kind||'profile')==='profile'){
+        if(role==='insert'&&engLayer==='OUT_INSERT_15MM'){engLayer='OUT';live=true;}
+        else if(role==='body'&&engLayer==='OUT')live=true;
+      }
+      const params=Object.assign(tpDefaults(tool),{layer:engLayer,refLayer:op.layer||'OUT',role:role,scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
       camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
         name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (next op)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params))});
       tpSeq++;made++;
       if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
     });
-    renderToolpaths();
-    alert('Template "'+tpl.name+'": '+made+' toolpath(s) created for '+ids.length+' part(s), in the template\'s order.'+(report.length?'\n\n'+report.join('\n'):''));
+    if(!quiet){renderToolpaths();
+      alert('Template "'+tpl.name+'": '+made+' toolpath(s) created in the template\'s order.'+(report.length?'\n\n'+report.join('\n'):''));}
+    return {made:made,report:report,name:tpl.name};
   }
+  // ⚡ Auto: apply EVERY auto template that FULLY matches the selection — a Flushback door takes both
+  // the 18mm Frame/Body template and the 12mm Insert template in one click, each scoped to its piece.
   function tplAutoRun(){
     const ids=tplTargets();
     if(!ids.length){alert('No parts in the job yet.');return;}
     const autos=tpTemplates.filter(t=>t.auto);
     if(!autos.length){alert('No template is set to Auto. Import templates (or mark one Auto in its .json: "auto": true).');return;}
-    let best=null,bs=-1;
-    autos.forEach(t=>{const m=tplMatchInfo(t,ids);const score=(m.full?1000:0)+m.matched/(m.total||1);if(m.matched&&score>bs){bs=score;best=t;}});
-    if(!best){alert('No Auto template matches the layers on the selected parts.');return;}
-    tplApply(best.id);
+    const hits=autos.filter(t=>tplMatchInfo(t,ids).full);
+    if(!hits.length){alert('No Auto template fully matches the selected parts (check part type / thickness / layers).');return;}
+    const lines=[];
+    hits.forEach(t=>{const r=tplApply(t.id,true);if(r)lines.push('• '+r.name+': '+r.made+' toolpath(s)'+(r.report.length?'\n  '+r.report.join('\n  '):''));});
+    renderToolpaths();
+    alert('Auto applied '+hits.length+' template(s), operations in each file\'s order:\n\n'+lines.join('\n'));
   }
   function tplDel(id){const i=tpTemplates.findIndex(t=>t.id===id);if(i<0)return;if(!confirm('Remove template "'+tpTemplates[i].name+'"?'))return;tpTemplates.splice(i,1);saveTpTemplates();tpSide();}
   function tplExport(){if(!tpTemplates.length){alert('No templates to save yet.');return;}dlBlob(JSON.stringify(tpTemplates,null,1),'application/json','KABACAL_TEMPLATES.json');}
@@ -3913,6 +3950,89 @@
       saveTpTemplates();tpSide();alert('Loaded '+n+' template(s).');
     }catch(e){alert('Invalid template file: '+e.message);}};
     r.readAsText(f);ev.target.value='';}
+  // ---- Machining preview: 2.5D step player (top view + depth-coded removal). Full 3D sim = later phase. ----
+  let tplSim=null;   // {item, tab:'body'|'insert', step}
+  function openTplSim(){
+    const ids=tplTargets();
+    let idx=ids.find(i=>items[i]&&items[i].type==='flush');
+    if(idx===undefined)idx=ids[0];
+    if(idx===undefined||!items[idx]){alert('Add (or select) a part first — a Flushback shows both the 18mm body and the 12mm insert.');return;}
+    tplSim={item:idx,tab:'body',step:1};
+    openModal('Machining preview — item '+(idx+1)+' · '+items[idx].w+'×'+items[idx].h+'mm','<div id="tplSimBox"></div>',true);
+    tplSimRender();
+  }
+  function tplSimTpl(role){const it=items[tplSim.item];if(!it)return null;
+    return tpTemplates.find(t=>(((t.appliesTo||{}).part==='insert')===(role==='insert'))&&tplRoleLayers(it,t))||null;}
+  function tplSimStep(d){const tpl=tplSimTpl(tplSim.tab);const n=(tpl&&tpl.ops||[]).length||1;tplSim.step=Math.max(1,Math.min(n,tplSim.step+d));tplSimRender();}
+  function tplSimSet(k,v){tplSim[k]=v;if(k==='tab')tplSim.step=1;tplSimRender();}
+  function tplSimSvg(it,tpl,role,step){
+    const ins=role==='insert'?insertSpecFor(it):null;
+    const th=role==='insert'?((ins&&ins.insTh)||12):thicknessOf(it.mat);
+    const W=role==='insert'?ins.w:+it.w, H=role==='insert'?ins.h:+it.h;
+    const f=resolveFrame(it), cav={x:f.l,y:f.t,w:W-f.l-f.r,h:H-f.t-f.b};
+    const pad=12, k=380/(Math.max(W,H)+2*pad), px=v=>(v*k).toFixed(1);
+    const ring=d=>({x:cav.x-d,y:cav.y-d,w:cav.w+2*d,h:cav.h+2*d});          // body: cavity expanded outward by d
+    const rIns=o=>({x:o,y:o,w:W-2*o,h:H-2*o});                              // insert: rings inset o from the edge
+    const R=(r,extra)=>`<rect x="${px(r.x)}" y="${px(r.y)}" width="${px(r.w)}" height="${px(r.h)}" rx="${(2.5*k).toFixed(1)}" ${extra}/>`;
+    const dcol=d=>{const t=Math.max(0,Math.min(1,d/th));const m=(a,b)=>Math.round(a+(b-a)*t);return 'rgb('+m(147,30)+','+m(197,58)+','+m(253,138)+')';};   // shallow #93c5fd -> deep #1e3a8a
+    const band=(a,b,d)=>`<path d="M${px(a.x)} ${px(a.y)}h${px(a.w)}v${px(a.h)}h-${px(a.w)}z M${px(b.x)} ${px(b.y)}h${px(b.w)}v${px(b.h)}h-${px(b.w)}z" fill-rule="evenodd" fill="${dcol(d)}" opacity="0.85"><title>pocket band ${d}mm deep</title></path>`;
+    const kerf=(r,dia,d)=>R(r,`fill="none" stroke="${dcol(d)}" stroke-width="${Math.max(1,dia*k).toFixed(1)}" opacity="0.92"><title>kerf Ø${dia}mm · ${d}mm deep</title>`);
+    let s=`<svg viewBox="${(-pad*k).toFixed(1)} ${(-pad*k).toFixed(1)} ${((W+2*pad)*k).toFixed(1)} ${((H+2*pad)*k).toFixed(1)}" style="width:100%;max-width:430px;background:#f1f5f9;border:1px solid var(--line);border-radius:10px;display:block">`;
+    s+=R({x:0,y:0,w:W,h:H},'fill="#e7d8bd" stroke="#94a3b8" stroke-width="1"');   // raw material face
+    const ops=(tpl&&tpl.ops)||[];
+    for(let i=0;i<Math.min(step,ops.length);i++){
+      const op=ops[i],tool=tplResolveTool(op.tool)||{dia:6},dia=tool.dia||6;
+      const d=(op.params&&op.params.cutDepth!=null)?+op.params.cutDepth:th, L=op.layer||'OUT', thru=d>=th-0.01;
+      if(role==='insert'){
+        if(L==='OUT_INSERT_15MM')s+=kerf({x:-dia/2,y:-dia/2,w:W+dia,h:H+dia},dia,d)+(thru?R({x:0,y:0,w:W,h:H},'fill="none" stroke="#16a34a" stroke-width="1.4" stroke-dasharray="5 3"><title>part cut free</title>'):'');
+        else if(L==='OFFSET_5MM')s+=band(rIns(6.9),rIns(11.95),d);
+        else s+=kerf(rIns(0),dia,d);
+      }else{
+        if(L==='OUT')s+=kerf({x:-dia/2,y:-dia/2,w:W+dia,h:H+dia},dia,d)+(thru?R(ring(0),'fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3"><title>cavity cut through — waste drops out</title>'):kerf(ring(0),dia,d));
+        else if(L==='OFFSET_A')s+=band(ring(0),ring(7),d);
+        else if(L==='OUT_10MM')s+=kerf(ring(0),dia,d);
+        else if(L==='IN_22MM')s+=(op.side==='on'||!thru)?kerf(ring(0),dia,d):R(ring(0),'fill="#f8fafc" stroke="#64748b" stroke-dasharray="5 3"')+kerf(ring(0),dia,d);
+        else if(L==='POKET_INSERT')s+=band(ring(7),ring(14),d);
+        else if(L==='SHADOW')s+=kerf(ring(16),dia,d);
+        else s+=kerf({x:0,y:0,w:W,h:H},dia,d);
+      }
+    }
+    return s+'</svg>';
+  }
+  function tplSimRender(){
+    const box=document.getElementById('tplSimBox');if(!box||!tplSim)return;
+    const it=items[tplSim.item];
+    if(!it){box.innerHTML='<div class="sub">Part no longer exists.</div>';return;}
+    const tplB=tplSimTpl('body'),tplI=tplSimTpl('insert');
+    if(tplSim.tab==='insert'&&!tplI)tplSim.tab='body';
+    const tpl=(tplSim.tab==='insert')?tplI:tplB;
+    if(!tpl){box.innerHTML='<div class="sub">No template matches this part (check part type / thickness). Import one or pick a Flushback item.</div>';return;}
+    const role=tplSim.tab,ops=tpl.ops||[],n=ops.length;tplSim.step=Math.max(1,Math.min(n,tplSim.step));
+    const th=role==='insert'?((insertSpecFor(it)||{}).insTh||12):thicknessOf(it.mat);
+    const rows=ops.map((op,i)=>{
+      const tool=tplResolveTool(op.tool)||{},d=(op.params&&op.params.cutDepth!=null)?+op.params.cutDepth:th;
+      const done=i<tplSim.step,act=i===tplSim.step-1;
+      return `<div class="tpl-item" style="cursor:pointer;padding:6px 8px;${act?'background:#fef3c7;border-color:#f59e0b':(done?'':'opacity:.42')}" onclick="tplSimSet('step',${i+1})">
+        <div class="tpl-meta"><b style="font-size:11.5px">${i+1}. ${esc(op.name||op.layer||'op')}</b>
+          <div class="sub">T${tool.num||'?'} Ø${tool.dia||'?'}mm · ${esc(op.side||'—')} · ${esc(op.layer||'')} · <b>${d}mm</b></div>
+          <div style="height:5px;border-radius:3px;background:var(--line);margin-top:3px" title="depth vs ${th}mm material"><i style="display:block;height:5px;border-radius:3px;width:${Math.min(100,d/th*100).toFixed(0)}%;background:#2563eb"></i></div>
+        </div></div>`;}).join('');
+    box.innerHTML=`
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+        <button class="btn ${role==='body'?'primary':'ghost'} tiny" ${tplB?'':'disabled'} onclick="tplSimSet('tab','body')">18mm Frame/Body</button>
+        <button class="btn ${role==='insert'?'primary':'ghost'} tiny" ${tplI?'':'disabled'} onclick="tplSimSet('tab','insert')">12mm Insert</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost tiny" onclick="tplSimStep(-1)">◀</button>
+        <b style="font-size:12px">Op ${tplSim.step}/${n}</b>
+        <button class="btn ghost tiny" onclick="tplSimStep(1)">▶</button>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px">${tplSimSvg(it,tpl,role,tplSim.step)}
+          <div class="sub" style="margin-top:5px">Template <b>${esc(tpl.name)}</b> — colour = depth (light → shallow, dark → deep); dashed = cut through. 2.5D top view; full 3D simulation comes in a later phase.</div>
+        </div>
+        <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:4px;max-height:400px;overflow:auto">${rows}</div>
+      </div>`;
+  }
   // ---- Summary + Save NC ----
   function openTpSummary(){
     const vis=camPaths.filter(p=>p.on);
@@ -3941,13 +4061,14 @@
       const ai=A&&A.items&&A.items.length?A.items:null,bi=B&&B.items&&B.items.length?B.items:null;
       if(!ai||!bi||ai.some(x=>bi.indexOf(x)>=0))dup=true;
     }
-    const dupWarn=dup?`<div class="warn err" style="margin-bottom:10px">⚠ <b>${profs.length} profile toolpaths are ticked and cut the same parts</b> — the machine would profile them more than once. Untick the extra ones in the Toolpaths list unless that is really intended.</div>`:'';
+    const tplPair=dup&&profs.some(p=>p.params&&p.params.refLayer);
+    const dupWarn=dup?`<div class="warn err" style="margin-bottom:10px">⚠ <b>${profs.length} profile toolpaths are ticked and cut the same parts</b> — the machine would profile them more than once. Untick the extra ones in the Toolpaths list unless that is really intended.${tplPair?' <br><b>Note:</b> a template rough + finish pair (e.g. 17mm then 18mm on OUT) is intended — leave both ticked.':''}</div>`:'';
     let rows='';
     sheets.forEach((f,i)=>{
       const segs=tpSegsForSheet(f);if(!segs.length){rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)}<div class="sub">no toolpath applies here</div></div></div>`;return;}
       const tools=[...new Set(segs.map(s=>'T'+s.num))].join(' → ');
       const names=vis.map(p=>esc(p.name)).join(' + ');
-      const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;if(cd!=null&&cd>f.th+0.01)w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();
+      const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;if(cd!=null&&cd>f.th+0.01&&tpPathParts(f,pp).length)w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();   // only when the path actually cuts THIS sheet (cam-reviewer note)
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });

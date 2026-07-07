@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (i) — Templates por peça física (corpo 18mm × insert 12mm) + Simulate 2.5D
+
+Clarificação do Ednei: uma porta Flushback tem DUAS peças físicas com templates próprios. Zona guardada (CAM: `tpPathParts`) → **cam-reviewer executado no diff: veredito SAFE** (31/31; goldens regenerados byte-idênticos no sandbox dele; provou que o `role` é obrigatório — sem ele o op do corpo cortaria a chapa 12mm até Z−6).
+
+- **Schema v2**: `appliesTo:{part:'body'|'insert', type, th}` em cada template. Fábrica renomeada: **"Flushback 18mm Frame/Body"** (7 ops) e **"Flushback 12mm Insert"** (2 ops), ambos auto; entradas de fábrica se atualizam por id no boot (customs/exclusões do user respeitados).
+- **Motor com `params.role`** (`tpPathParts`): `insert` corta só peças insert, `body` só corpos; ausente = tudo (toolpaths antigos intocados — goldens byte-idênticos). Necessário porque scope por item não separa corpo/insert (`3_0` vs `3_0_i` colidem no parseInt).
+- **Matching por papel físico**: corpo casa por tipo+espessura do material; insert via `insertSpecFor` (kind+insTh). Layers do insert = nomes VCarve (`OUT_INSERT_15MM`→`OUT`+role ao aplicar, `refLayer` guarda o original; `OFFSET_5MM` fica staged).
+- **⚡ Auto aplica TODOS os templates auto com match completo**: Flushback selecionado → **9 toolpaths na ordem dos arquivos** (7 corpo: FINISH 18mm LIVE, 5 staged, rough 17mm LIVE · 2 insert: contorno 12mm LIVE, pocket 5.5 staged). NC real: chapa 18mm corta só o corpo (Z 38..0), chapa 12mm só o insert (Z 32..0, fundo exato no bed).
+- **▶ Simulate (preview 2.5D)**: player passo-a-passo por peça (abas 18mm Frame/Body · 12mm Insert): vista de topo com remoção de material codificada por profundidade (bandas preenchidas, furo passante tracejado, kerf na largura real da fresa), lista de ops na ordem com T#/Ø/lado/profundidade + barra de profundidade, clique num op pula pro passo. Simulação 3D volumétrica = fase futura (anotado na UI).
+- **Fix do cam-reviewer**: aviso "cuts into the bed" no Save NC agora só dispara quando o toolpath corta AQUELA chapa (antes acusava falso na chapa do insert); aviso de perfis duplicados ganha nota sobre par desbaste+acabamento de template.
+
+### Testado (i)
+Auto no Flushback 480×497 F65 → 2 templates, 9 paths na ordem, roles certos ✓ · chapa 18mm: só body (2 ops OUT), chapa 12mm: só INSERT, headers/footers NC ok, Z nunca negativo ✓ · goldens ll/c/dxf **byte-idênticos** (runtime + sandbox independente do reviewer) ✓ · Simulate: corpo 7 passos (Op k/7), insert 2 passos com banda evenodd, navegação ◀▶/click ✓ · aviso falso do bed eliminado, nota do par 17/18 presente ✓ · `check.mjs` ok (incl. tripwires Panels) ✓ · console limpo ✓ · cam-reviewer SAFE; dry-run em ar recomendado antes do primeiro job real de template (padrão novo de passada única full-depth).
+
 ## 2026-07-07 (h) — Panels rodada 3: cotas no viewer, nomes "Wall 3A", DXF por room em ordem visual, ferramenta de medir com snap, 2.5D leve
 
 Melhorias de leitura do layout pedidas pelo Ednei (15 itens).
