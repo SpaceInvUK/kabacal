@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (e) — Flushback: geometria da referência (DXF real) + insert corrigido + templates de fábrica
+
+Fonte de verdade: `Flushback 18mm.dxf` (480×497, F65), `Flushback Insert 12mm.dxf` e os 2 `.ToolpathTemplate` do VCarve. Regra completa documentada em `KABACAL_RULES.md` ("Flushback"). **Goldens NC+DXF byte-idênticos** (job golden é só peça plana; nenhuma mudança de saída de máquina → cam-reviewer não exigido).
+
+- **Porta flushback no DXF**: estrutura completa da referência, tudo **relativo ao frame** (escala com qualquer tamanho): `OUT` = contorno reto + cavidade r2.5 no frame · `OFFSET_A` = frame + frame−7 (banda do pocket 6.5) · `OUT_10MM` e `IN_22MM` = cavidade (ops próprias) · `POKET_INSERT` = frame−7 + frame−14 (banda do rebaixo 12.3) · `SHADOW` = frame−16 (linha shadow 2mm). Os "7, 7, 2" do user = 65→58→51→49 no exemplo. Linha A@0 do offset não duplica mais a cavidade. 4 layers novas no `DXF_LAYERS` (cores do arquivo real) + contrato no `check.mjs`.
+- **Insert flushback**: overlay **13.95/lado** (+27.9; era 14 — medido: 377.9×394.9 p/ cavidade 350×367), contorno redondo r2.5, anéis internos a **6.9** e **11.95** (banda de pocket 5.5mm). **3 polylines exatas** — as duplicatas do arquivo de referência (cada linha ×2) não são recriadas. Trad intacto; **reeded mantém 14/lado** até chegar referência própria.
+- **Preview/nesting**: porta mostra cavidade + anéis +7/+14 (âmbar) + shadow +16 (tracejado); insert com anéis 6.9/11.95 arredondados.
+- **Templates de fábrica** (dos arquivos do user, ordem do arquivo, 1 passada full-depth em tudo): "18mm Flushback" (7 ops, **auto**) e "12mm Flushback Insert" (2 ops). Flushback expõe as layers novas no matcher → template casa **7/7** e o ⚡ Auto aplica; ops OUT viram toolpaths ativos, o resto entra desligado ("next op") preservando a ordem. Seed só quando `kab_tp_templates` não existe (lista limpa pelo user é respeitada).
+- **Nota**: o texto do pedido citava insert ~"387.9×494.9" — o DXF mede **377.9×394.9** (dígitos trocados no texto; DXF = fonte de verdade, como pedido). Em aberto: confirmar no VCarve se a op "17mm +0.15" roda antes do "FINISH 18mm" (ordem do arquivo lista FINISH primeiro).
+
+### Testado (e)
+480×497 F65: insets por layer = 0 · 65 · 65+58 · 65 · 65 · 58+51 · 49, contagens por layer iguais à referência (OUT×2, OFFSET_A×2, OUT_10MM×1, IN_22MM×1, POKET_INSERT×2, SHADOW×1) ✓ · insert 377.9×394.9 MR MDF 12mm, **3 polylines**, anéis 6.9/11.95, bulges r2.5 ✓ · escala 1000×1000 F50 → 50 · 50+43 · 43+36 · 34 + insert 927.9² ✓ · partN=2 (porta+insert) ✓ · goldens ll/c/dxf **byte-idênticos** ✓ · template 18mm Flushback casa 7/7 no flushback, Apply cria as 7 ops na ordem (2 LIVE em OUT, 5 off) ✓ · preview com anéis âmbar+shadow e insert arredondado ✓ · `check.mjs` ok ✓ · console limpo ✓.
+
 ## 2026-07-07 (d) — Tool Database real (import do VCarve), persistência de CAM e motor de templates
 
 Import do banco de ferramentas REAL da oficina (`FASTCNCTOOLS.vtdb` → xlsx extraído → app), com a UI no formato da planilha de referência. **Goldens NC/DXF byte-idênticos** (nenhuma mudança de saída de máquina; cam-reviewer não exigido pela regra).

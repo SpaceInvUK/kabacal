@@ -35,6 +35,35 @@ Exemplos: `350x600` sim, `250x700` nao, `124x900` nao, `120x1600` sim, `190x1060
 - `OFFCUT` — contorno (linhas) + chanfro.
 - `OFFCUT_TEXT` — palavra `OFFCUT` + tamanho.
 
+## Flushback — geometria + toolpaths de referência (confirmado 2026-07-07)
+
+Fonte de verdade: `Flushback 18mm.dxf` (porta 480×497, frame 65) + `Flushback Insert 12mm.dxf` +
+os `.ToolpathTemplate` do VCarve ("18mm Flushback", "12mm Flushback Insert"). Regra: a estrutura é
+**relativa ao frame** — muda o tamanho da peça, o padrão continua o mesmo a partir do frame.
+
+### Porta (todas as linhas com canto redondo r2.5; CAVIDADE = inset do frame; anel(d) = cavidade expandida d mm)
+
+| Layer | Anéis (d a partir da cavidade) | Operação (do template, ordem do arquivo) |
+|---|---|---|
+| `OUT` | contorno externo (reto) + anel(0) | 1. "6mm OUT/IN FINISH" — T1 Ø6, Profile Outside, 18mm, 1 passada, last pass 1.0, ramp 100 · 7. "6mm OUT/IN Frame 17mm" — T1, Outside, 17mm, allowance 0.15, last pass 1.0 |
+| `SHADOW` | anel(16) | 2. "2mm Shadow" — T2 Ø2, Inside, 2mm |
+| `IN_22MM` | anel(0) | 3. "4mm In 18mm" — T4 Ø4, Inside, 18mm · 4. "4mm Insert 12mm" — T4, **On**, 12.3mm, last pass 1.0 |
+| `POKET_INSERT` | anel(7) + anel(14) | 5. "4mm pocket Insert 12.3mm" — T4, Inside, 12.3mm, last pass 1.0 (banda do rebaixo) |
+| `OFFSET_A` | anel(0) + anel(7) | 6. "6mm Pocket Frame 6.5mm" — T1, Inside, 6.5mm (banda do pocket da face) |
+| `OUT_10MM` | anel(0) | (linha presente na referência; op não incluída nos templates enviados) |
+
+No exemplo (F=65): insets 65 · 65+58 · 65 · 65 · 58+51 · 49 — os passos "7, 7, 2" do Ednei (65→58→51→49).
+As repetições da MESMA geometria em layers diferentes são INTENCIONAIS (cada layer alimenta uma op).
+**Pergunta em aberto**: a ordem acima é a ordem do ARQUIVO; a op 7 (17mm, +0.15) parece desbaste que
+rodaria ANTES da op 1 (FINISH 18mm) — confirmar a ordem real na lista do VCarve antes de gerar NC disso.
+
+### Insert (12mm MR MDF)
+
+- Tamanho = cavidade + **13.95/lado** (=+27.9 total; ex.: cavidade 350×367 → insert **377.9×394.9**). Antes era 14/lado; o 0.05/lado é folga de encaixe no rebaixo de 12.3mm.
+- Contorno redondo r2.5 + **2 anéis internos** a **6.9** e **11.95** do contorno (banda de pocket 5.5mm). **3 polylines no total** — o DXF de referência tinha cada linha DUPLICADA (contorno ×2, anéis ×2); as duplicatas NÃO são recriadas.
+- Template do insert: 1. "6mm Out Insert 12mm" — T1, Outside, 12mm (layer ref `OUT_INSERT_15MM` ≙ `OUT` do insert no Kabacal) · 2. "4mm Pocket 5.5mm" — T4, Inside, 5.5mm (layer ref `OFFSET_5MM` ≙ `IN` do insert).
+- Trad continua overlay 12/lado e anéis 7/14 retos; **reeded continua 14/lado** até vir um arquivo de referência reeded.
+
 ## Offset Depth — pockets (confirmado 2026-07-07, protótipo Kabacal 3D)
 
 - Cada offset line (A–G) ganha um campo `depth` (mm). `depth > 0` = pocket/recesso a partir daquela linha.

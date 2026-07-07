@@ -653,7 +653,10 @@
   function groovePositions(L,spacing){const t=Math.max(1,+spacing||10);const n=Math.max(1,Math.round(L/t));const step=L/n,out=[];for(let k=0;k<=n;k++)out.push(Math.round(k*step*100)/100);return out;}
   // Recipe VERIFIED against the production app (getSecondaryThickness + panelOverlayForFrame):
   // traditional -> insert 9mm (18mm door) / 12mm (22mm door), overlay 12/side (=+24 total);
-  // flushback & reeded -> 12mm / 15mm, overlay 14/side (=+28 total). Size = cavity + overlay.
+  // reeded -> 12mm / 15mm, overlay 14/side (=+28 total). Size = cavity + overlay.
+  // FLUSHBACK (measured from the reference "Flushback Insert 12mm.dxf", 2026-07-07): overlay 13.95/side
+  // (=+27.9 total — 0.05mm fit clearance per side vs the 12.3mm rebate), rounded corners r2.5,
+  // inner pocket rings at 6.9mm and 11.95mm from the insert edge (5.5mm-deep pocket band in VCarve).
   // Material: MR MDF by default (Ednei's rule; production inherits the door material) — editable per item via insOv.
   function insertSpecFor(it){
     if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return null;
@@ -664,12 +667,12 @@
     const ov=it.insOv||{};
     const insTh=(+ov.th>0)?+ov.th:autoTh;
     const matName=ov.matName||'MR MDF';
-    const overlay=it.type==='trad'?24:28;
+    const overlay=it.type==='trad'?24:(it.type==='flush'?27.9:28);
     const cav=cavityOf(it);
     // Reeded lines on the insert: from the overlay toggle (trad/flush) OR the Reeded door type.
     const r=it.reed||{},reedOn=!!r.on||it.type==='reeded';
     const reed=reedOn?{dir:r.dir||'vertical',spacing:(+r.spacing>=1?+r.spacing:12.5),depth:(r.depth!=null?+r.depth:3)}:null;
-    return {mat:matName+' '+insTh+'mm',w:cav.w+overlay,h:cav.h+overlay,insTh,autoTh,matName,kind:it.type,reed,color:TYPES[it.type].color};
+    return {mat:matName+' '+insTh+'mm',w:cav.w+overlay,h:cav.h+overlay,insTh,autoTh,matName,kind:it.type,reed,round:it.type==='flush',color:TYPES[it.type].color};
   }
   function setInsOv(i,k,v){const it=items[i];it.insOv=it.insOv||{};if(k==='th')it.insOv.th=parseInt(v)||0;else it.insOv.matName=v;render();}
   function clearInsOv(i){delete items[i].insOv;render();}
@@ -978,7 +981,7 @@
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -1090,10 +1093,11 @@
         const bx=p.x,by=Hn-(p.y+p.h);                    // landscape-local, y-up
         const f=p.frame||{t:0,r:0,b:0,l:0};
         const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded')&&!p.isInsert;
+        const isFlushDoor=p.type==='flush'&&!p.isInsert&&!p.isBeading&&!p.glass;
         const round=(p.lines||[]).some(l=>l.rd);
         layers.add('OUT');
         var o=rRectD(bx,by,p.w,p.h);
-        if(round||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        if(round||p.insRound||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
         if(p.isBeading){
           // beading piece: INSIDE = glass opening; BEADING = cut guide clearance mm OUTSIDE the outline
           const bs=p.beadSize||19.85,bc=(p.beadClear!=null?p.beadClear:0.15);
@@ -1108,11 +1112,27 @@
             layers.add('BEADING');var gb=rRectD(bx+f.l-gg,by+f.b-gg,iw+2*gg,ih+2*gg);body+=(p.glass.round?dxfRoundRect('BEADING',gb.x,gb.y,gb.w,gb.h,2.5):dxfRect('BEADING',gb.x,gb.y,gb.w,gb.h));
           }
         }
+        else if(isFlushDoor){
+          // FLUSHBACK door — recreated from the reference "Flushback 18mm.dxf" (480×497, frame 65).
+          // Every ring is the CAVITY (frame inset) expanded outward by d, rounded r2.5, so the pattern
+          // follows the frame at any part size. Each layer feeds one toolpath op (see KABACAL_RULES.md):
+          //   OUT cavity(0) = through-cut hole · OFFSET_A 0+7 = 6.5mm face-pocket band ·
+          //   OUT_10MM 0 · IN_22MM 0 (corner-finish / rebate ops on the same cavity line) ·
+          //   POKET_INSERT 7+14 = 12.3mm rebate band · SHADOW 16 = 2mm shadow line.
+          const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;
+          if(iw>1&&ih>1){
+            const ring=(lyr,d)=>{if(d>0&&d>=Math.min(f.l,f.r,f.t,f.b))return;layers.add(lyr);var rr=rRectD(bx+f.l-d,by+f.b-d,iw+2*d,ih+2*d);body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);};
+            ring('OUT',0);ring('OFFSET_A',0);ring('OFFSET_A',7);ring('OUT_10MM',0);ring('IN_22MM',0);ring('POKET_INSERT',7);ring('POKET_INSERT',14);ring('SHADOW',16);
+          }
+        }
         else if(framed&&!(p.lines&&p.lines.length)){const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;if(iw>1&&ih>1){layers.add('OFFSET_A');var fr=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}}
-        (p.lines||[]).forEach(l=>{const lyr='OFFSET_'+l.L;layers.add(lyr);const iw=p.w-f.l-f.r-2*l.mm,ih=p.h-f.t-f.b-2*l.mm;if(iw>1&&ih>1){var rr=rRectD(bx+f.l+l.mm,by+f.b+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});
+        (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;layers.add(lyr);const iw=p.w-f.l-f.r-2*l.mm,ih=p.h-f.t-f.b-2*l.mm;if(iw>1&&ih>1){var rr=rRectD(bx+f.l+l.mm,by+f.b+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});
         if(p.isInsert){
           layers.add('IN');
-          [7,14].forEach(off=>{if(off<Math.min(p.w,p.h)/2-1){var ri=rRectD(bx+off,by+off,p.w-2*off,p.h-2*off);body+=dxfRect('IN',ri.x,ri.y,ri.w,ri.h);}});
+          // flushback insert: the two pocket-band rings measured in the reference insert DXF (6.9 / 11.95,
+          // rounded r2.5, ONE outline + ONE of each ring — the reference file's duplicated polylines are dropped)
+          const insRings=(p.kind==='flush')?[6.9,11.95]:[7,14];
+          insRings.forEach(off=>{if(off<Math.min(p.w,p.h)/2-1){var ri=rRectD(bx+off,by+off,p.w-2*off,p.h-2*off);body+=(p.kind==='flush')?dxfRoundRect('IN',ri.x,ri.y,ri.w,ri.h,2.5):dxfRect('IN',ri.x,ri.y,ri.w,ri.h);}});
           var rc=p.reed||(p.kind==='reeded'?{dir:'vertical',spacing:12.5}:null);
           if(rc){layers.add('REEDED');var sp=Math.max(1,+rc.spacing||12.5),k=0;
             if(rc.dir==='horizontal'){for(let yy=8;yy<p.h-6;yy+=sp){var a1=rPtD(bx+8,by+yy),b1=rPtD(bx+p.w-8,by+yy);if(k%2===0)body+=dxfLine('REEDED',a1.x,a1.y,b1.x,b1.y);else body+=dxfLine('REEDED',b1.x,b1.y,a1.x,a1.y);k++;}}
@@ -1917,7 +1937,7 @@
         add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
-        if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
+        if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
         if(bead) add(bead.mat,{key:i+'_'+n+'_b',w:bead.w,h:bead.h,origW:bead.w,origH:bead.h,color:'#b45309',name:'Beading',isBeading:true,beadSize:bead.size,beadClear:bead.clear,beadRound:bead.round,text:(it.text||'Glass')+' Beading '+bead.size+'mm',grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
       }
     });
@@ -2334,7 +2354,8 @@
     if(p.isInsert){
       // concentric insert step lines (cavity + overlay) + reeded hatch
       const a=Math.min(W,H);const cols=[OFFCOL.A,OFFCOL.B];
-      [0.7,1.4].forEach((o,k)=>{if(o<a/2-0.4)s+=`<rect x="${(X+o).toFixed(1)}" y="${(Y+o).toFixed(1)}" width="${(W-2*o).toFixed(1)}" height="${(H-2*o).toFixed(1)}" fill="none" stroke="${cols[k]}" stroke-width="0.3"/>`;});
+      const insR=(p.kind==='flush')?[0.69,1.195]:[0.7,1.4];   // flushback: measured 6.9/11.95 pocket rings
+      insR.forEach((o,k)=>{if(o<a/2-0.4)s+=`<rect x="${(X+o).toFixed(2)}" y="${(Y+o).toFixed(2)}" width="${(W-2*o).toFixed(2)}" height="${(H-2*o).toFixed(2)}" rx="${p.kind==='flush'?0.25:0}" fill="none" stroke="${cols[k]}" stroke-width="0.3"/>`;});
       const rc=p.reed||(p.kind==='reeded'?{dir:'vertical',spacing:12.5}:null);
       if(rc){const sp=Math.max(0.4,(+rc.spacing||12.5)/10);
         if(rc.dir==='horizontal'){for(let ly=Y+1.6;ly<=Y+H-1.6;ly+=sp)s+=`<line x1="${(X+1.4).toFixed(1)}" y1="${ly.toFixed(1)}" x2="${(X+W-1.4).toFixed(1)}" y2="${ly.toFixed(1)}" stroke="${OFFCOL.E}" stroke-width="0.16"/>`;}
@@ -2372,6 +2393,15 @@
       const lx=X+(f.l+l.mm)/10, ty=Y+(f.t+l.mm)/10, rw=W-(f.l+f.r+2*l.mm)/10, rh=H-(f.t+f.b+2*l.mm)/10;
       if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;
     });
+    // flushback door: the extra reference rings (cavity+7 / +14 amber = pocket bands, +16 dashed = shadow line)
+    if(p.type==='flush'&&!p.isInsert&&!p.isBeading&&!p.glass){
+      const lx=X+f.l/10,ty=Y+f.t/10,rw=W-(f.l+f.r)/10,rh=H-(f.t+f.b)/10;
+      if(rw>0.6&&rh>0.6){
+        const fring=(d,col,sw,dash)=>{if(d>=Math.min(f.l,f.r,f.t,f.b))return '';const dd=d/10;
+          return `<rect x="${(lx-dd).toFixed(2)}" y="${(ty-dd).toFixed(2)}" width="${(rw+2*dd).toFixed(2)}" height="${(rh+2*dd).toFixed(2)}" rx="0.25" fill="none" stroke="${col}" stroke-width="${sw}"${dash?' stroke-dasharray="1 0.8"':''}/>`;};
+        s+=fring(7,'#d97706',0.2)+fring(14,'#d97706',0.2)+fring(16,'#64748b',0.18,true);
+      }
+    }
     if(p.hinge&&p.hinge.on){
       const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
       const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
@@ -3742,7 +3772,26 @@
   //          side:'outside'|'inside'|'on', params:{...}}]}   // params merge over tpDefaults(tool)
   // Applying uses the CURRENT selection (1 part, several, or all when nothing is selected); each op only
   // targets the parts that actually have that op's layer. "Auto" templates can be matched by layers alone.
-  let tpTemplates=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tp_templates'));if(Array.isArray(s))return s;}catch(e){}return [];})();
+  // Factory templates — converted 1:1 from the user's VCarve .ToolpathTemplate files (NOT invented).
+  // Ops are in FILE order; every op in these files is a Profile (outside/inside/on) with ONE full-depth pass.
+  // Layer names match the reference DXFs; the two insert layers (OUT_INSERT_15MM/OFFSET_5MM) map to the
+  // insert part's OUT/IN layers in Kabacal's own exports (see KABACAL_RULES.md "Flushback").
+  const TPL_FACTORY=[
+   {id:'tpl_flush18',name:'18mm Flushback',auto:true,src:'18mm Flushback.ToolpathTemplate (2026-07-07)',ops:[
+    {name:'6mm OUT/IN FINISH',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:18,passes:1,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}},
+    {name:'2mm Shadow',layer:'SHADOW',kind:'profile',tool:{num:2,dia:2},side:'inside',params:{cutDepth:2,passes:1,lastPass:{on:false,val:0}}},
+    {name:'4mm In 18mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:18,passes:1,lastPass:{on:false,val:0}}},
+    {name:'4mm Insert 12mm',layer:'IN_22MM',kind:'profile',tool:{num:4,dia:4},side:'on',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
+    {name:'4mm pocket Insert 12.3mm',layer:'POKET_INSERT',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:12.3,passes:1,lastPass:{on:true,val:1}}},
+    {name:'6mm Pocket Frame 6.5mm',layer:'OFFSET_A',kind:'profile',tool:{num:1,dia:6},side:'inside',params:{cutDepth:6.5,passes:1,lastPass:{on:false,val:0}}},
+    {name:'6mm OUT/IN Frame 17mm',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:17,passes:1,allowance:0.15,lastPass:{on:true,val:1},ramp:{on:true,dist:100}}}
+   ]},
+   {id:'tpl_flushins12',name:'12mm Flushback Insert',auto:false,src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07)',ops:[
+    {name:'6mm Out Insert 12mm',layer:'OUT_INSERT_15MM',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:12,passes:1,ramp:{on:true,dist:100}}},
+    {name:'4mm Pocket 5.5mm',layer:'OFFSET_5MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:5.5,passes:1}}
+   ]}];
+  // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
+  let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();
   function saveTpTemplates(){try{localStorage.setItem('kab_tp_templates',JSON.stringify(tpTemplates));}catch(e){}}
   function itemLayers(it){
     const s=new Set(['OUT']);
@@ -3751,6 +3800,7 @@
     const g=grooveOf(it);if(g.on){s.add('GROOVE');if(g.led.on)s.add('LED_CHANNEL');}
     if(scribeOf(it).on)s.add('SCRIBE');
     if(isGlassItem(it)){s.add('INSIDE');s.add('BEADING');}
+    else if(it.type==='flush'){['OFFSET_A','OUT_10MM','IN_22MM','POKET_INSERT','SHADOW'].forEach(L=>s.add(L));}   // flushback structure layers (reference DXF)
     return s;
   }
   function tplResolveTool(spec){
@@ -3777,7 +3827,7 @@
       const live=(op.kind||'profile')==='profile'&&(op.layer||'OUT')==='OUT';
       const params=Object.assign(tpDefaults(tool),{layer:op.layer||'OUT',scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
       camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
-        name:tpl.name+' '+(k+1)+' — '+(op.layer||'OUT')+(live?'':' (next op)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params))});
+        name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (next op)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params))});
       tpSeq++;made++;
       if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
     });

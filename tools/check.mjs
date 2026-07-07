@@ -59,7 +59,8 @@ if (html) {
 
   // 4. DXF layer contract (consumed by VCarve gadgets downstream)
   for (const layer of ['OFFCUT', 'OFFCUT_TEXT', 'GROOVE', 'SCRIBE', 'LED_CHANNEL', 'OFFSET_A',
-                       'REEDED', 'BEADING', 'PART_NUMBER', 'INSIDE']) {
+                       'REEDED', 'BEADING', 'PART_NUMBER', 'INSIDE',
+                       'OUT_10MM', 'IN_22MM', 'POKET_INSERT', 'SHADOW']) {
     must(html.includes(`'${layer}'`), `DXF layer missing from source: ${layer}`);
   }
   once(/const DXF_LAYERS=\{/g, 'DXF_LAYERS table');
