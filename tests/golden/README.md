@@ -5,12 +5,15 @@ Any code change that alters these outputs will show up as a diff — which must 
 **intended, itemised, and shipped together with regenerated goldens** (see
 `/verify-kabacal` step 7 and CLAUDE.md "Guarded zones").
 
-> **Status: compared against a real VCarve file (2026-07-06).** Regenerated after
-> the pass-depth default changed to tool-based (T1 → 6mm → 3 passes; was 1mm →
-> 18 passes). A side-by-side of `Vcarve Test.nc` vs `Kabacal Test.nc` for the same
-> job confirmed: identical header/footer, final depth exactly Z0.000 (bed), no
-> negative Z, same radius compensation. Still pending an actual dry-run on the
-> Pegasus before calling it fully known-good.
+> **Status: regenerated 2026-07-07 for the PORTRAIT machine frame.** The user's
+> datum test revealed the whole frame was rotated 90° vs the machine (Kabacal
+> nests landscape; the Pegasus mounts the sheet portrait, X across 1220 — see
+> their VCarve Job Setup 1220×2440 and James Template X≤1220). `camJob.orient`
+> now defaults to `'portrait'` and `tpXform` rotates coordinates (x_m = 1220−y,
+> y_m = x) before the datum offset — all 5 datum labels now match the physical
+> sheet corners. The golden diff vs the previous files is a PURE X/Y rotation
+> (Z, F, N-numbers, header/footer, structure identical). Still pending an
+> air-cut dry-run on the Pegasus before calling it fully known-good.
 
 ## Files
 
@@ -38,7 +41,7 @@ must never be EOL-normalised by git.
    // (fresh-load default), no services, no spray, VAT on
    camPaths.length = 0;
    camPaths.push({id:'tp_golden', on:true, kind:'profile', name:'Profile 1', toolId:'t1', params:tpDefaults()});
-   camJob.zZero='bed'; camJob.rapidGap=20; camJob.approach=5;
+   camJob.zZero='bed'; camJob.rapidGap=20; camJob.approach=5; camJob.orient='portrait';
    camJob.datum='ll'; const ncLL = ncPegasus(tpSegsForSheet(tpSheets()[0]));
    camJob.datum='c';  const ncC  = ncPegasus(tpSegsForSheet(tpSheets()[0]));
    camJob.datum='ll';
@@ -46,9 +49,9 @@ must never be EOL-normalised by git.
    ```
 3. Write `ncLL`, `ncC`, `dxf` to the three files **byte-exact** (base64 them out of
    the browser; do not paste through anything that touches line endings).
-4. Expected sizes (after the tool-based pass-depth change): ll = 8388 bytes ·
-   c = 8438 bytes · dxf = 4517 bytes. (Before, with the old 1mm default:
-   40279 / 40509 / 4517 — the NC shrank ~5× because 18 passes became 3.)
+4. Expected sizes (portrait frame, tool-based pass depth): ll = 8358 bytes ·
+   c = 8402 bytes · dxf = 4517 bytes. (History: 40279/40509 with the old 1mm
+   passes; 8388/8438 landscape with 6mm passes; now portrait.)
 
 ## Comparing (what /verify-kabacal does)
 

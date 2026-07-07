@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kabacal 3D — sheet &amp; part prototype</title>
+<style>
+  :root{--line:#e2e8f0;--ink:#0f172a;--sub:#64748b;--acc:#b45309;--bg:#f8fafc;--card:#ffffff;--warn:#c2410c;}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font:13px/1.45 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:#0b1220;overflow:hidden}
+  #app{display:flex;height:100%}
+  /* ---------- left panel ---------- */
+  #panel{width:378px;min-width:378px;background:var(--bg);border-right:1px solid #1e293b;overflow-y:auto;padding:10px 12px 60px}
+  h1{font-size:15px;margin:2px 0 2px}
+  .tag{display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;font-size:10px;font-weight:700;padding:1px 6px;vertical-align:2px;margin-left:6px}
+  .note{color:var(--sub);font-size:11px;margin:0 0 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 10px;margin-bottom:10px}
+  .card h2{font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.4px;color:#334155}
+  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .row:last-child{margin-bottom:0}
+  label.f{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--sub)}
+  input[type=number],input[type=text],select{padding:5px 6px;border:1px solid var(--line);border-radius:7px;font:inherit;background:#fff;color:var(--ink)}
+  input[type=number]{width:64px}
+  input.mini{width:52px;padding:3px 4px}
+  input:disabled{background:#f1f5f9;color:#94a3b8}
+  button{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font:inherit;cursor:pointer}
+  button:hover{border-color:#94a3b8}
+  button.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  button.sm{padding:3px 7px;font-size:11px;border-radius:6px}
+  .sub{color:var(--sub);font-size:11px}
+  /* part list */
+  .pitem{border:1px solid var(--line);border-radius:9px;margin-bottom:6px;background:#fff}
+  .pitem.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+  .phead{display:flex;gap:6px;align-items:center;padding:6px 8px;cursor:pointer}
+  .phead b{font-size:12px}
+  .chips{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+  .chip{font-size:10px;background:#f1f5f9;border:1px solid var(--line);border-radius:5px;padding:0 5px;color:#334155;white-space:nowrap}
+  .chip.pk{background:#fff7ed;border-color:#fdba74;color:#9a3412;font-weight:600}
+  .pbody{border-top:1px solid var(--line);padding:8px}
+  /* offset lines table */
+  .ltab{display:grid;grid-template-columns:14px 58px 40px 66px 30px 62px;gap:4px;align-items:center;font-size:11px}
+  .ltab .hd{font-weight:700;color:#334155}
+  .ltab .hd.depth{color:var(--acc)}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .onoff{cursor:pointer;user-select:none;text-align:center;border:1px solid var(--line);border-radius:5px;font-size:10px;font-weight:700;padding:2px 0;color:#16a34a}
+  .onoff.off{color:#94a3b8;background:#f8fafc}
+  input.depthIn{border-color:#fdba74;background:#fffbf5}
+  input.depthIn:disabled{background:#f1f5f9}
+  .warnbox{background:#fff7ed;border:1px solid #fdba74;color:var(--warn);border-radius:7px;padding:5px 7px;font-size:11px;margin-top:6px}
+  /* ops list */
+  .op{display:flex;gap:6px;align-items:baseline;padding:3px 0;border-bottom:1px dashed var(--line);font-size:11.5px}
+  .op:last-child{border-bottom:0}
+  .op .k{font-weight:700;min-width:52px}
+  .op .k.pocket{color:#9a3412}.op .k.line{color:#2563eb}.op .k.profile{color:#334155}.op .k.drill{color:#7c3aed}
+  pre{background:#0f172a;color:#a5f3fc;border-radius:8px;padding:8px;font-size:10.5px;overflow-x:auto;max-height:260px}
+  details>summary{cursor:pointer;color:var(--sub);font-size:11px;margin-top:4px}
+  /* ---------- viewport ---------- */
+  #view{flex:1;position:relative;min-width:0}
+  #view canvas{display:block}
+  .ovl{position:absolute;background:rgba(10,16,30,.72);color:#cbd5e1;border:1px solid #1e293b;border-radius:8px;padding:5px 9px;font-size:11px;pointer-events:none}
+  #legend{top:10px;right:10px;text-align:right}
+  #legend b{color:#fbbf24}
+  #help{bottom:10px;right:10px}
+  #stats{bottom:10px;left:10px}
+  #viewbtns{position:absolute;top:10px;left:10px;display:flex;gap:5px}
+  #viewbtns button{background:rgba(15,23,42,.85);color:#e2e8f0;border:1px solid #334155;font-size:11px;padding:4px 9px}
+  #viewbtns button:hover{border-color:#64748b}
+  #errbar{display:none;position:absolute;top:0;left:0;right:0;background:#7f1d1d;color:#fecaca;padding:4px 10px;font-size:11px;z-index:9}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel"></div>
+  <div id="view">
+    <div id="errbar"></div>
+    <div id="viewbtns">
+      <button onclick="fitView('iso')">⌂ Fit</button>
+      <button onclick="fitView('top')">Top</button>
+      <button onclick="fitView('front')">Front</button>
+    </div>
+    <div class="ovl" id="legend"></div>
+    <div class="ovl" id="help">orbit: left-drag &nbsp;·&nbsp; pan: right-drag &nbsp;·&nbsp; zoom: wheel &nbsp;·&nbsp; click a part to inspect</div>
+    <div class="ovl" id="stats"></div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script>
+'use strict';
+/* =====================================================================================
+   Kabacal 3D — PROTOTYPE (separate from the production app, nothing here is shared)
+   Rule #1: the SOURCE OF TRUTH is the structured data below (sheet + items + derived
+   operations). The Three.js scene is generated FROM that data; future DXF / true-path /
+   toolpath exports must read the same opsFor() output, never the 3D meshes.
+   Item shape mirrors the production app (mkItem/OFFLINES/resolveFrame in ../index.html)
+   so items can migrate later: frame {t,r,b,l}, lines A–G {en,mm,rd} — plus the NEW
+   per-line `depth` field (Offset Depth) added by this prototype.
+   ===================================================================================== */
+
+// ---- constants ported from the production app (keep names/values in sync) ----
+const OFFLINES=[            // k = DXF layer name — contract with the VCarve gadgets
+  {k:'Pocket',  L:'A', name:'A · Frame'},
+  {k:'6',       L:'B', name:'B'},
+  {k:'2',       L:'C', name:'C'},
+  {k:'Chamfer', L:'D', name:'D'},
+  {k:'Profile', L:'E', name:'E'},
+  {k:'Pocket2', L:'F', name:'F'},
+  {k:'Pocket3', L:'G', name:'G'}
+];
+const OFFCOL={A:'#b45309',B:'#dc2626',C:'#2563eb',D:'#7c3aed',E:'#0f766e',F:'#f97316',G:'#a16207'};
+const SHEETS={'8x4':{w:2440,h:1220,label:'8x4'},'10x4':{w:3050,h:1220,label:'10x4'},'10x5':{w:3050,h:1525,label:'10x5'},'jumbo':{w:2800,h:2070,label:'Jumbo'}};
+const SHEET_ORDER=['8x4','10x4','10x5','jumbo','custom'];
+const MATS=['MDF','MR MDF','MDF Hidrofugo Plus','MFC','Veneered Chipboard','Birch Plywood'];
+const ROUND_R=6;            // corner radius (mm) used when a line has "rd" ticked — placeholder until tool-driven
+const SHEET_GAP3D=300;      // 3D spacing between sheets laid side by side
+const LS_KEY='kab3d_doc';   // prototype-only storage (never reuse production kab_ keys)
+
+// =====================================================================================
+// 1) STATE — source of truth
+// =====================================================================================
+let state=null, seq=1;
+function uid(){return 'p'+(seq++);}
+
+function mkLines(cfg){ // same idea as production mkLines, with depth added (default 0)
+  return OFFLINES.map(o=>{const c=cfg&&cfg[o.L];return c?{en:true,mm:+c.mm||0,rd:!!c.rd,depth:+c.depth||0}:{en:false,mm:0,rd:false,depth:0};});
+}
+function mkItem(text,w,h,q,frame,linesCfg,extra){
+  extra=extra||{};
+  const f=+frame||0;
+  return {id:uid(),text:text||'Part',w:+w,h:+h,q:+q||1,thOv:+extra.thOv||0,grain:extra.grain||'off',
+    frame:{t:f,r:f,b:f,l:f},frameLink:true,lines:mkLines(linesCfg),pocketSide:extra.side||'front',
+    hinges:Object.assign({on:false,side:'auto',count:'auto',offset:100},extra.hinges||{})};
+}
+function seedDemo(){
+  seq=1;
+  state={
+    sheet:{mat:'MDF',th:22,size:'8x4',custom:{w:2440,h:1220},margin:7,gap:7},
+    items:[
+      // The exact example from the spec: 22mm board, frame at 50, B starts ON the frame
+      // with depth 5, C sits 7mm after B → band B→C = 7mm wide pocket, 5mm deep.
+      mkItem('Shaker door',400,600,2,50,{B:{mm:0,rd:true,depth:5},C:{mm:7,rd:true}},{hinges:{on:true,side:'left'}}),
+      // A · Frame with a depth and no line inside it → pockets the whole cavity (trad door).
+      mkItem('Trad cavity door',500,700,1,60,{A:{mm:0,rd:true,depth:8}}),
+      mkItem('Plain panel',300,200,4,0,null)
+    ]
+  };
+}
+function saveDoc(){try{localStorage.setItem(LS_KEY,JSON.stringify({v:1,seq,state}));}catch(e){}}
+function loadDoc(){
+  try{
+    const d=JSON.parse(localStorage.getItem(LS_KEY));
+    if(!d||!d.state||!Array.isArray(d.state.items))return false;
+    state=d.state;seq=d.seq||100;
+    state.items.forEach(it=>{ (it.lines||[]).forEach(l=>{if(l.depth==null)l.depth=0;}); }); // forward-compat
+    return true;
+  }catch(e){return false;}
+}
+
+function sheetDef(){const s=state.sheet;if(s.size==='custom')return{w:+s.custom.w||2440,h:+s.custom.h||1220,label:'Custom'};return SHEETS[s.size]||SHEETS['8x4'];}
+function resolveFrame(it){const f=it.frame||{};return{t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
+function partTh(it){return(+it.thOv>0)?+it.thOv:(+state.sheet.th||18);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// =====================================================================================
+// 2) DERIVED OPERATIONS — the contract for the future DXF / true-path / toolpath step
+// =====================================================================================
+// rect of a line at `mm` from the frame (per side), in part-local mm, origin bottom-left
+function lineRect(it,mm){
+  const f=resolveFrame(it);
+  return {x:+(f.l+mm).toFixed(2),y:+(f.b+mm).toFixed(2),
+          w:+(it.w-f.l-f.r-2*mm).toFixed(2),h:+(it.h-f.t-f.b-2*mm).toFixed(2)};
+}
+function boundariesOf(it){
+  const out=[];
+  (it.lines||[]).forEach((l,i)=>{
+    if(!l.en)return;
+    const o=OFFLINES[i],r=lineRect(it,+l.mm||0);
+    out.push({L:o.L,k:o.k,mm:+l.mm||0,rd:!!l.rd,depth:+l.depth||0,rect:r,valid:(r.w>0.1&&r.h>0.1)});
+  });
+  out.sort((a,b)=>a.mm-b.mm);
+  return out;
+}
+// Port of production hingePositions (even spread between end offsets; 2/3/4 by span)
+function hingePositions(h,span){
+  const c=h&&h.count,eo=+(h&&h.offset)||100;
+  const n=(c==null||c==='auto')?(span>1500?4:span>900?3:2):Math.max(1,+c||1);
+  const first=eo,last=span-eo;
+  if(n<=1)return[(first+last)/2];
+  const out=[];for(let k=0;k<n;k++)out.push(first+(last-first)*k/(n-1));
+  return out;
+}
+function hingeInfo(it){
+  if(!it.hinges||!it.hinges.on)return{on:false};
+  const W=+it.w||0,H=+it.h||0,raw=it.hinges.side||'auto';
+  const side=(raw==='auto')?(H>=W?'left':'bottom'):raw;
+  const span=(side==='left'||side==='right')?H:W;
+  return{on:true,side,span,count:it.hinges.count||'auto',offset:+it.hinges.offset||100};
+}
+function hingeCups(it,hi){
+  const CUP=22.5,W=+it.w,H=+it.h,pos=hingePositions(hi,hi.span);
+  if(hi.side==='left') return pos.map(p=>({x:CUP,y:p}));
+  if(hi.side==='right')return pos.map(p=>({x:W-CUP,y:p}));
+  if(hi.side==='top')  return pos.map(p=>({x:p,y:H-CUP}));
+  return pos.map(p=>({x:p,y:CUP}));
+}
+
+/* opsFor(item) → {ops:[...], warns:[...]}
+   op types (stable schema — future exports consume THIS):
+   - profile: through-cut of the part outline                {op,layer:'OUT',depth,through,rect}
+   - line:    vector line, machining decided later by CAM    {op,layer,boundary,rect,round}
+   - pocket:  recess derived from Offset Depth               {op,layer,start,end,depth,side,bandWidth?,outer,inner,roundOuter,roundInner}
+              kind 'band'  = between line X and the NEXT line inward (stops there, never cuts beyond)
+              kind 'area'  = no line inside X → the whole area inside X is pocketed (trad cavity)
+   - drill:   hinge cup                                      {op,layer:'Hinge',d,depth,x,y}            */
+function opsFor(it){
+  const th=partTh(it),ops=[],warns=[];
+  ops.push({op:'profile',layer:'OUT',boundary:'edge',through:true,depth:th,rect:{x:0,y:0,w:+it.w,h:+it.h},round:0});
+  const bs=boundariesOf(it).filter(b=>{
+    if(!b.valid)warns.push('Line '+b.L+' does not fit inside the part — ignored.');
+    return b.valid;
+  });
+  bs.forEach((b,i)=>{
+    if(b.depth>0){
+      let d=+b.depth;
+      const maxD=(it.pocketSide==='front-back')?th/2-0.5:th-0.5;
+      if(d>maxD){d=Math.max(.5,+maxD.toFixed(2));warns.push('Pocket '+b.L+': depth clamped to '+d+'mm ('+th+'mm material'+(it.pocketSide==='front-back'?', front+back':'')+').');}
+      const nxt=bs.slice(i+1).find(n=>n.mm>b.mm+0.01);
+      if(!nxt&&bs[i+1])warns.push('Pocket '+b.L+': the next line sits at the same position — band has no width.');
+      if(nxt){
+        ops.push({op:'pocket',kind:'band',layer:b.k,start:b.L,end:nxt.L,depth:d,side:it.pocketSide||'front',
+          bandWidth:+(nxt.mm-b.mm).toFixed(2),outer:b.rect,inner:nxt.rect,
+          roundOuter:b.rd?ROUND_R:0,roundInner:nxt.rd?ROUND_R:0});
+      }else{
+        ops.push({op:'pocket',kind:'area',layer:b.k,start:b.L,end:'inside',depth:d,side:it.pocketSide||'front',
+          outer:b.rect,inner:null,roundOuter:b.rd?ROUND_R:0,roundInner:0});
+      }
+    }else{
+      ops.push({op:'line',layer:b.k,boundary:b.L,depth:0,rect:b.rect,round:b.rd?ROUND_R:0});
+    }
+  });
+  const hi=hingeInfo(it);
+  if(hi.on)hingeCups(it,hi).forEach(c=>ops.push({op:'drill',layer:'Hinge',d:35,depth:Math.min(13,th-2),x:+c.x.toFixed(1),y:+c.y.toFixed(1)}));
+  return {ops,warns};
+}
+
+// =====================================================================================
+// 3) NESTING — simple shelf packer, prototype only (production keeps MaxRects/mrPackBins)
+// =====================================================================================
+function nestAll(){
+  const def=sheetDef(),M=+state.sheet.margin||0,G=+state.sheet.gap||0;
+  const inst=[];
+  state.items.forEach(it=>{for(let k=0;k<(+it.q||1);k++)inst.push(it);});
+  inst.sort((a,b)=>Math.max(+b.w,+b.h)-Math.max(+a.w,+a.h));
+  const sheets=[],unplaced=[];
+  function tryPlace(s,w,h){
+    if(s.x+w<=def.w-M+0.01&&s.y+h<=def.h-M+0.01){const p={x:s.x,y:s.y};s.x+=w+G;s.rowH=Math.max(s.rowH,h);return p;}
+    if(s.y+s.rowH+G+h<=def.h-M+0.01&&M+w<=def.w-M+0.01){s.y+=s.rowH+G;s.x=M;s.rowH=h;const p={x:s.x,y:s.y};s.x+=w+G;return p;}
+    return null;
+  }
+  inst.forEach(it=>{
+    const w=+it.w,h=+it.h,canRot=(it.grain||'off')==='off';
+    for(const s of sheets){
+      let p=tryPlace(s,w,h);if(p){s.placed.push({it,x:p.x,y:p.y,rot:false});return;}
+      if(canRot){p=tryPlace(s,h,w);if(p){s.placed.push({it,x:p.x,y:p.y,rot:true});return;}}
+    }
+    const fits=(w<=def.w-2*M&&h<=def.h-2*M),fitsR=canRot&&(h<=def.w-2*M&&w<=def.h-2*M);
+    if(!fits&&!fitsR){unplaced.push(it);return;}
+    const s={x:M,y:M,rowH:0,placed:[]};sheets.push(s);
+    let p=fits?tryPlace(s,w,h):null;
+    if(p)s.placed.push({it,x:p.x,y:p.y,rot:false});
+    else{p=tryPlace(s,h,w);if(p)s.placed.push({it,x:p.x,y:p.y,rot:true});else unplaced.push(it);}
+  });
+  return {sheets,unplaced,def};
+}
+
+// =====================================================================================
+// 4) THREE.JS SCENE — generated from data, disposable, never authoritative
+// =====================================================================================
+let renderer,camera,controls,scene,worldRoot,sheetsRoot,partsRoot,selHelper=null;
+let needsRender=false,lastNest=null;
+const templates=new Map();   // itemId -> THREE.Group (geometry template, cloned per placement)
+const EDGE_MAT=new THREE.LineBasicMaterial({color:0x1f2937,transparent:true,opacity:.5});
+const CUP_MAT=new THREE.MeshLambertMaterial({color:0x2f2a24});
+
+function matColors(name){
+  const n=String(name||'').toLowerCase();
+  if(n.includes('mfc')||n.includes('white'))return{sheet:0x9b978c,part:0xe8e5dd,pocket:0xb9b4a7};
+  if(n.includes('mr '))return{sheet:0x6f815a,part:0xa9c08b,pocket:0x7e9465};
+  if(n.includes('hidro')||n.includes('plus'))return{sheet:0x5d7355,part:0x9db887,pocket:0x74895f};
+  if(n.includes('veneer'))return{sheet:0x7c5a36,part:0xc79a5f,pocket:0x99713f};
+  if(n.includes('ply')||n.includes('birch'))return{sheet:0x9a7f57,part:0xe0c393,pocket:0xb2945f};
+  return{sheet:0x8a6f4d,part:0xc8a97e,pocket:0x97794e}; // MDF default
+}
+function roundedRectPath(t,x,y,w,h,r){
+  r=Math.max(0,Math.min(r,Math.min(w,h)/2-0.01));
+  if(r<=0.01){t.moveTo(x,y);t.lineTo(x+w,y);t.lineTo(x+w,y+h);t.lineTo(x,y+h);t.closePath();return t;}
+  t.moveTo(x+r,y);t.lineTo(x+w-r,y);t.absarc(x+w-r,y+r,r,-Math.PI/2,0,false);
+  t.lineTo(x+w,y+h-r);t.absarc(x+w-r,y+h-r,r,0,Math.PI/2,false);
+  t.lineTo(x+r,y+h);t.absarc(x+r,y+h-r,r,Math.PI/2,Math.PI,false);
+  t.lineTo(x,y+r);t.absarc(x+r,y+r,r,Math.PI,Math.PI*1.5,false);
+  t.closePath();return t;
+}
+function extrudeRegion(outer,or_,inner,ir,depth){
+  const sh=new THREE.Shape();roundedRectPath(sh,outer.x,outer.y,outer.w,outer.h,or_);
+  if(inner){const p=new THREE.Path();roundedRectPath(p,inner.x,inner.y,inner.w,inner.h,ir);sh.holes.push(p);}
+  return new THREE.ExtrudeGeometry(sh,{depth,bevelEnabled:false,curveSegments:8});
+}
+function lineLoop(rect,r,color,z){
+  const sh=new THREE.Shape();roundedRectPath(sh,rect.x,rect.y,rect.w,rect.h,r);
+  const pts=sh.getPoints(10).map(p=>new THREE.Vector3(p.x,p.y,z));
+  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color}));
+}
+function rectEq(a,b){return a&&b&&Math.abs(a.x-b.x)<0.05&&Math.abs(a.y-b.y)<0.05&&Math.abs(a.w-b.w)<0.05&&Math.abs(a.h-b.h)<0.05;}
+
+/* Part solid = concentric ring regions (Shape + hole extrusions, NO CSG):
+   full-thickness rings where nothing is pocketed, thinner rings where Offset Depth
+   says a band is recessed. Adjacent rings share their boundary, so the pocket walls
+   and floors come out exactly where the ops say they are. */
+function buildPartGroup(it){
+  const th=partTh(it),group=new THREE.Group();
+  group.userData={itemId:it.id};
+  const {ops}=opsFor(it);
+  const colors=matColors(state.sheet.mat);
+  const mFull=new THREE.MeshLambertMaterial({color:colors.part});
+  const mPock=new THREE.MeshLambertMaterial({color:colors.pocket});
+  const pockets=ops.filter(o=>o.op==='pocket');
+  const regions=[];
+  let cur={x:0,y:0,w:+it.w,h:+it.h},curR=0;
+  for(const p of pockets){
+    if(!rectEq(cur,p.outer))regions.push({outer:cur,or:curR,inner:p.outer,ir:p.roundOuter,th,z:0,pocket:false});
+    let t2,z;
+    if(p.side==='front-back'){t2=Math.max(1,th-2*p.depth);z=(th-t2)/2;}
+    else{t2=Math.max(1,th-p.depth);z=0;}
+    regions.push({outer:p.outer,or:p.roundOuter,inner:p.inner,ir:p.roundInner||0,th:t2,z,pocket:true});
+    if(p.inner){cur=p.inner;curR=p.roundInner||0;}else{cur=null;break;}
+  }
+  if(cur)regions.push({outer:cur,or:curR,inner:null,ir:0,th,z:0,pocket:false});
+  regions.forEach(r=>{
+    const g=extrudeRegion(r.outer,r.or,r.inner,r.ir,r.th);
+    const mesh=new THREE.Mesh(g,r.pocket?mPock:mFull);mesh.position.z=r.z;group.add(mesh);
+    const eg=new THREE.LineSegments(new THREE.EdgesGeometry(g,25),EDGE_MAT);eg.position.z=r.z;group.add(eg);
+  });
+  ops.filter(o=>o.op==='line').forEach(o=>group.add(lineLoop(o.rect,o.round,OFFCOL[o.boundary],th+0.15)));
+  ops.filter(o=>o.op==='drill').forEach(o=>{
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(o.d/2,o.d/2,o.depth,24),CUP_MAT);
+    cyl.rotation.x=Math.PI/2;
+    cyl.position.set(o.x,o.y,th-o.depth/2+0.05);
+    group.add(cyl);
+  });
+  return group;
+}
+function disposeGroup(root){
+  root.traverse(o=>{
+    if(o.geometry)o.geometry.dispose();
+    if(o.material&&o.material!==EDGE_MAT&&o.material!==CUP_MAT)o.material.dispose();
+  });
+  while(root.children.length)root.remove(root.children[0]);
+}
+// partsRoot holds CLONES that share geometry/materials with the templates —
+// remove them without disposing (the template owns the GPU resources)
+function clearGroup(root){while(root.children.length)root.remove(root.children[0]);}
+function dropSelHelper(){
+  if(!selHelper)return;
+  scene.remove(selHelper);
+  selHelper.geometry.dispose();selHelper.material.dispose();
+  selHelper=null;
+}
+function getTemplate(it){
+  let t=templates.get(it.id);
+  if(!t){t=buildPartGroup(it);templates.set(it.id,t);}
+  return t;
+}
+function invalidateTemplate(id){
+  const t=templates.get(id);
+  if(t){disposeGroup(t);templates.delete(id);}
+}
+function invalidateAllTemplates(){[...templates.keys()].forEach(invalidateTemplate);}
+
+function sheetSlab(def,th,ox){
+  const g=new THREE.Group();
+  const colors=matColors(state.sheet.mat);
+  // sheet sits 0.4mm lower than the parts so coplanar tops never z-fight
+  const slabTh=Math.max(1,th-0.4);
+  const slab=new THREE.Mesh(new THREE.BoxGeometry(def.w,def.h,slabTh),new THREE.MeshLambertMaterial({color:colors.sheet}));
+  slab.position.set(ox+def.w/2,def.h/2,slabTh/2);
+  g.add(slab);
+  const eg=new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry),new THREE.LineBasicMaterial({color:0x0b1220}));
+  eg.position.copy(slab.position);g.add(eg);
+  const M=+state.sheet.margin||0;
+  if(M>0)g.add(lineLoop({x:ox+M,y:M,w:def.w-2*M,h:def.h-2*M},0,0x334155,th+0.1));
+  return g;
+}
+
+function rebuildScene(){
+  clearGroup(partsRoot);
+  disposeGroup(sheetsRoot);
+  dropSelHelper();
+  lastNest=nestAll();
+  const {sheets,def}=lastNest,th=+state.sheet.th||18;
+  sheets.forEach((s,i)=>{
+    const ox=i*(def.w+SHEET_GAP3D);
+    sheetsRoot.add(sheetSlab(def,th,ox));
+    s.placed.forEach(pl=>{
+      const g=getTemplate(pl.it).clone();
+      g.userData={itemId:pl.it.id};
+      if(pl.rot){g.rotation.z=Math.PI/2;g.position.set(ox+pl.x+(+pl.it.h),pl.y,0);}
+      else g.position.set(ox+pl.x,pl.y,0);
+      partsRoot.add(g);
+    });
+  });
+  refreshSelectionHelper();
+  updateLegend();
+  requestRender();
+}
+function refreshSelectionHelper(){
+  dropSelHelper();
+  if(!selectedId)return;
+  const inst=partsRoot.children.find(c=>c.userData.itemId===selectedId);
+  if(inst){selHelper=new THREE.BoxHelper(inst,0xfacc15);scene.add(selHelper);}
+}
+
+function initThree(){
+  const view=document.getElementById('view');
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  view.appendChild(renderer.domElement);
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0b1220);
+  camera=new THREE.PerspectiveCamera(45,1,1,60000);
+  camera.up.set(0,0,1);                       // Z up = material thickness, like the machine
+  camera.position.set(1800,-1800,1600);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x33404f,0.95));
+  const dir=new THREE.DirectionalLight(0xffffff,0.7);
+  dir.position.set(1200,-1600,2400);
+  scene.add(dir);
+  const grid=new THREE.GridHelper(12000,60,0x1e293b,0x162032);
+  grid.rotation.x=Math.PI/2;                  // GridHelper is XZ by default → lay it on XY
+  grid.position.z=-1;
+  scene.add(grid);
+  worldRoot=new THREE.Group();sheetsRoot=new THREE.Group();partsRoot=new THREE.Group();
+  worldRoot.add(sheetsRoot);worldRoot.add(partsRoot);scene.add(worldRoot);
+  controls=new THREE.OrbitControls(camera,renderer.domElement);
+  controls.screenSpacePanning=true;
+  controls.addEventListener('change',requestRender);
+  function sizeToView(){
+    const w=view.clientWidth,h=view.clientHeight;
+    if(!w||!h)return;
+    renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();requestRender();
+  }
+  sizeToView(); // size immediately — ResizeObserver/RAF can be throttled in background tabs
+  new ResizeObserver(sizeToView).observe(view);
+  window.addEventListener('resize',sizeToView);
+  document.addEventListener('visibilitychange',requestRender);
+  // click-to-inspect (only when it wasn't an orbit drag)
+  let downXY=null;
+  renderer.domElement.addEventListener('pointerdown',e=>{downXY=[e.clientX,e.clientY];});
+  renderer.domElement.addEventListener('pointerup',e=>{
+    if(!downXY)return;
+    const moved=Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1]);downXY=null;
+    if(moved>5)return;
+    pick(e);
+  });
+}
+// on-demand rendering without a RAF loop: renders happen only when something changed,
+// and still work when the tab is backgrounded (RAF would stall there)
+function requestRender(){
+  if(needsRender)return;
+  needsRender=true;
+  setTimeout(()=>{
+    needsRender=false;
+    if(renderer)renderer.render(scene,camera);
+    updateStats();
+  },0);
+}
+function pick(e){
+  const r=renderer.domElement.getBoundingClientRect();
+  const v=new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  const rc=new THREE.Raycaster();rc.setFromCamera(v,camera);
+  const hit=rc.intersectObjects(partsRoot.children,true).find(h=>h.object.isMesh);
+  if(!hit){selectItem(null);return;}
+  let o=hit.object;
+  while(o&&!(o.userData&&o.userData.itemId))o=o.parent;
+  selectItem(o?o.userData.itemId:null);
+}
+function fitView(kind){
+  const box=new THREE.Box3().setFromObject(worldRoot);
+  if(box.isEmpty())return;
+  const c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3());
+  const rad=Math.max(s.x,s.y,s.z)*0.62+200;
+  const d=rad/Math.tan(camera.fov*Math.PI/360);
+  const dirs={iso:new THREE.Vector3(.8,-.85,.65),top:new THREE.Vector3(0,-.06,1),front:new THREE.Vector3(0,-1,.35)};
+  const v=(dirs[kind]||dirs.iso).normalize().multiplyScalar(d);
+  camera.position.copy(c).add(v);
+  controls.target.copy(c);
+  controls.update();
+  requestRender();
+}
+function updateLegend(){
+  const def=lastNest?lastNest.def:sheetDef();
+  const n=lastNest?lastNest.sheets.length:0,un=lastNest?lastNest.unplaced.length:0;
+  document.getElementById('legend').innerHTML=
+    '<b>'+esc(state.sheet.mat)+' · '+esc(state.sheet.th)+'mm</b><br>'+
+    def.label+' — '+def.w+' × '+def.h+' mm · '+n+' sheet'+(n===1?'':'s')+
+    (un?'<br><span style="color:#f87171">'+un+' part(s) do not fit</span>':'');
+}
+function updateStats(){
+  const i=renderer.info.render;
+  document.getElementById('stats').textContent='tris '+i.triangles.toLocaleString()+' · calls '+i.calls;
+}
+
+// =====================================================================================
+// 5) UI — plain DOM like the production app (globals + render), edits are debounced
+// =====================================================================================
+let selectedId=null,tFull=null,tItem=null;
+function scheduleFull(){clearTimeout(tFull);tFull=setTimeout(()=>{invalidateAllTemplates();rebuildScene();renderOps();saveDoc();},220);}
+function scheduleItem(id){clearTimeout(tItem);tItem=setTimeout(()=>{invalidateTemplate(id);rebuildScene();renderOps();saveDoc();},150);}
+
+function selectItem(id){
+  selectedId=id;
+  refreshSelectionHelper();
+  requestRender();
+  renderPanel();
+}
+function itemById(id){return state.items.find(i=>i.id===id);}
+
+// ---- field setters (called from inline handlers) ----
+function sheetField(k,v){
+  const s=state.sheet;
+  if(k==='mat')s.mat=v;
+  else if(k==='size')s.size=v;
+  else if(k==='cw')s.custom.w=Math.max(100,+v||2440);
+  else if(k==='ch')s.custom.h=Math.max(100,+v||1220);
+  else s[k]=Math.max(k==='th'?3:0,+v||0);
+  if(k==='size')renderPanel();
+  scheduleFull();updateLegend();
+}
+function itemField(id,k,v){
+  const it=itemById(id);if(!it)return;
+  if(k==='text')it.text=v;
+  else if(k==='grain')it.grain=v?'long':'off';
+  else if(k==='pocketSide')it.pocketSide=v;
+  else if(k==='thOv')it.thOv=Math.max(0,+v||0);
+  else it[k]=Math.max(1,+v||1);
+  (k==='w'||k==='h'||k==='q'||k==='grain')?scheduleFull():scheduleItem(id);
+  if(k==='pocketSide')renderOps();
+}
+function frameField(id,side,v){
+  const it=itemById(id);if(!it)return;
+  const val=Math.max(0,+v||0);
+  if(it.frameLink||side==='all'){it.frame={t:val,r:val,b:val,l:val};}
+  else it.frame[side]=val;
+  scheduleItem(id);
+}
+function toggleFrameLink(id){
+  const it=itemById(id);if(!it)return;
+  it.frameLink=!it.frameLink;
+  if(it.frameLink){const f=resolveFrame(it);it.frame={t:f.t,r:f.t,b:f.t,l:f.t};}
+  renderPanel();scheduleItem(id);
+}
+function lineField(id,li,k,v){
+  const it=itemById(id);if(!it)return;
+  const l=it.lines[li];
+  if(k==='en'){l.en=!l.en;renderPanel();}
+  else if(k==='rd')l.rd=!!v;
+  else if(k==='mm')l.mm=Math.max(0,+v||0);
+  else if(k==='depth')l.depth=Math.max(0,+v||0);
+  scheduleItem(id);
+}
+function hingeField(id,k,v){
+  const it=itemById(id);if(!it)return;
+  if(k==='on'){it.hinges.on=!!v;renderPanel();}
+  else if(k==='offset')it.hinges.offset=Math.max(10,+v||100);
+  else it.hinges[k]=v;
+  scheduleItem(id);
+}
+function addItem(){
+  const it=mkItem('Part '+(state.items.length+1),400,300,1,0,null);
+  state.items.push(it);
+  selectedId=it.id;
+  renderPanel();scheduleFull();
+}
+function dupItem(id){
+  const i=state.items.findIndex(x=>x.id===id);if(i<0)return;
+  const c=JSON.parse(JSON.stringify(state.items[i]));c.id=uid();c.text+=' copy';
+  state.items.splice(i+1,0,c);
+  selectedId=c.id;
+  renderPanel();scheduleFull();
+}
+function delItem(id){
+  state.items=state.items.filter(x=>x.id!==id);
+  if(selectedId===id)selectedId=null;
+  renderPanel();scheduleFull();
+}
+function resetDemo(){
+  if(!confirm('Reset the prototype to the demo job? Your current prototype data is replaced.'))return;
+  seedDemo();selectedId=state.items[0].id;
+  invalidateAllTemplates();renderPanel();rebuildScene();renderOps();saveDoc();fitView('iso');
+}
+function exportJson(){
+  const doc={app:'kabacal-3d-prototype',v:1,generated:new Date().toISOString(),
+    sheet:state.sheet,
+    items:state.items.map(it=>Object.assign({},it,{operations:opsFor(it).ops}))};
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}));
+  a.download='kabacal3d-job.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+// ---- panel rendering ----
+function opChips(it){
+  const {ops}=opsFor(it);
+  return ops.filter(o=>o.op==='pocket').map(o=>'<span class="chip pk">'+o.start+'→'+(o.kind==='band'?o.end:'in')+' '+o.depth+'↓</span>').join('')+
+         (ops.some(o=>o.op==='drill')?'<span class="chip">hinges</span>':'');
+}
+function linesTable(it){
+  let h='<div class="ltab">'+
+    '<span></span><span class="hd">Line</span><span class="hd">On</span><span class="hd">From frame</span><span class="hd">Rd</span><span class="hd depth">Depth</span>';
+  OFFLINES.forEach((o,li)=>{
+    const l=it.lines[li],dis=l.en?'':'disabled';
+    h+='<span class="sw" style="background:'+OFFCOL[o.L]+'"></span>'+
+       '<span>'+o.name+'</span>'+
+       '<span class="onoff '+(l.en?'':'off')+'" onclick="lineField(\''+it.id+'\','+li+',\'en\')">'+(l.en?'ON':'OFF')+'</span>'+
+       '<span><input type="number" class="mini" value="'+l.mm+'" '+dis+' oninput="lineField(\''+it.id+'\','+li+',\'mm\',this.value)"> mm</span>'+
+       '<input type="checkbox" '+(l.rd?'checked':'')+' '+dis+' onchange="lineField(\''+it.id+'\','+li+',\'rd\',this.checked)">'+
+       '<span><input type="number" step="0.5" class="mini depthIn" value="'+l.depth+'" '+dis+' oninput="lineField(\''+it.id+'\','+li+',\'depth\',this.value)"> mm</span>';
+  });
+  return h+'</div><div class="sub" style="margin-top:4px">Depth &gt; 0 = pocket from that line to the <b>next line inward</b> (stops there). No line inside → pockets everything inside it.</div>';
+}
+function itemEditor(it){
+  const f=resolveFrame(it),hi=it.hinges||{};
+  const frameCtl=it.frameLink
+    ?'<input type="number" value="'+f.t+'" oninput="frameField(\''+it.id+'\',\'all\',this.value)"> <span class="sub">mm all round</span>'
+    :['t','r','b','l'].map(sd=>'<span class="sub">'+sd.toUpperCase()+'</span><input type="number" class="mini" value="'+f[sd]+'" oninput="frameField(\''+it.id+'\',\''+sd+'\',this.value)">').join(' ');
+  return '<div class="pbody">'+
+    '<div class="row">'+
+      '<label class="f">name<input type="text" style="width:120px" value="'+esc(it.text)+'" onchange="itemField(\''+it.id+'\',\'text\',this.value)"></label>'+
+      '<label class="f">W<input type="number" value="'+it.w+'" oninput="itemField(\''+it.id+'\',\'w\',this.value)"></label>'+
+      '<label class="f">H<input type="number" value="'+it.h+'" oninput="itemField(\''+it.id+'\',\'h\',this.value)"></label>'+
+      '<label class="f">qty<input type="number" class="mini" value="'+it.q+'" oninput="itemField(\''+it.id+'\',\'q\',this.value)"></label>'+
+      '<label class="f">thickness<input type="number" class="mini" placeholder="sheet" value="'+(it.thOv||'')+'" oninput="itemField(\''+it.id+'\',\'thOv\',this.value)"></label>'+
+    '</div>'+
+    '<div class="row"><span class="sub" style="font-weight:700">Frame:</span> '+frameCtl+
+      ' <label class="sub"><input type="checkbox" '+(it.frameLink?'checked':'')+' onchange="toggleFrameLink(\''+it.id+'\')"> link</label>'+
+      ' <label class="sub"><input type="checkbox" '+(it.grain!=='off'?'checked':'')+' onchange="itemField(\''+it.id+'\',\'grain\',this.checked)"> grain lock</label>'+
+      ' <label class="sub">pocket side <select onchange="itemField(\''+it.id+'\',\'pocketSide\',this.value)">'+
+        '<option value="front" '+(it.pocketSide==='front'?'selected':'')+'>Front only</option>'+
+        '<option value="front-back" '+(it.pocketSide==='front-back'?'selected':'')+'>Front + Back</option></select></label>'+
+    '</div>'+
+    linesTable(it)+
+    '<div class="row" style="margin-top:8px">'+
+      '<label class="sub"><input type="checkbox" '+(hi.on?'checked':'')+' onchange="hingeField(\''+it.id+'\',\'on\',this.checked)"> hinges</label>'+
+      (hi.on?(' <select onchange="hingeField(\''+it.id+'\',\'side\',this.value)">'+['auto','left','right','top','bottom'].map(s=>'<option '+(hi.side===s?'selected':'')+'>'+s+'</option>').join('')+'</select>'+
+        ' <select onchange="hingeField(\''+it.id+'\',\'count\',this.value)">'+['auto','2','3','4','5'].map(s=>'<option '+(String(hi.count)===s?'selected':'')+'>'+s+'</option>').join('')+'</select>'+
+        ' <label class="sub">end offset <input type="number" class="mini" value="'+(hi.offset||100)+'" oninput="hingeField(\''+it.id+'\',\'offset\',this.value)"></label>'):'')+
+    '</div>'+
+    '<div class="row" style="margin-top:8px;justify-content:flex-end">'+
+      '<button class="sm" onclick="dupItem(\''+it.id+'\')">duplicate</button>'+
+      '<button class="sm" onclick="delItem(\''+it.id+'\')" style="color:#b91c1c">delete</button>'+
+    '</div>'+
+  '</div>';
+}
+function renderPanel(){
+  const s=state.sheet,def=sheetDef();
+  let h='<h1>Kabacal 3D<span class="tag">PROTOTYPE</span></h1>'+
+    '<p class="note">Separate prototype — the production app is untouched. Structured part/operation data is the source of truth; this 3D view (and the future DXF/true-path export) is generated from it.</p>';
+  h+='<div class="card"><h2>Material sheet</h2>'+
+    '<div class="row">'+
+      '<label class="f">material<select onchange="sheetField(\'mat\',this.value)">'+MATS.map(m=>'<option '+(m===s.mat?'selected':'')+'>'+m+'</option>').join('')+'</select></label>'+
+      '<label class="f">thickness (mm)<input type="number" value="'+s.th+'" oninput="sheetField(\'th\',this.value)"></label>'+
+      '<label class="f">sheet size<select onchange="sheetField(\'size\',this.value)">'+SHEET_ORDER.map(k=>'<option value="'+k+'" '+(k===s.size?'selected':'')+'>'+(k==='custom'?'Custom…':SHEETS[k].label+' ('+SHEETS[k].w+'×'+SHEETS[k].h+')')+'</option>').join('')+'</select></label>'+
+    '</div>'+
+    (s.size==='custom'?'<div class="row"><label class="f">W<input type="number" value="'+s.custom.w+'" oninput="sheetField(\'cw\',this.value)"></label><label class="f">H<input type="number" value="'+s.custom.h+'" oninput="sheetField(\'ch\',this.value)"></label></div>':'')+
+    '<div class="row">'+
+      '<label class="f">margin<input type="number" class="mini" value="'+s.margin+'" oninput="sheetField(\'margin\',this.value)"></label>'+
+      '<label class="f">gap<input type="number" class="mini" value="'+s.gap+'" oninput="sheetField(\'gap\',this.value)"></label>'+
+      '<span class="sub" style="margin-left:auto">'+def.w+' × '+def.h+' × <b>'+s.th+'mm</b></span>'+
+    '</div></div>';
+  h+='<div class="card"><h2>Parts</h2>';
+  state.items.forEach(it=>{
+    const sel=it.id===selectedId;
+    h+='<div class="pitem'+(sel?' sel':'')+'">'+
+      '<div class="phead" onclick="selectItem(\''+(sel?'':it.id)+'\'||null)">'+
+        '<b>'+esc(it.text)+'</b><span class="sub">'+it.w+'×'+it.h+' ×'+it.q+'</span>'+
+        '<span class="chips">'+opChips(it)+'</span>'+
+      '</div>'+
+      (sel?itemEditor(it):'')+
+    '</div>';
+  });
+  h+='<button onclick="addItem()">＋ Add part</button></div>';
+  h+='<div class="card"><h2>Operations — selected part</h2><div id="opsBox"><span class="sub">Select a part (list or 3D click).</span></div></div>';
+  h+='<div class="row" style="padding:0 2px">'+
+    '<button class="pri" onclick="exportJson()">Export JSON (data + ops)</button>'+
+    '<button onclick="resetDemo()">Reset demo</button>'+
+  '</div>'+
+  '<p class="sub" style="margin-top:8px">Autosaved locally ('+LS_KEY+'). Prototype nesting is a simple shelf packer — production MaxRects nesting stays in the main app.</p>';
+  document.getElementById('panel').innerHTML=h;
+  renderOps();
+}
+function renderOps(){
+  const box=document.getElementById('opsBox');
+  if(!box)return;
+  const it=itemById(selectedId);
+  if(!it){box.innerHTML='<span class="sub">Select a part (list or 3D click).</span>';return;}
+  const {ops,warns}=opsFor(it),th=partTh(it);
+  let h='<div class="sub" style="margin-bottom:4px">'+esc(it.text)+' — '+it.w+' × '+it.h+' × <b>'+th+'mm</b></div>';
+  ops.forEach(o=>{
+    if(o.op==='profile')h+='<div class="op"><span class="k profile">profile</span><span>outline '+o.rect.w+'×'+o.rect.h+', through cut ('+o.depth+'mm), layer '+o.layer+'</span></div>';
+    else if(o.op==='line')h+='<div class="op"><span class="k line">line</span><span>'+o.boundary+' — vector on layer <b>'+o.layer+'</b>'+(o.round?', r'+o.round:'')+' (no depth)</span></div>';
+    else if(o.op==='pocket')h+='<div class="op"><span class="k pocket">pocket</span><span>'+
+      (o.kind==='band'?o.start+' → '+o.end+' band, width <b>'+o.bandWidth+'mm</b>':'everything inside '+o.start)+
+      ', depth <b>'+o.depth+'mm</b>'+(o.side==='front-back'?' (front+back)':'')+', layer '+o.layer+'</span></div>';
+    else if(o.op==='drill')h+='<div class="op"><span class="k drill">drill</span><span>hinge cup Ø'+o.d+' × '+o.depth+'mm at ('+o.x+', '+o.y+')</span></div>';
+  });
+  if(warns.length)h+='<div class="warnbox">'+warns.map(esc).join('<br>')+'</div>';
+  h+='<details><summary>raw operations JSON (future DXF / true-path input)</summary><pre>'+esc(JSON.stringify(ops,null,1))+'</pre></details>';
+  box.innerHTML=h;
+}
+
+// =====================================================================================
+// boot
+// =====================================================================================
+window.addEventListener('error',e=>{
+  const b=document.getElementById('errbar');
+  b.style.display='block';b.textContent='JS error: '+e.message;
+});
+if(!loadDoc())seedDemo();
+if(state.items.length&&!selectedId)selectedId=state.items[0].id;
+initThree();
+renderPanel();
+rebuildScene();
+fitView('iso');
+</script>
+</body>
+</html>

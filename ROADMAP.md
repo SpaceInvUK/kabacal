@@ -2,6 +2,21 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 — Datum/orientação corrigidos + alvo do toolpath (chapa·peças·layer) + kerf real
+
+Rodada guarded (CAM/NC) a partir do teste do user. `cam-reviewer` executado; golden diff mostrado antes do ship.
+
+- **(1) Datum consertado — root cause: rotação de frame, não espelho.** Os dois sintomas (LL→LR e UL→LL) batem exatamente com 90°: o Kabacal nesta em **paisagem** (X=2440) e a Pegasus monta a chapa em **retrato** (X=1220 — Job Setup do VCarve e James X≤1220). Novo **`camJob.orient`** (default **portrait**) + `tpXform` (x_m = 1220−y_c, y_m = x_c, rastreando o estado modal e re-emitindo os dois eixos — o post dedupa) + offsets de datum nas **dimensões orientadas**. **Prova (bbox por datum, retrato):** ll → X[4..1010] Y[4..610] positivos · lr → X negativo · c → ±610/±1220 exatos · ul → Y negativo · ur → ambos. As 5 posições caem nos 5 pontos físicos da chapa; landscape continua disponível no Job Setup. **Z nunca é tocado** pelo transform.
+- **(2) Zoom seleciona a chapa**: checkbox "Sheet for toolpaths" no cabeçalho do zoom (chapas front; back não) → mesmo `selSheets` dos cards → vira o alvo do Profile.
+- **(3) Peças no zoom → toolpath**: o fluxo de clique/Ctrl+click do Edit mode alimenta o escopo; **seleções explícitas viram o default do form** (toggles visíveis All/Selected — nunca assume o job inteiro em silêncio).
+- **(4) Layer com nomes do DXF**: dropdown no Profile — **OUT** (contorno, ativo) + INSIDE/OFFSET_A–G/GROOVE/LED_CHANNEL/hinges listados como "next op" (viram ativos com Pocket/Drilling). Escopo agora é **chapa × peças × layer**; `tpSegsForSheet`/preview pulam chapas fora do escopo.
+- **(5) Painel compacto**: `.tpf-row` (grid 2/3 col), inputs 100%/min-width:0, fontes menores — **zero overflow medido até em 360px forçado**.
+- **(6) Kerf de verdade no preview**: banda com **largura exata da fresa** (Ø6mm → stroke 0.6un) centrada na linha de corte + linha central + anel tracejado da pele 0.4; outside/inside/on provados por geometria (0.4 < borda 0.7 < 1.0); tooltip "kerf Ø6mm · outside · 18mm · layer OUT".
+- **Goldens regenerados** (rotação pura: 756 linhas X/Y trocadas por arquivo, Z/F/N/estrutura idênticos; DXF intacto). README com receita + status atualizados.
+
+### Testado
+bbox dos 5 datums × 2 orientações ✓ · zoom→chapa (checkbox persiste) ✓ · zoom→2 peças → form default Selected(1 chapa)/(2 peças) → chapa 2 gera 0 segs ✓ · layer OUT armazenado ✓ · overflow 0 em 360px ✓ · kerf 0.60 + centerline + skin, 3 lados geométricos ✓ · minZ=0.000, sem Z negativo ✓ · `tools/check.mjs` ok ✓ · console limpo ✓ · veredito do cam-reviewer no commit.
+
 ## 2026-07-06 (d) — Validação vs VCarve real + fixes (pass depth da fresa, aviso de duplicados)
 
 O user gerou o mesmo job nos dois ("Vcarve Test.nc" vs "Kabacal Test.nc") e pediu comparação, com foco em **até onde a máquina fura**.

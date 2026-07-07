@@ -302,8 +302,17 @@
   .tp-datum i:hover{border-color:#dc2626}
   .tp-datum i.on{background:#dc2626;border-color:#dc2626}
   .tp-datum i.mid{visibility:hidden}
-  .tpf-sec{border:1px solid var(--line);border-radius:9px;padding:9px 10px;margin-bottom:9px}
-  .tpf-sec h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .tpf-sec{border:1px solid var(--line);border-radius:9px;padding:8px 9px;margin-bottom:8px}
+  .tpf-sec h4{margin:0 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  /* compact form controls — nothing may overflow the 360px panel */
+  .tpf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .tp-side .ed-field{min-width:0}
+  .tp-side .ed-field label{font-size:9.5px}
+  .tp-side .tpf-sec input[type=number],.tp-side .tpf-sec input[type=text],.tp-side .tpf-sec select{width:100%;min-width:0;box-sizing:border-box;padding:5px 6px;font-size:12px;border:1px solid var(--line);border-radius:7px}
+  .tp-side .seg3{display:flex;width:100%}
+  .tp-side .segbtn{flex:1;min-width:0;padding:5px 4px;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tp-side .sub{font-size:10.5px}
+  .tp-side .tg{font-size:11.5px}
   /* ===== Dark mode ===== */
   body.dark{
     --bg:#0f151d; --card:#161d27; --ink:#e6edf5; --muted:#93a1b3; --line:#2a333f;
@@ -807,7 +816,7 @@
       if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
       if(kq.profiles&&typeof kq.profiles==='object')profiles=Object.assign({},profiles,kq.profiles);   // keep built-ins, add saved presets
       if(kq.matSizeDef&&typeof kq.matSizeDef==='object')matSizeDef=JSON.parse(JSON.stringify(kq.matSizeDef));   // per-material default sheet size
-      if(kq.camJob&&typeof kq.camJob==='object')camJob=Object.assign({zZero:'bed',datum:'ll',rapidGap:20,approach:5},kq.camJob);
+      if(kq.camJob&&typeof kq.camJob==='object')camJob=Object.assign({zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'},kq.camJob);
       if(Array.isArray(kq.camPaths)){camPaths=JSON.parse(JSON.stringify(kq.camPaths));tpSeq=camPaths.length+1;}
       if(Array.isArray(kq.camTools)&&kq.camTools.length){kq.camTools.forEach(t=>{const i=toolDb.findIndex(x=>x.id===t.id);if(i>=0)toolDb[i]=t;else toolDb.push(t);});saveToolDb();}   // job's tools merge into the machine library
     }
@@ -1704,9 +1713,10 @@
   let zoomEdit=false;   // Edit mode inside the zoom overlay (shows the editing accordion as a side drawer)
   function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span><button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
     ov.classList.add('show');setupZoomPanZoom();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
+  function zoomSheetSel(key,on){toggleSheetSel(key,on);openZoom(_zoomIdx);}   // tick the zoomed sheet as the active/target sheet
   function toggleZoomEdit(){
     zoomEdit=!zoomEdit;
     if(zoomEdit)materialize();                       // freeze the current layout so parts don't jump while editing sizes
@@ -2164,7 +2174,7 @@
           const lr=rects.slice().sort((a,b)=>b.w*b.h-a.w*a.h)[0],ow=lr.w/10,oh=lr.h/10;
           if(Math.min(ow,oh)>=8){const lx=lr.x/10+ow/2,ly=lr.y/10+oh/2;svg+=`<text x="${lx.toFixed(1)}" y="${(ly-0.6).toFixed(1)}" font-size="${Math.max(2.6,Math.min(6.5,Math.min(ow,oh)*0.16)).toFixed(1)}" font-family="Arial" font-weight="800" text-anchor="middle" fill="#0d9488">OFFCUT</text><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" font-size="${Math.max(2.3,Math.min(5.5,Math.min(ow,oh)*0.13)).toFixed(1)}" font-family="Arial" text-anchor="middle" fill="#0d9488">${esc(o.label)}</text>`;}}
         svg+='</svg>';
-        nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg});
+        nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg,key:mat+'#'+idx});
         const ssel=selSheets.has(mat+'#'+idx);
         html+=`<div class="sheet-card${ssel?' sheet-sel':''}" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${ssel?'checked':''} onchange="selSheetCb('${esc(mat)}',${idx},this.checked)" title="Select this sheet — Sheet Size / Nesting then change only the selected sheets"> ${matInp} ${sizeSel} ${priceChip} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
         // paired BACK SHEET right below its front sheet — visual only (no material, no sheet count)
@@ -2906,7 +2916,10 @@
       {id:'t12',name:'TOOL 12 — pocket clear',  num:12, dia:12,  feed:10000, plunge:3000, rpm:18000, passDepth:6}];})();
   function saveToolDb(){try{localStorage.setItem('kab_tooldb',JSON.stringify(toolDb));}catch(e){}}
   function toolById(id){return toolDb.find(t=>t.id===id)||null;}
-  let camJob={zZero:'bed',datum:'ll',rapidGap:20,approach:5};      // Job Setup — defaults match the James file (bed zero, lower-left datum)
+  // Job Setup — defaults match the real machine (bed zero, lower-left datum, PORTRAIT sheet: the Pegasus
+  // runs the 2440×1220 sheet with the SHORT side across X (Job Setup 1220×2440 + James file X≤1220).
+  // Kabacal nests landscape, so NC coordinates are rotated into the machine's portrait frame on output.
+  let camJob={zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'};
   let camPaths=[],tpSeq=1,tpUI={mode:'home',editId:null,sel:null},tpFilter='all',tpForm=null;
   const TP_COLORS=['#2563eb','#d97706','#0d9488','#9333ea','#dc2626','#0891b2','#65a30d'];
   const TP_ANCH={ll:'lower-left',lc:'lower-centre',lr:'lower-right',mr:'right-middle',ur:'upper-right',uc:'upper-centre',ul:'upper-left',ml:'left-middle'};
@@ -2991,14 +3004,34 @@
     return tpOrderParts(parts,f.sh.S,P.order||'narrow');}
   function tpPathMovesForSheet(f,pp,tool){const mv=[];if(pp.kind!=='profile')return mv;
     tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
-  function tpDatumOff(S){switch(camJob.datum){case 'lr':return [S.w,0];case 'c':return [S.w/2,S.h/2];case 'ul':return [0,S.h];case 'ur':return [S.w,S.h];default:return [0,0];}}
+  // machine-frame dims: portrait swaps the sheet (X = short side, like the Pegasus); landscape = as nested
+  function tpOrientDims(S){return (camJob.orient==='landscape')?{W:S.w,H:S.h}:{W:S.h,H:S.w};}
+  function tpDatumOff(D){switch(camJob.datum){case 'lr':return [D.W,0];case 'c':return [D.W/2,D.H/2];case 'ul':return [0,D.H];case 'ur':return [D.W,D.H];default:return [0,0];}}
+  // rotate canvas coords into the machine frame (portrait: x_m = S.h - y_c, y_m = x_c) then subtract the
+  // datum offset. X/Y ONLY — Z and F pass through untouched. Moves are modal, so the current position is
+  // tracked and BOTH coords are re-emitted; the post's own modality drops whichever didn't change.
+  function tpXform(moves,S){
+    const port=(camJob.orient!=='landscape'),off=tpDatumOff(tpOrientDims(S));
+    let cx=null,cy=null;
+    return moves.map(m=>{
+      const o={};if(m.r)o.r=1;if(m.z!==undefined)o.z=m.z;if(m.f!==undefined)o.f=m.f;
+      if(m.x!==undefined)cx=m.x;if(m.y!==undefined)cy=m.y;
+      if((m.x!==undefined||m.y!==undefined)&&cx!==null&&cy!==null){
+        const mx=port?(S.h-cy):cx, my=port?cx:cy;
+        o.x=+(mx-off[0]).toFixed(3);o.y=+(my-off[1]).toFixed(3);
+      }
+      return o;
+    });
+  }
   // visible toolpaths -> tool segments for one sheet (consecutive same-tool paths merge, like VCarve)
   function tpSegsForSheet(f){
-    const off=tpDatumOff(f.sh.S),segs=[];
+    const segs=[],sheetKey=f.mat+'#'+f.i;
     camPaths.filter(pp=>pp.on).forEach(pp=>{
+      const sc=pp.params.scope;
+      if(sc&&sc.sheets&&sc.sheets.length&&sc.sheets.indexOf(sheetKey)<0)return;   // sheet scope: this path doesn't cut this sheet
       const tool=toolById(pp.toolId);if(!tool)return;
       let mv=tpPathMovesForSheet(f,pp,tool);if(!mv.length)return;
-      if(off[0]||off[1])mv=mv.map(m=>{const c=Object.assign({},m);if(c.x!==undefined)c.x=+(c.x-off[0]).toFixed(3);if(c.y!==undefined)c.y=+(c.y-off[1]).toFixed(3);return c;});
+      mv=tpXform(mv,f.sh.S);
       const last=segs[segs.length-1];
       if(last&&last.num===tool.num)last.moves=last.moves.concat(mv);
       else segs.push({num:Math.round(tool.num||1),rpm:Math.round(tool.rpm||18000),moves:mv});
@@ -3037,15 +3070,20 @@
     let s=`<svg class="sheet-svg" viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
     (f.sh.parts||[]).forEach(p=>{if(p.isBack)return;
       s+=`<rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="#0f172a0a" stroke="#94a3b8" stroke-width="0.2"/>`;});
+    const sheetKey=f.mat+'#'+f.i;
     camPaths.forEach((pp,ci)=>{if(!pp.on||pp.kind!=='profile')return;
+      const sc=pp.params.scope;
+      if(sc&&sc.sheets&&sc.sheets.length&&sc.sheets.indexOf(sheetKey)<0)return;   // preview matches the NC: sheet not in scope = not drawn
       const tool=toolById(pp.toolId);if(!tool)return;
       const col=TP_COLORS[ci%TP_COLORS.length],P=pp.params,r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
       const dF=sgn*r+sgn*(+P.allowance||0),dR=dF+sgn*((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
       tpPathParts(f,pp).forEach((p,seq)=>{
         const cutD=(P.cutDepth==null?f.th:+P.cutDepth);
-        const rect=(d,dash)=>`<rect x="${((p.x-d)/10).toFixed(1)}" y="${((p.y-d)/10).toFixed(1)}" width="${((p.w+2*d)/10).toFixed(1)}" height="${((p.h+2*d)/10).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${dash?0.3:0.55}"${dash?' stroke-dasharray="2 1.6"':''}><title>${esc(pp.name)} · ${esc(tool.name)} · ${cutD}mm deep</title></rect>`;
-        if(Math.abs(dR-dF)>0.01)s+=rect(dR,true);
-        s+=rect(dF,false);
+        const tip=`${esc(pp.name)} · ${esc(tool.name)} — kerf Ø${tool.dia}mm · ${P.side} · ${cutD}mm deep · layer ${esc(P.layer||'OUT')}`;
+        const rect=(d,sw,op,dash)=>`<rect x="${((p.x-d)/10).toFixed(2)}" y="${((p.y-d)/10).toFixed(2)}" width="${((p.w+2*d)/10).toFixed(2)}" height="${((p.h+2*d)/10).toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}" opacity="${op}"${dash?' stroke-dasharray="2 1.6"':''}><title>${tip}</title></rect>`;
+        s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false);                 // REAL kerf: band exactly tool-Ø wide, centred on the cut line
+        if(Math.abs(dR-dF)>0.01)s+=rect(dR,0.3,0.9,true);               // dashed = roughing passes with the 0.4 skin
+        s+=rect(dF,0.28,1,false);                                        // centreline the cutter centre follows
         const a=tpAnchorPt(p,dF,P.startAt);
         s+=`<circle cx="${(a[0]/10).toFixed(1)}" cy="${(a[1]/10).toFixed(1)}" r="0.9" fill="${col}"/>`;
         s+=`<text x="${((p.x+p.w/2)/10).toFixed(1)}" y="${((p.y+p.h/2)/10+2).toFixed(1)}" font-size="5.5" font-family="Arial" font-weight="800" text-anchor="middle" fill="${col}" opacity="0.85">${seq+1}</text>`;
@@ -3087,7 +3125,7 @@
     let h=`<div class="tps-title">Toolpaths</div>
     <div class="tp-setup"><div>
       <div style="font-weight:800;font-size:12px">Material Setup</div>
-      <div class="sub" style="margin-top:3px">Thickness <b>${th}mm</b> · rapid gap <b>${camJob.rapidGap}mm</b><br>Home X:0.0 Y:0.0 Z:${(topZ+ +camJob.rapidGap).toFixed(1)} · Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b></div>
+      <div class="sub" style="margin-top:3px">Thickness <b>${th}mm</b> · rapid gap <b>${camJob.rapidGap}mm</b> · <b>${camJob.orient==='landscape'?'Landscape':'Portrait'}</b><br>Home X:0.0 Y:0.0 Z:${(topZ+ +camJob.rapidGap).toFixed(1)} · Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b></div>
       <button class="btn ghost tiny" style="margin-top:6px" onclick="tpUI.mode='job';tpSide()">Set ...</button>
     </div><div style="text-align:center"><div class="sub" style="font-weight:700;margin-bottom:4px">XY Datum</div>${tpDatumGrid(camJob.datum,'tpSetDatum',false)}<div class="sub" style="margin-top:3px">X: 0.0 Y: 0.0</div></div></div>
     <div class="tps-title">Toolpath Operations</div>
@@ -3134,6 +3172,11 @@
     return `<div class="tps-title">Job Setup</div>
     <div class="tpf-sec"><h4>Sheets in this job</h4><div class="sub">${ths.map(t=>{const n=tpSheets().filter(f=>f.th===t).length;return t+'mm × '+n+' sheet'+(n===1?'':'s');}).join(' · ')||'none yet'}</div>
     <div class="sub" style="margin-top:4px">Width/height/thickness come from each nested sheet + material.</div></div>
+    <div class="tpf-sec"><h4>Sheet orientation on the machine</h4>
+      <label class="tg" style="margin-bottom:5px"><input type="radio" name="tpor" ${camJob.orient!=='landscape'?'checked':''} onchange="camJob.orient='portrait';tpSide()"> Portrait — short side across X <span class="sub">(Pegasus: X=1220, Y=2440)</span></label>
+      <label class="tg"><input type="radio" name="tpor" ${camJob.orient==='landscape'?'checked':''} onchange="camJob.orient='landscape';tpSide()"> Landscape — exactly as drawn in the nesting</label>
+      <div class="sub" style="margin-top:4px">The XY datum corners below refer to the sheet <b>as it lies on the machine</b>.</div>
+    </div>
     <div class="tpf-sec"><h4>Z Zero Position</h4>
       <label class="tg" style="margin-bottom:5px"><input type="radio" name="tpzz" ${camJob.zZero==='top'?'checked':''} onchange="camJob.zZero='top';tpSide()"> Material Surface</label>
       <label class="tg"><input type="radio" name="tpzz" ${camJob.zZero==='bed'?'checked':''} onchange="camJob.zZero='bed';tpSide()"> Machine Bed <span class="sub">(default — matches your machine)</span></label>
@@ -3165,13 +3208,14 @@
     const total=cutD-(+F.params.startDepth||0),pd=Math.max(0.1,+F.params.passDepth||1);
     const nP=(F.params.passes!=null&&F.params.passes>0)?Math.round(F.params.passes):Math.max(1,Math.ceil(total/pd));
     const deep=cutD>th+0.01;
-    const scopeSel=!!(F.params.scope&&F.params.scope.items&&F.params.scope.items.length);
-    const scope=scopeSel?F.params.scope.items.length+' selected part(s)':'all parts';
+    const sc=F.params.scope||{};
+    const partsSel=!!(sc.items&&sc.items.length),sheetsSel=!!(sc.sheets&&sc.sheets.length);
+    const scope=(sheetsSel?sc.sheets.length+' selected sheet(s)':'all sheets')+' · '+(partsSel?sc.items.length+' selected part(s)':'all parts')+' · layer '+(F.params.layer||'OUT');
     return `<div class="tps-title" style="display:flex;align-items:center;gap:8px">${tpOpIcon('profile')} 2D Profile Toolpath</div>
     <div class="tpf-sec"><h4>Cutting Depths</h4>
-      <div style="display:flex;gap:8px">
-        <div class="ed-field" style="flex:1"><label>Start Depth (D)</label><input type="number" step="0.1" value="${F.params.startDepth}" onchange="tpF('startDepth',+this.value||0)"></div>
-        <div class="ed-field" style="flex:1"><label>Cut Depth (C)</label><input type="number" step="0.1" value="${cutD}" onchange="tpF('cutDepth',this.value===''?null:+this.value)">
+      <div class="tpf-row">
+        <div class="ed-field"><label>Start Depth (D)</label><input type="number" step="0.1" value="${F.params.startDepth}" onchange="tpF('startDepth',+this.value||0)"></div>
+        <div class="ed-field"><label>Cut Depth (C)</label><input type="number" step="0.1" value="${cutD}" onchange="tpF('cutDepth',this.value===''?null:+this.value)">
           <span class="sub">${F.params.cutDepth==null?'auto = sheet thickness':'<span class="link" onclick="tpF(\'cutDepth\',null)">reset to auto ('+th+'mm)</span>'}</span></div>
       </div>
       ${deep?'<div class="sub" style="color:#dc2626;font-weight:700;margin-top:4px">⚠ Cut Depth exceeds material thickness ('+th+'mm) — will cut '+(cutD-th).toFixed(1)+'mm into the bed!</div>':''}
@@ -3180,9 +3224,9 @@
       <div style="display:flex;gap:8px;align-items:center"><b style="font-size:12.5px">${tool?('('+tool.num+') '+esc(tool.name)):'<span style="color:#dc2626">no tool selected</span>'}</b>
         <button class="btn ghost tiny" style="margin-left:auto" onclick="openToolPick()">Select ...</button><button class="btn ghost tiny" onclick="openToolDb()">Edit ...</button></div>
       ${tool?`<div class="sub" style="margin-top:4px">Ø${tool.dia}mm · F${tool.feed} · plunge F${tool.plunge} · S${tool.rpm}</div>`:''}
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <div class="ed-field" style="flex:1"><label>Pass depth (mm)</label><input type="number" step="0.5" min="0.1" value="${F.params.passDepth}" onchange="tpF('passDepth',Math.max(0.1,+this.value||1));tpF('passes',null)"></div>
-        <div class="ed-field" style="flex:1"><label>Passes</label><input type="number" min="1" value="${nP}" onchange="tpF('passes',this.value===''?null:Math.max(1,Math.round(+this.value)))"></div>
+      <div class="tpf-row" style="margin-top:8px">
+        <div class="ed-field"><label>Pass depth (mm)</label><input type="number" step="0.5" min="0.1" value="${F.params.passDepth}" onchange="tpF('passDepth',Math.max(0.1,+this.value||1));tpF('passes',null)"></div>
+        <div class="ed-field"><label>Passes</label><input type="number" min="1" value="${nP}" onchange="tpF('passes',this.value===''?null:Math.max(1,Math.round(+this.value)))"></div>
       </div>
     </div>
     <div class="tpf-sec"><h4>Machine Vectors</h4>
@@ -3204,10 +3248,10 @@
     </div>
     <div class="tpf-sec">
       <label class="tg"><input type="checkbox" ${F.params.tabs.on?'checked':''} onchange="tpF('tabs.on',this.checked)"> <b>Add tabs to toolpath</b></label>
-      ${F.params.tabs.on?`<div style="display:flex;gap:8px;margin-top:6px">
-        <div class="ed-field" style="flex:1"><label>Length</label><input type="number" min="2" value="${F.params.tabs.len}" onchange="tpF('tabs.len',Math.max(2,+this.value||10))"></div>
-        <div class="ed-field" style="flex:1"><label>Thickness</label><input type="number" min="0.5" step="0.5" value="${F.params.tabs.th}" onchange="tpF('tabs.th',Math.max(0.5,+this.value||3))"></div>
-        <div class="ed-field" style="flex:1"><label>Per part</label><input type="number" min="1" value="${F.params.tabs.n}" onchange="tpF('tabs.n',Math.max(1,Math.round(+this.value||4)))"></div>
+      ${F.params.tabs.on?`<div class="tpf-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:6px">
+        <div class="ed-field"><label>Length</label><input type="number" min="2" value="${F.params.tabs.len}" onchange="tpF('tabs.len',Math.max(2,+this.value||10))"></div>
+        <div class="ed-field"><label>Thickness</label><input type="number" min="0.5" step="0.5" value="${F.params.tabs.th}" onchange="tpF('tabs.th',Math.max(0.5,+this.value||3))"></div>
+        <div class="ed-field"><label>Per part</label><input type="number" min="1" value="${F.params.tabs.n}" onchange="tpF('tabs.n',Math.max(1,Math.round(+this.value||4)))"></div>
       </div>`:''}
     </div>
     <div class="tpf-sec">
@@ -3226,11 +3270,26 @@
     <div class="tpf-sec"><h4>Start At</h4>
       <div style="display:flex;gap:14px;align-items:center">${tpDatumGrid(F.params.startAt,'tpSetStartAt',true)}<span class="sub">${TP_ANCH[F.params.startAt]||''} of each part</span></div>
     </div>
-    <div class="tpf-sec"><h4>Vectors / parts</h4>
-      <div class="seg3">
-        <button class="segbtn ${scopeSel?'':'on'}" onclick="tpSetScope('all')">All parts</button>
-        <button class="segbtn ${scopeSel?'on':''}" ${F.selSnap&&F.selSnap.length?'':'disabled title="Select parts in Order entry first"'} onclick="tpSetScope('sel')">Selection${F.selSnap&&F.selSnap.length?' ('+F.selSnap.length+')':''}</button>
+    <div class="tpf-sec"><h4>Cut what — sheet · parts · layer</h4>
+      <div class="sub" style="font-weight:700;margin-bottom:3px">Sheets</div>
+      <div class="seg3" style="width:100%;margin-bottom:7px">
+        <button class="segbtn ${sheetsSel?'':'on'}" onclick="tpSetScope('sheets','all')">All sheets</button>
+        <button class="segbtn ${sheetsSel?'on':''}" ${F.sheetSnap&&F.sheetSnap.length?'':'disabled title="Tick sheets in the nesting (or the zoom) first"'} onclick="tpSetScope('sheets','sel')">Selected${F.sheetSnap&&F.sheetSnap.length?' ('+F.sheetSnap.length+')':''}</button>
       </div>
+      <div class="sub" style="font-weight:700;margin-bottom:3px">Parts</div>
+      <div class="seg3" style="width:100%;margin-bottom:7px">
+        <button class="segbtn ${partsSel?'':'on'}" onclick="tpSetScope('items','all')">All parts</button>
+        <button class="segbtn ${partsSel?'on':''}" ${F.selSnap&&F.selSnap.length?'':'disabled title="Select parts (list, nesting or zoom Edit mode) first"'} onclick="tpSetScope('items','sel')">Selected${F.selSnap&&F.selSnap.length?' ('+F.selSnap.length+')':''}</button>
+      </div>
+      <div class="sub" style="font-weight:700;margin-bottom:3px">Layer (DXF names)</div>
+      <select onchange="tpF('layer',this.value)">
+        <option value="OUT" ${(F.params.layer||'OUT')==='OUT'?'selected':''}>OUT — part outline (profile)</option>
+        <option disabled>INSIDE — cavity (Pocket op, next)</option>
+        <option disabled>OFFSET_A–G — shaker lines (Pocket op, next)</option>
+        <option disabled>GROOVE (slot op, next)</option>
+        <option disabled>LED_CHANNEL (slot op, next)</option>
+        <option disabled>hinges (Drilling op, next)</option>
+      </select>
     </div>
     <div class="tpf-sec"><h4>Name</h4>
       <input type="text" value="${esc(F.name)}" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px" onchange="tpForm.name=this.value">
@@ -3248,16 +3307,28 @@
   function tpF(k,v){if(!tpForm)return;const seg=k.split('.');let o=tpForm.params;for(let i=0;i<seg.length-1;i++)o=o[seg[i]];o[seg[seg.length-1]]=v;tpSide();}
   function tpDefaults(tool){return {startDepth:0,cutDepth:null,passDepth:(tool&&+tool.passDepth>0)?+tool.passDepth:6,passes:null,side:'outside',allowance:0,
     lastPass:{on:true,val:0.4},addDepth:{on:false,val:0.2},tabs:{on:false,len:10,th:3,n:4},ramp:{on:true,dist:100},
-    order:'narrow',startAt:'ll',scope:null};}   // pass depth comes from the TOOL (VCarve behaviour) — 1mm default made 18-pass files
+    order:'narrow',startAt:'ll',layer:'OUT',scope:null};}   // pass depth comes from the TOOL (VCarve behaviour) — 1mm default made 18-pass files
   function tpOpenOp(kind){tpUI.mode='profile';tpUI.editId=null;
     const t0=toolDb[0]||null;
-    tpForm={name:'Profile '+tpSeq,toolId:t0?t0.id:null,params:tpDefaults(t0),selSnap:(typeof selSet!=='undefined')?[...selSet]:[]};
+    const snapP=(typeof selSet!=='undefined')?[...selSet]:[],snapS=(typeof selSheets!=='undefined')?[...selSheets]:[];
+    tpForm={name:'Profile '+tpSeq,toolId:t0?t0.id:null,params:tpDefaults(t0),selSnap:snapP,sheetSnap:snapS};
+    // explicit selections become the default scope (visible toggles below) — never silently assume the whole job
+    const sc={};if(snapP.length)sc.items=snapP.slice();if(snapS.length)sc.sheets=snapS.slice();
+    tpForm.params.scope=(sc.items||sc.sheets)?sc:null;
     tpSide();}
-  function tpSetScope(mode){if(!tpForm)return;tpForm.params.scope=(mode==='sel'&&tpForm.selSnap.length)?{items:tpForm.selSnap.slice()}:null;tpSide();}
+  function tpSetScope(kind,mode){if(!tpForm)return;
+    const snap=(kind==='items')?tpForm.selSnap:tpForm.sheetSnap;
+    const sc=Object.assign({},tpForm.params.scope||{});
+    if(mode==='sel'&&snap&&snap.length)sc[kind]=snap.slice();else delete sc[kind];
+    tpForm.params.scope=(sc.items&&sc.items.length)||(sc.sheets&&sc.sheets.length)?sc:null;
+    tpSide();}
   function tpOpenPh(k){tpUI.mode='ph';tpUI.ph=k;tpSide();}
   function tpEdit(id){const pp=camPaths.find(x=>x.id===id);if(!pp)return;
     tpUI.mode='profile';tpUI.editId=id;tpForm=JSON.parse(JSON.stringify({name:pp.name,toolId:pp.toolId,params:pp.params}));
-    tpForm.selSnap=(pp.params.scope&&pp.params.scope.items)?pp.params.scope.items.slice():((typeof selSet!=='undefined')?[...selSet]:[]);tpSide();}
+    const sc=pp.params.scope||{};
+    tpForm.selSnap=(sc.items&&sc.items.length)?sc.items.slice():((typeof selSet!=='undefined')?[...selSet]:[]);
+    tpForm.sheetSnap=(sc.sheets&&sc.sheets.length)?sc.sheets.slice():((typeof selSheets!=='undefined')?[...selSheets]:[]);
+    tpSide();}
   function tpCalc(){
     const F=tpForm;if(!F)return;
     const tool=toolById(F.toolId);
@@ -3351,7 +3422,7 @@
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
-    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> — set the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
   }
   function tpDownloadNC(i){
     const f=tpVisibleSheets()[i];if(!f)return;
