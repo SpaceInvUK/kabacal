@@ -714,7 +714,7 @@
   let orderMaterial='MDF Hidrofugo Plus 18mm';
   let rawDoc=null;           // last imported .fastcnc.json (kept for 100% round-trip)
   const M='MDF Hidrofugo Plus 18mm', F50={t:50,r:50,b:50,l:50};
-  let items=seedTemplates();
+  let items=[];                 // starts EMPTY (user request 2026-07-07) — seedTemplates() kept below only as a reference
   function seedTemplates(){
     return [
       mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Hinge',{on:true},{offsetName:'Shaker'}),
