@@ -2,7 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
-## 2026-07-07 (k) — Foco de volta no Doors: default, painéis internos, verso independente, Price Settings + fórmula do site, PDF
+## 2026-07-07 (l) — Docs modelo-independentes Fase 1: AGENTS.md + STATUS.md (app intocado em comportamento)
+
+Preparação para qualquer modelo de IA (Claude, Codex, GPT…) continuar o projeto sem depender de memória de conversa.
+
+- **`AGENTS.md`** (novo, raiz): ponto de entrada padrão cross-tool — o que é o Kabacal, 10 regras de ferro, tabela de zonas guardadas com evidência exigida, mapa completo por família de função (agora inclui `pn*`/`tpl*`/`tdb*`/Price Settings — o mapa do CLAUDE.md estava desatualizado), protocolo de sessão (pull → `.session.lock` → commits pequenos → push), comandos e ordem de leitura por tarefa.
+- **`STATUS.md`** (novo, raiz): "onde estamos" mutável — 5 riscos abertos ranqueados (air-cut pendente; scope staleness a verificar; config de preços só no localStorage; repo/app públicos; push=live), decision log (Doors default; edging adiado; não fatiar o arquivo até gatilho; proveniência da fórmula do site 2026-07-01), próximos 3 passos. ROADMAP continua sendo o histórico append-only.
+- **`CLAUDE.md` enxugado**: vira ponteiro para AGENTS.md (`@AGENTS.md`) + extras só-Claude (skills, subagents, preview). Regra explícita: repo ganha de memória de conversa.
+- **Comentário-cabeçalho no `index.html`** (14 linhas, sem mudança de comportamento): qualquer modelo que abrir o arquivo vê as regras antes de editar (markers são infra, check obrigatório, zonas guardadas).
+- `.gitignore` + `.session.lock` (lock de escritor por sessão, só local). Migração de memória→repo: pin do passDepth do t1 já estava documentado no `xlsx2tooldb.mjs` (nada a fazer); fatos de máquina seguem no cam-reviewer até a Fase 3 (`docs/CONTRACT-CAM.md`).
+- Fases 2–3 planejadas (goldens extra, `docs/TESTING/ARCHITECTURE/CONTRACT-*/PRICING`, `examples/`, `.githooks/pre-commit`) — listadas no STATUS.md.
+
+### Testado (l)
+`node tools/check.mjs` ok (comentário HTML não afeta contagem de script nem invariantes) · goldens intocados (mudança é só docs + comentário) · `git diff` do index.html = só o bloco de comentário no `<head>` · lock criado e removido no fim da sessão.
 
 Rodada grande do Ednei (12 itens; edging deliberadamente FORA). Pricing é zona guardada → **prova de delta zero**: baskets A (padrão 300/60/360) e B (trad+flush+reeded+F+B+serviços+spray = 881/176/1057, linhas por material idênticas) batem byte a byte com o baseline capturado ANTES dos edits; £75 (MDF 18 10x4) intacto; goldens NC+DXF byte-idênticos (writer refatorado p/ cavidades).
 

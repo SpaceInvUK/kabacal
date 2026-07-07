@@ -16,5 +16,8 @@ Desktop.ini
 # pricing-impact baseline (generated from git HEAD, never committed)
 tools/_baseline.html
 
+# per-session writer lock (see AGENTS.md session protocol)
+.session.lock
+
 # Claude Code local-only settings
 .claude/settings.local.json

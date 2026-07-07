@@ -4,6 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kabacal</title>
+<!--
+  KABACAL — FAST CNC order entry / nesting / DXF / CAM. Single-file app: all CSS + JS inline, on purpose.
+
+  AI AGENTS / DEVELOPERS — before editing ANYTHING here:
+    1. Read AGENTS.md at the repo root (iron rules, guarded zones, session protocol), then STATUS.md.
+    2. Guarded zones — pricing, DXF export, nesting/offcuts, CAM/.NC — require before/after evidence.
+       Production .NC runs on a real machine; wrong output breaks tools or worse.
+    3. Validate EVERY edit: node tools/check.mjs (syntax + production invariants + Panels engine tests).
+    4. The comment markers PN_ENGINE_START/END and TOOLDB_START/END are parsed by tools/check.mjs and
+       tools/embed-tooldb.mjs — never remove, rename, or move them.
+    5. Business rules live in KABACAL_RULES.md. Machine contract: .claude/agents/cam-reviewer.md.
+       History: ROADMAP.md (read the top entries only).
+    6. One writer at a time on this file. Commit + push after each verified change, with a ROADMAP entry.
+-->
 <style>
   :root{
     --bg:#f1f5f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
