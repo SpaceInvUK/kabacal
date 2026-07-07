@@ -103,6 +103,8 @@ if (html) {
           must(near(a.sides.r.mm, 40) && near(b.sides.l.mm, 40), `chain: seam must split the 80 frame 40/40 (got ${a.sides.r.mm}/${b.sides.l.mm})`);
           const ca = a.cells[a.cells.length - 1], cb = b.cells[0];
           must(!!(ca && cb) && near(ca.w, cb.w, 0.6), `chain: seam shakers must match (got ${ca && ca.w} vs ${cb && cb.w})`);
+          must(a.name === 'Wall 1A' && b.name === 'Wall 2A', `panel names must be "Wall <n><letter>" (got ${a.name} / ${b.name})`);
+          must(a.vn === 1 && b.vn === 2, 'visual sequence numbers (vn) must follow layout order');
         }
       }
       { // 2401–3000 stays ONE piece on 10x4; ≤2400 is ONE piece on 8x4

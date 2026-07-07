@@ -4484,13 +4484,17 @@
     });
     pnChoose(stretches,D,walls,deps,basePieces).forEach(p=>pieces.push(p));
     walls.forEach((w,wi)=>pnApplyNotches(w,wi,D,pieces));
-    // stable names per wall, left→right then bottom→top: Wall N - P1 / P2V (+ room prefix)
+    // stable names per wall in VISUAL order (left→right, bottom→top): Wall 3A / 3B / 3C (+ room prefix).
+    // p.vn = visual sequence number across the whole room — DXF part numbers follow it.
     pieces.sort((a,b)=>a.wi-b.wi||a.x0-b.x0||a.y0-b.y0);
-    const perWall={};
+    const perWall={};let vn=0;
+    const pnLetter=n=>{let s='';do{s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26)-1;}while(n>=0);return s;};
     pieces.forEach(p=>{
       perWall[p.wi]=(perWall[p.wi]||0)+1;
       p.pid='w'+p.wi+'p'+perWall[p.wi];
-      p.name='Wall '+(p.wi+1)+' - P'+perWall[p.wi]+(p.dir==='v'?'V':'');
+      p.vn=++vn;
+      p.letter=pnLetter(perWall[p.wi]-1);
+      p.name='Wall '+(p.wi+1)+p.letter;
       if(room.name)p.name=room.name+' '+p.name;
       if(Math.max(p.w,p.h)>PN_CAP['10x4']+0.5)warns.push(p.name+' is longer than a 10x4 sheet allows.');
       if(Math.min(p.w,p.h)>PN_CROSS+0.5)warns.push(p.name+' is wider than the sheet cross limit ('+PN_CROSS+'mm).');
@@ -4624,7 +4628,7 @@
       body+=dxfText('text',40,oy+Hp-28,20,'SHEET '+sheetNo+' PANELS '+(entry.room?entry.room+' ':'')+parseMat(entry.mat).name+' '+th,false);
       const parts=sh.parts.slice().sort((a,b)=>(Math.abs(a.y-b.y)>80?(a.y-b.y):(a.x-b.x)));
       parts.forEach(p=>{
-        pnum++;
+        pnum=(p.pnPiece&&p.pnPiece.vnAbs)?p.pnPiece.vnAbs:pnum+1;   // part number = VISUAL order (room layout), not sheet order
         const bx=p.x,by=Hn-(p.y+p.h);
         layers.add('OUT');
         const o=rRectD(bx,by,p.w,p.h);
@@ -4667,11 +4671,13 @@
     s+='0\nSECTION\n2\nENTITIES\n'+body+'0\nENDSEC\n0\nEOF\n';
     return s;
   }
-  function pnBuildDxfByThickness(){
-    const byTh=new Map();
-    panelRooms.forEach(room=>{
+  function pnBuildDxfByThickness(onlyRoomIdx){
+    const byTh=new Map();let vn=0;
+    panelRooms.forEach((room,ri)=>{
+      if(onlyRoomIdx!=null&&ri!==onlyRoomIdx)return;
       let L;try{L=pnRoom(room);}catch(e){return;}
       if(!L.pieces.length)return;
+      L.pieces.forEach(p=>{p.vnAbs=++vn;});   // pieces are already in visual order (wall by wall, left→right)
       const th=parseMat(room.mat).th;
       const nest=pnNestRoom(room,L.pieces);
       if(!byTh.has(th))byTh.set(th,[]);
@@ -4681,10 +4687,21 @@
     const files={};byTh.forEach((list,th)=>{files['PANELS_'+th]=pnDxfForThickness(th,list);});
     return files;
   }
-  function pnDownloadDxf(){
-    const files=pnBuildDxfByThickness(),ks=Object.keys(files);
+  function pnDownloadFiles(files,prefixTo){
+    const ks=Object.keys(files);
     if(!ks.length){alert('No panels to export — create a room with walls first.');return;}
-    ks.forEach((k,i)=>{setTimeout(()=>{const blob=new Blob([files[k]],{type:'application/dxf'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=k+'.dxf';document.body.appendChild(a);a.click();a.remove();},i*350);});
+    ks.forEach((k,i)=>{setTimeout(()=>{
+      const name=prefixTo?k.replace(/^PANELS_/,prefixTo):k;
+      const blob=new Blob([files[k]],{type:'application/dxf'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name+'.dxf';
+      document.body.appendChild(a);a.click();a.remove();
+    },i*350);});
+  }
+  function pnDownloadDxf(){pnDownloadFiles(pnBuildDxfByThickness(),null);}
+  function pnDownloadRoomDxf(ri){
+    const room=panelRooms[ri];if(!room)return;
+    const nm='PANELS_'+String(room.name||'room').replace(/[^A-Za-z0-9_-]+/g,'_')+'_';
+    pnDownloadFiles(pnBuildDxfByThickness(ri),nm);
   }
   // legacy import: old production panelling quotes (.fastcnc blocks with calcMode 'panel') → panelRooms
   function pnImportLegacy(doc){
@@ -4728,7 +4745,7 @@
   function pnAddRoom(){panelRooms.push(pnNewRoom(panelRooms.length+1));pnSel={room:panelRooms.length-1,wall:0,kind:'room',id:null};pnVb=null;pnRefresh();}
   function pnDelRoom(){if(!panelRooms.length)return;if(!confirm('Delete this room and its walls?'))return;panelRooms.splice(pnSel.room,1);pnSel={room:Math.max(0,pnSel.room-1),wall:0,kind:'room',id:null};pnRefresh();}
   function pnDupRoom(){const r=pnRoomObj();if(!r)return;const c=JSON.parse(JSON.stringify(r));c.id='pr'+(++pnUid)+'_'+Date.now();c.name=(c.name||'Room')+' copy';c.walls.forEach(w=>{w.id='pw'+(++pnUid);});panelRooms.splice(pnSel.room+1,0,c);pnSel={room:pnSel.room+1,wall:0,kind:'room',id:null};pnRefresh();}
-  function pnSelWall(i){pnSel={room:pnSel.room,wall:i,kind:'wall',id:null};pnVb=null;renderPanels();}
+  function pnSelWall(i){pnSel={room:pnSel.room,wall:i,kind:'wall',id:null};pnVb=null;pnMeasA=null;pnMeasFix=null;renderPanels();}
   function pnAddWall(){const r=pnRoomObj();if(!r)return;r.walls.push(pnNewWall());pnSel={room:pnSel.room,wall:r.walls.length-1,kind:'wall',id:null};pnVb=null;pnRefresh();}
   function pnDelWall(){const r=pnRoomObj();if(!r||r.walls.length<=1)return;r.walls.splice(pnSel.wall,1);pnSel={room:pnSel.room,wall:Math.max(0,pnSel.wall-1),kind:'wall',id:null};pnRefresh();}
   function pnSelOpening(id){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id};renderPanels();}
@@ -4776,19 +4793,39 @@
   function pnWallSvg(room,L,wi){
     const wall=room.walls[wi];if(!wall)return '<div class="pn-hint">No wall.</div>';
     const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),D=L.D,f=D.frame;
-    const pad=34,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=hpx+pad+30;
-    const X=x=>pad+x*sc, Y=y=>pad-14+(H-y)*sc;
+    const pad=34,T=50,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=T+hpx+34;
+    const X=x=>pad+x*sc, Y=y=>T+(H-y)*sc;
+    const GEO={vx:[],vy:[],pts:[]};
+    const snapRect=(x0,y0,x1,y1)=>{const A=X(x0),B=X(x1),C=Y(y1),E=Y(y0);GEO.vx.push(A,B);GEO.vy.push(C,E);GEO.pts.push({x:A,y:C},{x:B,y:C},{x:A,y:E},{x:B,y:E});};
     let s='<svg viewBox="0 0 '+vbW+' '+Math.round(vbH)+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0" id="pnSvg">';
     s+='<rect x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
+    snapRect(0,0,W,H);
     s+='<line x1="'+(X(0)-12)+'" y1="'+Y(0)+'" x2="'+(X(W)+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
-    s+='<text x="'+X(W/2)+'" y="'+(Y(H)-8)+'" text-anchor="middle" font-size="11" fill="var(--muted)">'+Math.round(W)+' mm</text>';
+    s+='<text x="'+X(W/2)+'" y="13" text-anchor="middle" font-size="11" fill="var(--muted)">Wall width: '+Math.round(W)+'mm</text>';
     s+='<text x="'+(X(W)+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(X(W)+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
+    // dimension chain: wall start → opening edges → wall end (same pnOpRect geometry the DXF uses)
+    (function(){
+      const ops=(wall.openings||[]).map(o=>pnOpRect(o,wall)).sort((a,b)=>a.x0-b.x0);
+      if(!ops.length)return;
+      const bs=[0];ops.forEach(r=>{bs.push(r.x0,r.x1);});bs.push(W);
+      const u=[];bs.forEach(b=>{if(!u.length||b-u[u.length-1]>1)u.push(b);});
+      const yL=32;
+      s+='<line x1="'+X(0)+'" y1="'+yL+'" x2="'+X(W)+'" y2="'+yL+'" stroke="var(--muted)" stroke-width="0.7" stroke-opacity="0.8"/>';
+      u.forEach(b=>{s+='<line x1="'+X(b)+'" y1="'+(yL-4)+'" x2="'+X(b)+'" y2="'+(yL+4)+'" stroke="var(--muted)" stroke-width="0.7"/>';});
+      for(let i=0;i<u.length-1;i++){
+        const a=u[i],b=u[i+1],seg=(b-a)*sc;
+        if(seg<30)continue;
+        s+='<text x="'+X((a+b)/2)+'" y="'+(yL-7)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(b-a)+'</text>';
+      }
+    })();
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
       const selp=pnSel.kind==='piece'&&pnSel.id===p.pid;
       const px=X(p.x0),pw=(p.x1-p.x0)*sc,py=Y(p.y1),ph=(p.y1-p.y0)*sc;
+      snapRect(p.x0,p.y0,p.x1,p.y1);
       s+='<g class="pnk" data-pid="'+p.pid+'" data-wi="'+wi+'" style="cursor:pointer">';
+      s+='<rect x="'+(px+4)+'" y="'+(py+4)+'" width="'+pw+'" height="'+ph+'" fill="rgba(15,23,42,0.18)"/>';
       s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.10':'0.16')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
       if(p.sides.l.rule==='joint')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.55)"/>';
       if(p.sides.r.rule==='joint')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.55)"/>';
@@ -4796,15 +4833,19 @@
       if(p.sides.r.rule==='corner'||p.sides.r.rule==='column')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(120,113,108,.4)"/>';
       (p.cells||[]).forEach(c=>{
         const cx=X(p.x0+c.x),cy=Y(p.y0+c.y+c.h),cw=c.w*sc,chh=c.h*sc;
+        snapRect(p.x0+c.x,p.y0+c.y,p.x0+c.x+c.w,p.y0+c.y+c.h);
         s+='<rect x="'+cx+'" y="'+cy+'" width="'+cw+'" height="'+chh+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.5" stroke-opacity="0.7"/>';
+        s+='<path d="M'+cx+' '+(cy+chh)+' L'+cx+' '+cy+' L'+(cx+cw)+' '+cy+'" fill="none" stroke="rgba(15,23,42,0.28)" stroke-width="1"/>';
+        s+='<path d="M'+cx+' '+(cy+chh)+' L'+(cx+cw)+' '+(cy+chh)+' L'+(cx+cw)+' '+cy+'" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>';
         lines.forEach((l,li)=>{if(!l.en)return;const o=(+l.mm||0)*sc;const lw=cw-2*o,lh=chh-2*o;
-          if(lw>2&&lh>2)s+='<rect x="'+(cx+o)+'" y="'+(cy+o)+'" width="'+lw+'" height="'+lh+'" fill="none" stroke="'+OFFCOL['ABCDEFG'[li]]+'" stroke-width="0.8"'+(l.rd?' rx="3"':'')+'/>';});
+          if(lw>2&&lh>2){s+='<rect x="'+(cx+o)+'" y="'+(cy+o)+'" width="'+lw+'" height="'+lh+'" fill="none" stroke="'+OFFCOL['ABCDEFG'[li]]+'" stroke-width="0.8"'+(l.rd?' rx="3"':'')+'/>';
+            snapRect(p.x0+c.x+(+l.mm||0),p.y0+c.y+(+l.mm||0),p.x0+c.x+c.w-(+l.mm||0),p.y0+c.y+c.h-(+l.mm||0));}});
       });
       (p.notches||[]).forEach(n=>{
+        snapRect(p.x0+n.x,p.y0+n.y,p.x0+n.x+n.w,p.y0+n.y+n.h);
         s+='<rect x="'+X(p.x0+n.x)+'" y="'+Y(p.y0+n.y+n.h)+'" width="'+(n.w*sc)+'" height="'+(n.h*sc)+'" fill="var(--bg)" stroke="#2563eb" stroke-width="0.6" stroke-dasharray="4 3"/>';
       });
-      const lbl=p.name.replace(/^.*Wall \d+ - /,'');
-      s+='<text x="'+(px+pw/2)+'" y="'+(py+12)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(selp?'#2563eb':'var(--muted)')+'">'+lbl+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
+      s+='<text x="'+(px+pw/2)+'" y="'+(py+12)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(selp?'#2563eb':'var(--muted)')+'">'+(p.letter||'')+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
       if(pw>56&&ph>36)s+='<text x="'+(px+pw/2)+'" y="'+(py+ph/2+4)+'" text-anchor="middle" font-size="9.5" fill="var(--muted)" fill-opacity="0.85">'+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
       s+='</g>';
     });
@@ -4828,17 +4869,33 @@
       const ox=X(r.x0),ow=(r.x1-r.x0)*sc,oy=Y(b0+oh),ohh=oh*sc;
       const col=o.type==='door'?'#db2777':(o.type==='window'?'#0891b2':'#78716c');
       const selo=pnSel.kind==='opening'&&pnSel.id===o.id;
+      snapRect(r.x0,b0,r.x1,b0+oh);
       s+='<g class="pno" data-oid="'+o.id+'" style="cursor:pointer">';
       s+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+ohh+'" fill="var(--bg)" fill-opacity="0.7" stroke="'+(coll[o.id]?'#dc2626':col)+'" stroke-width="'+(selo?2.2:(coll[o.id]?2:1.2))+'"'+(o.type==='object'?' stroke-dasharray="6 4"':'')+'/>';
-      s+='<text x="'+(ox+ow/2)+'" y="'+(oy+ohh/2)+'" text-anchor="middle" font-size="11" font-weight="800" fill="'+col+'">'+esc(o.name||o.type)+(coll[o.id]?' ⚠':'')+'</text>';
-      s+='<text x="'+(ox+ow/2)+'" y="'+(oy+ohh/2+13)+'" text-anchor="middle" font-size="9.5" fill="var(--muted)">'+Math.round(+o.w||0)+'×'+Math.round(oh)+'</text>';
+      // simple type symbol: door = leaf + handle · window = cross panes · object = diagonal
+      if(o.type==='door'&&ow>14&&ohh>20){
+        const ix=ox+ow*0.14,iy=oy+ohh*0.06,iw=ow*0.72,ih=ohh*0.88;
+        s+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="none" stroke="'+col+'" stroke-width="0.7" stroke-opacity="0.55"/>';
+        s+='<circle cx="'+(ix+iw*0.88)+'" cy="'+(iy+ih*0.52)+'" r="2.4" fill="'+col+'" fill-opacity="0.75"/>';
+      } else if(o.type==='window'&&ow>14&&ohh>14){
+        s+='<line x1="'+(ox+ow/2)+'" y1="'+(oy+2)+'" x2="'+(ox+ow/2)+'" y2="'+(oy+ohh-2)+'" stroke="'+col+'" stroke-width="0.7" stroke-opacity="0.55"/>';
+        s+='<line x1="'+(ox+2)+'" y1="'+(oy+ohh/2)+'" x2="'+(ox+ow-2)+'" y2="'+(oy+ohh/2)+'" stroke="'+col+'" stroke-width="0.7" stroke-opacity="0.55"/>';
+      } else if(o.type==='object'&&ow>14&&ohh>14){
+        s+='<line x1="'+(ox+2)+'" y1="'+(oy+ohh-2)+'" x2="'+(ox+ow-2)+'" y2="'+(oy+2)+'" stroke="'+col+'" stroke-width="0.6" stroke-opacity="0.5"/>';
+      }
+      const ty=ohh>40?oy+15:oy+ohh/2+4;
+      s+='<text x="'+(ox+ow/2)+'" y="'+ty+'" text-anchor="middle" font-size="11" font-weight="800" fill="'+col+'">'+esc(o.name||o.type)+(coll[o.id]?' ⚠':'')+'</text>';
+      if(ohh>40&&ow>34)s+='<text x="'+(ox+ow/2)+'" y="'+(ty+12)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(+o.w||0)+' × '+Math.round(oh)+'</text>';
       s+='</g>';
     });
     if(L.D.skirtOn){
+      GEO.vy.push(Y(L.D.skirtH));
       s+='<line x1="'+X(0)+'" y1="'+Y(L.D.skirtH)+'" x2="'+X(W)+'" y2="'+Y(L.D.skirtH)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>';
       s+='<text x="'+(X(0)+4)+'" y="'+(Y(L.D.skirtH)-3)+'" font-size="9.5" fill="var(--muted)">skirting '+Math.round(L.D.skirtH)+'</text>';
     }
+    s+='<g id="pnMeas" style="pointer-events:none"></g>';
     s+='</svg>';
+    pnSnapGeo={vx:GEO.vx,vy:GEO.vy,pts:GEO.pts,sc};
     return s;
   }
   function pnSheetsSvg(room,L){
@@ -4878,15 +4935,20 @@
       s+='<g class="pnw" data-wi="'+wi+'" style="cursor:pointer">';
       s+='<rect x="'+x0+'" y="'+y0+'" width="'+wpx+'" height="'+hpx+'" fill="var(--bg)" stroke="'+(on?'#2563eb':'var(--muted)')+'" stroke-width="'+(on?1.6:0.8)+'"/>';
       L.pieces.filter(p=>p.wi===wi).forEach(p=>{
-        s+='<rect x="'+(x0+p.x0*sc)+'" y="'+(floorY-p.y1*sc)+'" width="'+((p.x1-p.x0)*sc)+'" height="'+((p.y1-p.y0)*sc)+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        const ppx=x0+p.x0*sc,ppw=(p.x1-p.x0)*sc,ppy=floorY-p.y1*sc,pph=(p.y1-p.y0)*sc;
+        s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
         (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3)s+='<rect x="'+(x0+(p.x0+c.x)*sc)+'" y="'+(floorY-(p.y0+c.y+c.h)*sc)+'" width="'+(c.w*sc)+'" height="'+(c.h*sc)+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';});
+        if(ppw>40&&pph>15)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="8.5" fill="var(--muted)" fill-opacity="0.9">'+(p.letter||'')+' · '+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
+        else if(ppw>16&&pph>11)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="8" fill="var(--muted)" fill-opacity="0.85">'+(p.letter||'')+'</text>';
       });
       (w.openings||[]).forEach(o=>{
         const r=pnOpRect(o,w),b0=+o.bottom||0,col=o.type==='door'?'#db2777':(o.type==='window'?'#0891b2':'#78716c');
-        s+='<rect x="'+(x0+r.x0*sc)+'" y="'+(floorY-(b0+(+o.h||0))*sc)+'" width="'+((r.x1-r.x0)*sc)+'" height="'+((+o.h||0)*sc)+'" fill="var(--bg)" stroke="'+col+'" stroke-width="0.8"'+(o.type==='object'?' stroke-dasharray="4 3"':'')+'/>';
+        const oox=x0+r.x0*sc,oow=(r.x1-r.x0)*sc,ooy=floorY-(b0+(+o.h||0))*sc,ooh=(+o.h||0)*sc;
+        s+='<rect x="'+oox+'" y="'+ooy+'" width="'+oow+'" height="'+ooh+'" fill="var(--bg)" stroke="'+col+'" stroke-width="0.8"'+(o.type==='object'?' stroke-dasharray="4 3"':'')+'/>';
+        if(oow>34&&ooh>13)s+='<text x="'+(oox+oow/2)+'" y="'+(ooy+ooh/2+3)+'" text-anchor="middle" font-size="8" fill="'+col+'">'+Math.round(+o.w||0)+' × '+Math.round(+o.h||0)+'</text>';
       });
       s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+18)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(on?'#2563eb':'var(--ink)')+'">Wall '+(wi+1)+(w.dir==='v'?' · V':'')+'</text>';
-      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">'+Math.round(W)+' × '+Math.round(H)+' · click to open</text>';
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">width '+Math.round(W)+' · height '+Math.round(H)+' · click to open</text>';
       s+='</g>';
       x+=wpx+gap*sc;
     });
@@ -4925,6 +4987,55 @@
     if(pnPan&&pnPan.moved)pnSupress=Date.now();
     pnPan=null;
     const c=document.querySelector('#pnRoot .pn-canvas');if(c)c.classList.remove('grabbing');
+  });
+  // ---- discreet measure tool: click two points; snaps to wall/panel/cavity/offset-line/opening
+  // corners and edges (the same geometry the DXF exports, so values match the DXF) ----
+  let pnSnapGeo=null,pnMeasureOn=false,pnMeasA=null,pnMeasFix=null;
+  function pnMeasureToggle(){pnMeasureOn=!pnMeasureOn;pnMeasA=null;if(!pnMeasureOn)pnMeasFix=null;renderPanels();}
+  function pnSnap(svg,ev){
+    const vb=String(svg.getAttribute('viewBox')).split(' ').map(Number),r=svg.getBoundingClientRect();
+    const px=vb[0]+(ev.clientX-r.left)/r.width*vb[2],py=vb[1]+(ev.clientY-r.top)/r.height*vb[3];
+    const R=12*(vb[2]/Math.max(1,r.width));
+    let x=px,y=py,snapped=false;
+    if(pnSnapGeo){
+      let bp=null,bd=R;
+      pnSnapGeo.pts.forEach(p=>{const d=Math.hypot(p.x-px,p.y-py);if(d<bd){bd=d;bp=p;}});
+      if(bp){x=bp.x;y=bp.y;snapped=true;}
+      else{
+        let bx=null,bdx=R;pnSnapGeo.vx.forEach(v=>{const d=Math.abs(v-px);if(d<bdx){bdx=d;bx=v;}});
+        let by=null,bdy=R;pnSnapGeo.vy.forEach(v=>{const d=Math.abs(v-py);if(d<bdy){bdy=d;by=v;}});
+        if(bx!=null){x=bx;snapped=true;}
+        if(by!=null){y=by;snapped=true;}
+      }
+    }
+    return {x,y,snapped};
+  }
+  function pnMeasVal(a,b){
+    const dx=Math.abs(b.x-a.x),dy=Math.abs(b.y-a.y),mm=v=>v/(pnSnapGeo?pnSnapGeo.sc:1);
+    if(dx>=dy*4)return mm(dx);
+    if(dy>=dx*4)return mm(dy);
+    return mm(Math.hypot(dx,dy));
+  }
+  function pnMeasDraw(svg,cur){
+    const g=svg.querySelector('#pnMeas');if(!g)return;
+    let h='';
+    const seg=(a,b,live)=>{
+      const val=Math.round(pnMeasVal(a,b)*10)/10,mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      h+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#e11d48" stroke-width="1"'+(live?' stroke-dasharray="4 3"':'')+'/>';
+      h+='<circle cx="'+a.x+'" cy="'+a.y+'" r="2.6" fill="#e11d48"/><circle cx="'+b.x+'" cy="'+b.y+'" r="2.6" fill="#e11d48"/>';
+      h+='<rect x="'+(mx-25)+'" y="'+(my-10)+'" width="50" height="14" rx="3" fill="var(--card)" stroke="#e11d48" stroke-width="0.6"/>';
+      h+='<text x="'+mx+'" y="'+(my+1)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e11d48">'+val+'</text>';
+    };
+    if(pnMeasFix)seg(pnMeasFix.a,pnMeasFix.b,false);
+    if(pnMeasA&&cur)seg(pnMeasA,cur,true);
+    else if(cur){
+      h+='<line x1="'+(cur.x-6)+'" y1="'+cur.y+'" x2="'+(cur.x+6)+'" y2="'+cur.y+'" stroke="#e11d48" stroke-width="1"/><line x1="'+cur.x+'" y1="'+(cur.y-6)+'" x2="'+cur.x+'" y2="'+(cur.y+6)+'" stroke="#e11d48" stroke-width="1"/>';
+      if(cur.snapped)h+='<circle cx="'+cur.x+'" cy="'+cur.y+'" r="4" fill="none" stroke="#e11d48" stroke-width="1"/>';
+    }
+    g.innerHTML=h;
+  }
+  window.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&pnMeasureOn){pnMeasureOn=false;pnMeasA=null;pnMeasFix=null;if(curView==='panels')renderPanels();}
   });
   function pnInspectorHtml(room,L){
     const wall=room.walls[pnSel.wall];
@@ -5054,6 +5165,7 @@
       +'<button class="pn-mini '+(pnView==='wall'?'on':'')+'" onclick="pnSetView(\'wall\')">'+(pnSel.kind==='room'?'Room':'Wall')+'</button>'
       +'<button class="pn-mini '+(pnView==='sheets'?'on':'')+'" onclick="pnSetView(\'sheets\')">Sheets</button>'
       +(pnView!=='sheets'?'<button class="pn-mini" onclick="pnZoom(0.8)" title="Zoom in">+</button><button class="pn-mini" onclick="pnZoom(1.25)" title="Zoom out">−</button><button class="pn-mini" onclick="pnFit()" title="Fit to view">⤢</button>':'')
+      +(pnView!=='sheets'&&pnSel.kind!=='room'?'<button class="pn-mini '+(pnMeasureOn?'on':'')+'" onclick="pnMeasureToggle()" title="Measure — click two points; snaps to panel/cavity/offset/opening edges (Esc to exit)">📏</button>':'')
       +'</div>';
     let canvas='';
     if(lerr)canvas='<div class="pn-warn">Panel layout error: '+esc(lerr)+'</div>';
@@ -5072,14 +5184,29 @@
         +'<span>Doors <b>'+money(q.bodyTot)+'</b></span><span>·</span>'
         +'<span>Job <b>'+money(q.sub)+'</b> ex VAT</span></div>';
     }catch(e){status='';}
+    const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Export ONLY this room — panels numbered in the visual order shown here">⬇ Export '+esc(room.name||'room')+' DXF</button></div>':'';
     root.innerHTML=roomTabs+wallTabs
-      +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+warnsH+status+'</div>'
+      +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+roomBtn+warnsH+status+'</div>'
       +'<aside class="pn-insp">'+pnInspectorHtml(room,L)+'</aside></div>';
-    root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});
-    root.querySelectorAll('.pno').forEach(g=>{g.onclick=(ev)=>{ev.stopPropagation();if(Date.now()-pnSupress<250)return;pnSelOpening(g.dataset.oid);};});
+    root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});
+    root.querySelectorAll('.pno').forEach(g=>{g.onclick=(ev)=>{ev.stopPropagation();if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelOpening(g.dataset.oid);};});
     root.querySelectorAll('.pnw').forEach(g=>{g.onclick=()=>{if(Date.now()-pnSupress<250)return;pnSelWall(+g.dataset.wi);};});
     const svg=root.querySelector('.pn-canvas svg');
-    if(svg&&pnView!=='sheets')pnZoomWire(svg);
+    if(svg&&pnView!=='sheets'){
+      pnZoomWire(svg);
+      if(pnMeasureOn&&pnSel.kind!=='room'){
+        svg.style.cursor='crosshair';
+        svg.addEventListener('mousemove',e=>{if(!pnPan)pnMeasDraw(svg,pnSnap(svg,e));});
+        svg.addEventListener('click',e=>{
+          if(Date.now()-pnSupress<250)return;
+          const pt=pnSnap(svg,e);
+          if(!pnMeasA){pnMeasA={x:pt.x,y:pt.y};pnMeasFix=null;}
+          else{pnMeasFix={a:pnMeasA,b:{x:pt.x,y:pt.y}};pnMeasA=null;}
+          pnMeasDraw(svg,pt);
+        });
+        if(pnMeasFix)pnMeasDraw(svg,null);
+      }
+    }
   }
 
   // ---- main views: Order entry (parts) <-> Quote (customer + pricing + totals) ----

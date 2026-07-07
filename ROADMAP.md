@@ -2,6 +2,22 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (h) — Panels rodada 3: cotas no viewer, nomes "Wall 3A", DXF por room em ordem visual, ferramenta de medir com snap, 2.5D leve
+
+Melhorias de leitura do layout pedidas pelo Ednei (15 itens).
+
+- **Cotas no viewer (wall view)**: "Wall width: 7200mm" no topo; **corrente de cotas** parede-início → bordas de cada abertura → parede-fim (mesma geometria `pnOpRect` que o DXF usa — valores idênticos); tamanho de cada abertura ("Door" + "900 × 2100") com **símbolos simples** (porta = folha+maçaneta, janela = cruz, objeto = diagonal); tamanho de CADA painel no centro (já existia, mantido); **sem tamanhos de shaker** (pedido). Labels sutis (9–9.5px muted) e somem quando não cabem (segmento <30px, painel pequeno, abertura pequena).
+- **Panorâmica**: cada painel mostra "letra · L × A" quando cabe (só a letra quando apertado); aberturas mostram o tamanho; sub-label da parede virou "width 3600 · height 3200 · click to open".
+- **Nomes**: `Wall 3A / 3B / 3C` por parede em ordem visual (esquerda→direita), com prefixo do room — iguais no viewer (letra no painel), inspector (nome completo), DXF (texto + labels) e quote. Substitui o `P1/P2V` (regra antiga superseded — sufixo V só como info visual). Overrides por painel continuam válidos (chave pid não mudou).
+- **DXF por Room em ordem visual**: botão discreto "⬇ Export <room> DXF" embaixo da panorâmica exporta SÓ o room selecionado (`PANELS_<room>_<esp>.dxf`); **PART_NUMBER segue a ordem visual do layout** (Wall 1A=1, 1B=2…), não a ordem de leitura da chapa — vale também para o export geral. Mesmo builder da parede → mesmas layers/geometria (OUT, OFFSET_A/linhas A–G, INSIDE, SHEET, PART_NUMBER, text) — nada simplificado.
+- **Ferramenta de medir** (📏 na wall view, Esc sai): clique 2 pontos; **snap** em cantos e arestas de parede/painéis/cavidades/linhas de offset/aberturas/skirting (a MESMA geometria exportada → valores batem com o DXF); eixo dominante vira medida reta (largura/altura), diagonal quando claramente diagonal; crosshair + anel de snap + label discreto; arrastar continua sendo pan.
+- **2.5D leve**: sombra deslocada nos painéis + bisel interno nas cavidades (vetor puro, sem filtros). Primeira passada — dá pra evoluir se o Ednei quiser mais profundidade.
+- check.mjs: assertivas novas de nome (`Wall 1A`/`Wall 2A`) e sequência visual `vn`.
+
+### Testado (h)
+
+`node tools/check.mjs` ok ✓ · parede sem abertura = sem corrente, só "Wall width: 2300mm" ✓ · porta / janela / porta+janela: corrente com 6 ticks e vãos 800/2800/1500 idênticos ao `pnOpRect` do DXF ✓ · símbolos porta (maçaneta) e janela (cruz) presentes ✓ · parede 7200 → 3 painéis "Room 1 Wall 4A/4B/4C" ✓ · vn 1..10 sequencial ✓ · inspector mostra "Room 1 Wall 1A" ✓ · **DXF do room: 10 PART_NUMBER = 10 painéis, números exatamente 1..10 na ordem visual, "Wall 4A" no texto, layers OUT/OFFSET_A/INSIDE/SHEET/PART_NUMBER** ✓ · medir: clique 3 unidades fora do canto puxa exato pro canto (Δ0/0) e dois cantos a 7200mm medem 7200 ✓ · labels de painel na panorâmica + tamanhos de abertura ✓ · sombras/bisel 2.5D presentes ✓ · save da rodada 2 recarrega (4 paredes) e quote funciona (£2.735) ✓ · só-Doors £300/£360, panels zerado ✓ · **goldens NC ll/c + DXF byte-idênticos** ✓ · console limpo ✓.
+
 ## 2026-07-07 (g) — Panels rodada 2 (teste do Ednei): DXF dos painéis, panorâmica, zero-scroll, preço do panneling
 
 Seis pedidos urgentes do teste real. **DXF era o bloqueador de produção** — entregue com a disciplina do Doors.
