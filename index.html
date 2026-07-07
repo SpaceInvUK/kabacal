@@ -4503,7 +4503,16 @@
         const cy0=p.sides.b,cy1=p.h-p.sides.t;
         p.cells=[];if(cw>40&&cy1-cy0>=60)for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:cy0,w:cw,h:cy1-cy0});
         p.ovCount=c;
-      } else if(+ov.count>0&&p.dir==='v'){p.ovCount=Math.round(+ov.count);}
+      } else if(+ov.count>0&&p.dir==='v'){
+        // vertical override = shaker COLUMNS per panel; keep the existing row bands
+        const c=Math.max(1,Math.round(+ov.count)),inner=p.w-p.sides.l.mm-p.sides.r.mm,cw=(inner-f*(c-1))/c;
+        if(cw>40){
+          const seen={},bands=[];
+          (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
+          p.cells=[];bands.forEach(b=>{for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:b[0],w:cw,h:b[1]});});
+          p.ovCount=c;
+        }
+      }
     });
     return {pieces,runs,warns,D};
   }
