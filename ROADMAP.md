@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (k) — Foco de volta no Doors: default, painéis internos, verso independente, Price Settings + fórmula do site, PDF
+
+Rodada grande do Ednei (12 itens; edging deliberadamente FORA). Pricing é zona guardada → **prova de delta zero**: baskets A (padrão 300/60/360) e B (trad+flush+reeded+F+B+serviços+spray = 881/176/1057, linhas por material idênticas) batem byte a byte com o baseline capturado ANTES dos edits; £75 (MDF 18 10x4) intacto; goldens NC+DXF byte-idênticos (writer refatorado p/ cavidades).
+
+- **Doors é o default**: `kab_mode` não é mais restaurado no boot — o app SEMPRE abre em Doors (Panels continua a 1 clique). Provado com `kab_mode=panels` gravado.
+- **Painéis internos da porta** (port de `computeCavitiesWithFrames`/`panelSegmentSizes` do app antigo): `panels` (1–8, divide no eixo LONGO), `midFrame` (travessa central, ≠ frame externo; vazio = frame) e `panelSize` (painel de BAIXO no retrato / direita no deitado; vazio = divisão igual — regra exata do app antigo). UI na seção Parts com hint das aberturas. Preview + DXF desenham offsets/estrutura POR CAVIDADE (flat, trad, flush — anéis flushback por abertura —, glass); **inserts/beading: um POR abertura** (trad 2 painéis → 2 inserts; partN conta certo). `.fastcnc` round-trip: `panels`/`panelSize`/`frameMiddle` (campos do app de produção). Pocket/reed minutes por Σ cavidades (idêntico p/ 1 painel).
+- **Backside offsets independentes**: Offset ganhou **BACKSIDE = Off | Same as front | Custom offsets** — no custom o verso tem o PRÓPRIO editor A–G (ex.: frente A0+B10+C20, verso só A50). Back sheet (preview + DXF) usa as linhas do verso; `.fastcnc` aditivo `kabBackMode`/`kabBackLines`; minutos de pocket por FACE ativa (produção idêntica: same=×2 como antes).
+- **Price Settings completo** (`openPricing` reescrito): método de preço **Production/sheet | Website formula** (por porta: fixo £25 + £139/m², mín £20 — defaults do estudo 2026-07-01, TUDO editável, `kab_pricecfg`); livro de materiais inteiro editável (override £/8x4 + CNC, ↺ volta ao livro) + **materiais custom** (nome/espessura/preço — `kab_custom_mats`, entram em toda parte); rates £/h editáveis (design/cutting/assembly/machine, defaults 35/25/50/250 agora de verdade ligados ao calcQuote); dados da empresa do PDF; **Save/Load settings (.json)** num arquivo só (overrides+customs+favs+método+fórmula+empresa+presets de offset). Fórmula troca SÓ o subtotal de portas — serviços/spray/Panels/VAT intactos; quote view e PDF mostram a tabela por porta no modo fórmula.
+- **PDF do cliente**: cabeçalho no estilo do calculador antigo — logo centralizado (URL editável, fallback textual offline) + bloco da empresa + caixas QUOTE NUMBER/DATE/PREPARED FOR/CONTACT. Corpo/conteúdo preservado.
+- **Fase 2 (combinado)**: edging (fora por ordem do user); tamanhos arbitrários por painel (hoje: baixo + iguais); minutos de usinagem do verso por área própria; renomear materiais built-in (regras de produção); DB de preços.
+
+### Testado (k)
+Doors default com kab_mode=panels ✓ · baskets A/B delta ZERO + £75 ✓ · goldens byte-idênticos ✓ · painéis: 600×1000 F50 rail60 → 2×500×420 @y50/530; bottom 300 → 540/300; 3 iguais 266.67 rail50; 1 painel ≡ legado ✓ · trad 2 painéis → 2 inserts 524×444, partN 3 ✓ · preview 2 anéis/porta + DXF OFFSET_A ×2 ✓ · flush 2 painéis → SHADOW×2, POKET×4 ✓ · verso: frente A0/B10/C20 + verso A50 → back sheet só A50 (preview+DXF) ✓ · fórmula: 108/porta (25+139×0.6), edita p/ 120, persiste, volta a production limpo ✓ · custom mat £99 ✓ · settings export shape ✓ · PDF logo+empresa+fallback+meta ✓ · UI Parts/Offset ✓ · console limpo ✓ · screenshot ✓.
+
 ## 2026-07-07 (j) — Ordem real dos templates confirmada: o binário do VCarve guarda INVERTIDO
 
 Ednei confirmou: o rough 17mm roda ANTES do FINISH 18mm — e o `.ToolpathTemplate` lista o FINISH primeiro, logo o binário (mcTemplateTree) guarda a árvore **de trás pra frente**. Regra de conversão registrada em `KABACAL_RULES.md`: **sempre inverter a ordem do binário** ao converter templates futuros.

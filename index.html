@@ -659,11 +659,53 @@
       text:text||'',spray:!!extra.spray,sprayCfg:extra.sprayCfg||null,grain:(extra.grain===true?'long':(extra.grain==='long'||extra.grain==='short'?extra.grain:'off')),
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
+      panels:Math.max(1,Math.round(+extra.panels||1)),midFrame:(extra.midFrame===''||extra.midFrame==null)?'':Math.max(0,+extra.midFrame||0),panelSize:(extra.panelSize===''||extra.panelSize==null)?'':Math.max(1,+extra.panelSize||0),
       offsetName:extra.offsetName||'Custom'};
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
   function cavityOf(it){const f=resolveFrame(it);return {w:Math.max(1,(+it.w||0)-f.l-f.r),h:Math.max(1,(+it.h||0)-f.t-f.b)};}
+  // ---- internal door panels (ported from the production app's computeCavitiesWithFrames/panelSegmentSizes) ----
+  // panels = how many openings inside the door (split along the LONG axis) · midFrame = the centre rail
+  // between them ('' = same as the outer frame) · panelSize = the LAST opening's size (bottom in portrait,
+  // right in landscape; '' = equal split) — the production app's exact rule.
+  function panelsOf(it){return Math.max(1,Math.round(+(it&&it.panels)||1));}
+  function midFrameOf(it){const v=(it&&it.midFrame!==''&&it.midFrame!=null)?+it.midFrame:NaN;return (!isNaN(v)&&v>=0)?v:resolveFrame(it).t;}
+  function panelSegs(open,n,req){open=Math.max(0,+open||0);n=Math.max(1,Math.round(+n||1));
+    if(open<=0)return [];
+    if(n<=1)return [open];
+    const r=Math.max(0,+req||0);
+    if(!(r>0))return Array.from({length:n},()=>open/n);
+    const t=Math.max(1,Math.min(r,open-1*(n-1)));const each=(open-t)/(n-1);
+    return [...Array.from({length:n-1},()=>each),t];}
+  // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
+  function cavsFor(w,h,f,pnl){
+    const iw=w-f.l-f.r,ih=h-f.t-f.b;
+    if(iw<=0||ih<=0)return [];
+    const n=pnl?Math.max(1,pnl.n||1):1;
+    if(n===1)return [{x:f.l,y:f.t,w:iw,h:ih}];
+    const mid=Math.max(0,+pnl.mid||0),out=[];
+    if(h>=w){const hs=panelSegs(ih-mid*(n-1),n,pnl.size);let cy=f.t;hs.forEach(hh=>{if(hh>0)out.push({x:f.l,y:cy,w:iw,h:hh});cy+=hh+mid;});}
+    else{const ws=panelSegs(iw-mid*(n-1),n,pnl.size);let cx=f.l;ws.forEach(ww=>{if(ww>0)out.push({x:cx,y:f.t,w:ww,h:ih});cx+=ww+mid;});}
+    return out;}
+  function pnlOf(it){const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
+  function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
+  function setPanels(i,v){items[i].panels=Math.max(1,Math.min(8,Math.round(+v||1)));render();}
+  function setMidFrame(i,v){items[i].midFrame=(String(v).trim()==='')?'':Math.max(0,Math.round(+v||0));render();}
+  function setPanelSize(i,v){items[i].panelSize=(String(v).trim()==='')?'':Math.max(1,Math.round(+v||0));render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
+  // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
+  // (user rule 2026-07-07: front 3-4 offsets, back often just 1 — never force them to mirror.)
+  function backModeOf(it){if(it&&it.backMode==='custom')return 'custom';if(it&&it.backMode==='same')return 'same';if(it&&it.backMode==='off')return 'off';
+    return (it&&it.pocketSide==='front-back')?'same':'off';}          // legacy items derive from pocketSide
+  function ensureBackLines(it){if(!Array.isArray(it.backLines)||it.backLines.length!==(it.lines||[]).length)it.backLines=mkLines({A:{mm:0}});return it.backLines;}
+  function enabledBackLines(it){const m=backModeOf(it);
+    if(m==='off')return [];
+    if(m==='same')return enabledLines(it);
+    return (it.backLines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
+  function setBackMode(i,v){const it=items[i];it.backMode=(v==='custom'||v==='same')?v:'off';it.pocketSide=(it.backMode==='off')?'front':'front-back';if(it.backMode==='custom')ensureBackLines(it);render();}
+  function setBackLineEn(i,li){const it=items[i];ensureBackLines(it);it.backLines[li].en=!it.backLines[li].en;if(it.backLines[li].en&&li>0&&!it.backLines[0].en)it.backLines[0].en=true;render();}
+  function setBackLineMm(i,li,v){ensureBackLines(items[i]);items[i].backLines[li].mm=Math.max(0,Math.round(+v||0));render();}
+  function setBackLineRd(i,li,v){ensureBackLines(items[i]);items[i].backLines[li].rd=!!v;render();}
   // ---- Glass / Beading (production rules): the word GLASS in the part text turns a framed door into a
   // glass frame — NO insert; instead a BEADING picture-frame piece is generated on a thin block.
   // Defaults: beading size 19.85mm · thickness 3mm (or 6mm) · fit clearance 0.15mm (guide = size+clear) · round corners ON.
@@ -671,12 +713,13 @@
   function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false};}
   function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else it.beading[k]=Math.max(0,+v||0);render();}
   // beading piece = cavity + size per side, nests on "<material name> 3mm/6mm"
-  function beadingSpecFor(it){
-    if(!isGlassItem(it))return null;
-    const b=beadingOf(it),cav=cavityOf(it);
-    if(cav.w<=0||cav.h<=0)return null;
-    return {mat:parseMat(it.mat).name+' '+b.th+'mm',w:Math.round((cav.w+b.size*2)*100)/100,h:Math.round((cav.h+b.size*2)*100)/100,size:b.size,guide:b.size+b.clear,clear:b.clear,round:b.round};
+  // one beading frame PER internal opening (multi-panel glass doors get one per cavity)
+  function beadingSpecsFor(it){
+    if(!isGlassItem(it))return [];
+    const b=beadingOf(it);
+    return doorCavities(it).filter(c=>c.w>0&&c.h>0).map(cav=>({mat:parseMat(it.mat).name+' '+b.th+'mm',w:Math.round((cav.w+b.size*2)*100)/100,h:Math.round((cav.h+b.size*2)*100)/100,size:b.size,guide:b.size+b.clear,clear:b.clear,round:b.round}));
   }
+  function beadingSpecFor(it){const a=beadingSpecsFor(it);return a.length?a[0]:null;}
   // 'G' + Enter in a text field becomes the word Glass (production shortcut)
   function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
 
@@ -702,22 +745,23 @@
   // (=+27.9 total — 0.05mm fit clearance per side vs the 12.3mm rebate), rounded corners r2.5,
   // inner pocket rings at 6.9mm and 11.95mm from the insert edge (5.5mm-deep pocket band in VCarve).
   // Material: MR MDF by default (Ednei's rule; production inherits the door material) — editable per item via insOv.
-  function insertSpecFor(it){
-    if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return null;
-    if(isGlassItem(it))return null;                                   // glass doors don't generate inserts (production rule)
+  // one insert PER internal opening — a 2-panel traditional door gets 2 inserts (cavity + overlay each)
+  function insertSpecsFor(it){
+    if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return [];
+    if(isGlassItem(it))return [];                                     // glass doors don't generate inserts (production rule)
     const m=parseMat(it.mat),mainTh=parseInt(m.th)||0;
     const autoTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
-    if(!autoTh)return null;
+    if(!autoTh)return [];
     const ov=it.insOv||{};
     const insTh=(+ov.th>0)?+ov.th:autoTh;
     const matName=ov.matName||'MR MDF';
     const overlay=it.type==='trad'?24:(it.type==='flush'?27.9:28);
-    const cav=cavityOf(it);
     // Reeded lines on the insert: from the overlay toggle (trad/flush) OR the Reeded door type.
     const r=it.reed||{},reedOn=!!r.on||it.type==='reeded';
     const reed=reedOn?{dir:r.dir||'vertical',spacing:(+r.spacing>=1?+r.spacing:12.5),depth:(r.depth!=null?+r.depth:3)}:null;
-    return {mat:matName+' '+insTh+'mm',w:cav.w+overlay,h:cav.h+overlay,insTh,autoTh,matName,kind:it.type,reed,round:it.type==='flush',color:TYPES[it.type].color};
+    return doorCavities(it).map(cav=>({mat:matName+' '+insTh+'mm',w:Math.round((cav.w+overlay)*100)/100,h:Math.round((cav.h+overlay)*100)/100,insTh,autoTh,matName,kind:it.type,reed,round:it.type==='flush',color:TYPES[it.type].color}));
   }
+  function insertSpecFor(it){const a=insertSpecsFor(it);return a.length?a[0]:null;}
   function setInsOv(i,k,v){const it=items[i];it.insOv=it.insOv||{};if(k==='th')it.insOv.th=parseInt(v)||0;else it.insOv.matName=v;render();}
   function clearInsOv(i){delete items[i].insOv;render();}
   // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4. Side auto: H>=W -> left, else top.
@@ -893,6 +937,11 @@
           insOv:part.kabInsOv||undefined,
           beading:part.kabBeading||undefined,
           groove:part.kabGroove||undefined,
+          panels:Math.max(1,Math.round(num(part.panels,1))),
+          panelSize:(part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)),
+          midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
+          backMode:(part.kabBackMode==='custom')?'custom':undefined,
+          backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
           hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
@@ -958,7 +1007,8 @@
   function partObj(it,bf){
     const f=resolveFrame(it), o={};
     o.width=String(it.w); o.height=String(it.h); o.doorType=(it.type==='flat'?'no':doorFromType(it.type));
-    o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=1; o.panelSize='';
+    o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=panelsOf(it); o.panelSize=(it.panelSize===''||it.panelSize==null)?'':String(it.panelSize);
+    if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
     if(it.beading)o.kabBeading=JSON.parse(JSON.stringify(it.beading));
@@ -968,6 +1018,7 @@
     const hi=it.hinges||{};
     o.hinges=hi.on?'Yes':'No'; o.hingeSide=hi.side||'auto'; o.hingeOffset=num(hi.offset,100); o.hingeSpacing='';
     o.pocketingEnabled=it.lines[0].en?'Yes':''; o.pocketRoundCorners=it.pocketRound||'No'; o.pocketSideMode=it.pocketSide||'front';
+    if(backModeOf(it)==='custom'){o.kabBackMode='custom';o.kabBackLines=JSON.parse(JSON.stringify(it.backLines||[]));}   // additive Kabacal fields — production ignores them
     o.sprayFinish=it.spray?'Yes':'No'; o.spraySides=[];
     o.manualSheetIndex=''; o.manualSheetSize=''; o.manualX=''; o.manualY=''; o.manualRotated='No'; o.manualRotationAngle=0;
     o.text=it.text||''; o.quantity=num(it.q,1);
@@ -1163,29 +1214,31 @@
           if(p.w-2*bs>1&&p.h-2*bs>1){layers.add('INSIDE');var bi=rRectD(bx+bs,by+bs,p.w-2*bs,p.h-2*bs);body+=dxfRect('INSIDE',bi.x,bi.y,bi.w,bi.h);}
           layers.add('BEADING');var bo=rRectD(bx-bc,by-bc,p.w+2*bc,p.h+2*bc);body+=(p.beadRound!==false?dxfRoundRect('BEADING',bo.x,bo.y,bo.w,bo.h,2.5):dxfRect('BEADING',bo.x,bo.y,bo.w,bo.h));
         }
+        // internal openings: cavities in y-up local coords (one for plain doors, N split by the centre rail)
+        const dCavs=cavsFor(p.w,p.h,f,p.pnl).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
         if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
-          const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b,gg=(p.glass.guide||20);
-          if(iw>1&&ih>1){
-            layers.add('INSIDE');var gi=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('INSIDE',gi.x,gi.y,gi.w,gi.h);
-            layers.add('BEADING');var gb=rRectD(bx+f.l-gg,by+f.b-gg,iw+2*gg,ih+2*gg);body+=(p.glass.round?dxfRoundRect('BEADING',gb.x,gb.y,gb.w,gb.h,2.5):dxfRect('BEADING',gb.x,gb.y,gb.w,gb.h));
-          }
+          const gg=(p.glass.guide||20);
+          dCavs.forEach(c=>{if(c.w>1&&c.h>1){
+            layers.add('INSIDE');var gi=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('INSIDE',gi.x,gi.y,gi.w,gi.h);
+            layers.add('BEADING');var gb=rRectD(c.x-gg,c.y-gg,c.w+2*gg,c.h+2*gg);body+=(p.glass.round?dxfRoundRect('BEADING',gb.x,gb.y,gb.w,gb.h,2.5):dxfRect('BEADING',gb.x,gb.y,gb.w,gb.h));
+          }});
         }
         else if(isFlushDoor){
           // FLUSHBACK door — recreated from the reference "Flushback 18mm.dxf" (480×497, frame 65).
-          // Every ring is the CAVITY (frame inset) expanded outward by d, rounded r2.5, so the pattern
-          // follows the frame at any part size. Each layer feeds one toolpath op (see KABACAL_RULES.md):
-          //   OUT cavity(0) = through-cut hole · OFFSET_A 0+7 = 6.5mm face-pocket band ·
-          //   OUT_10MM 0 · IN_22MM 0 (corner-finish / rebate ops on the same cavity line) ·
-          //   POKET_INSERT 7+14 = 12.3mm rebate band · SHADOW 16 = 2mm shadow line.
-          const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;
-          if(iw>1&&ih>1){
-            const ring=(lyr,d)=>{if(d>0&&d>=Math.min(f.l,f.r,f.t,f.b))return;layers.add(lyr);var rr=rRectD(bx+f.l-d,by+f.b-d,iw+2*d,ih+2*d);body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);};
+          // Every ring is a CAVITY expanded outward by d, rounded r2.5, so the pattern follows the frame
+          // (and the centre rail, when the door has internal panels) at any part size. Each layer feeds one
+          // toolpath op (see KABACAL_RULES.md): OUT cavity(0) = through-cut hole · OFFSET_A 0+7 = 6.5mm
+          // face-pocket band · OUT_10MM 0 · IN_22MM 0 · POKET_INSERT 7+14 = 12.3mm rebate band · SHADOW 16.
+          const dmax=Math.min(f.l,f.r,f.t,f.b);
+          dCavs.forEach(c=>{if(c.w>1&&c.h>1){
+            const ring=(lyr,d)=>{if(d>0&&d>=dmax)return;layers.add(lyr);var rr=rRectD(c.x-d,c.y-d,c.w+2*d,c.h+2*d);body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);};
             ring('OUT',0);ring('OFFSET_A',0);ring('OFFSET_A',7);ring('OUT_10MM',0);ring('IN_22MM',0);ring('POKET_INSERT',7);ring('POKET_INSERT',14);ring('SHADOW',16);
-          }
+          }});
         }
-        else if(framed&&!(p.lines&&p.lines.length)){const iw=p.w-f.l-f.r,ih=p.h-f.t-f.b;if(iw>1&&ih>1){layers.add('OFFSET_A');var fr=rRectD(bx+f.l,by+f.b,iw,ih);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}}
-        (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;layers.add(lyr);const iw=p.w-f.l-f.r-2*l.mm,ih=p.h-f.t-f.b-2*l.mm;if(iw>1&&ih>1){var rr=rRectD(bx+f.l+l.mm,by+f.b+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});
+        else if(framed&&!(p.lines&&p.lines.length)){dCavs.forEach(c=>{if(c.w>1&&c.h>1){layers.add('OFFSET_A');var fr=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}});}
+        (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
+          dCavs.forEach(c=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw>1&&ih>1){layers.add(lyr);var rr=rRectD(c.x+l.mm,c.y+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});});
         if(p.isInsert){
           layers.add('IN');
           // flushback insert: the two pocket-band rings measured in the reference insert DXF (6.9 / 11.95,
@@ -1391,7 +1444,7 @@
     applyInstanceSplits();   // instance edit: split partially-selected copies into their own item before anything else
     propagateMulti();   // multi-edit: copy inspector changes on the primary to every selected part (w/h/q never)
     // manual nesting is invalidated when the part set / sheet sizing changes (footprint signature)
-    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
+    const sig=items.map(it=>[it.type,it.w,it.h,it.q,it.mat,it.size,it.pocketSide,grainOf(it),panelsOf(it)+':'+(it.midFrame??'')+':'+(it.panelSize??''),(isGlassItem(it)?'G'+beadingOf(it).size+'x'+beadingOf(it).th:'')].join(',')).join('|')+'#'+nestSize+'#'+JSON.stringify(sheetSizeOv)+'#'+nestMargin+'#'+nestGap+'#'+customSheet.w+'x'+customSheet.h;
     if(sig!==lastSig){if(!keepPlacements&&!zoomEdit)placements=null;selKey=null;if(!keepSheetOv)sheetPriceOv={};keepSheetOv=false;lastSig=sig;}   // Zoom Edit mode freezes the layout — no auto re-nest while editing
     keepPlacements=false;
     if(selItem>=items.length)selItem=items.length-1;
@@ -1508,7 +1561,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','backMode','backLines','scribe'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1589,11 +1642,17 @@
     return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
       ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Saved presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span></button>`).join('')}</div><div class="sub" style="margin-top:3px">Save presets from the <b>Offset</b> section (＋ Save).</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
   }
-  function secParts(i,it){const M=selSet.size>1;return `
+  function secParts(i,it){const M=selSet.size>1;const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);return `
     <div style="display:flex;gap:8px">
       <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
       <div class="ed-field" style="flex:1"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
     </div>
+    <div style="display:flex;gap:8px;margin-top:2px">
+      <div class="ed-field" style="flex:1"><label>Panels (openings)</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
+      ${n>1?`<div class="ed-field" style="flex:1"><label>Middle rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${resolveFrame(it).t}" onchange="setMidFrame(${i},this.value)" title="The frame BETWEEN panels — can differ from the outer frame (empty = same as frame)"></div>
+      <div class="ed-field" style="flex:1"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Size of the ${portrait?'bottom':'right-hand'} opening — the others share the rest (empty = equal split)"></div>`:''}
+    </div>
+    ${n>1?`<div class="sub" style="margin-top:2px">${(function(){const cs=doorCavities(it);return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+(portrait?'tall':'wide')+' · rail '+midFrameOf(it)+'mm';})()}</div>`:''}
     <div class="ed-field"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row.</div>`;}
   function secGrain(i,it){const g=grainOf(it);return `
@@ -1723,14 +1782,10 @@
       <span class="link" onclick="saveAsProfile(${i})">＋ Save</span>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
-      <label class="sub" style="font-weight:700">Pocket side
-        <select onchange="setPocketSide(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px;margin-left:4px">
-          <option value="front" ${it.pocketSide==='front'?'selected':''}>Front only</option>
-          <option value="front-back" ${it.pocketSide==='front-back'?'selected':''}>Front + Back</option>
-        </select></label>
       <label class="tg" style="font-size:12px"><input type="checkbox" ${it.pocketRound==='Yes'?'checked':''} onchange="roundAll(${i},this.checked)"> round all</label>
     </div>
     <div style="margin-top:10px">
+      <div class="sub" style="font-weight:800;margin-bottom:3px">FRONT offsets</div>
       <div class="sub" style="font-weight:700;display:grid;grid-template-columns:16px 78px 56px 1fr 64px;gap:6px"><span></span><span>Line</span><span>On</span><span>From frame</span><span>Round</span></div>
       ${OFFLINES.map((ol,li)=>{const l=it.lines[li];return `<div class="pline" style="grid-template-columns:16px 78px 56px 1fr 64px">
         <span class="oswatch" style="background:${OFFCOL[ol.L]}"></span>
@@ -1739,6 +1794,24 @@
         <span class="sub"><input type="number" class="miniin" value="${l.mm}" ${l.en?'':'disabled'} onchange="setLineMm(${i},${li},this.value)"> mm</span>
         <label class="tg" style="font-weight:500"><input type="checkbox" ${l.rd?'checked':''} ${l.en?'':'disabled'} onchange="setLineRd(${i},${li},this.checked)"> rd</label>
       </div>`;}).join('')}
+    </div>
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:8px">
+      <div class="sub" style="font-weight:800;margin-bottom:5px">BACKSIDE</div>
+      <div class="seg3">
+        <button class="segbtn ${backModeOf(it)==='off'?'on':''}" onclick="setBackMode(${i},'off')">Off</button>
+        <button class="segbtn ${backModeOf(it)==='same'?'on':''}" onclick="setBackMode(${i},'same')">Same as front</button>
+        <button class="segbtn ${backModeOf(it)==='custom'?'on':''}" title="The back gets its OWN offsets — e.g. front 3 lines, back just 1" onclick="setBackMode(${i},'custom')">Custom offsets</button>
+      </div>
+      ${backModeOf(it)==='custom'?`<div style="margin-top:8px">
+        ${OFFLINES.map((ol,li)=>{const l=(it.backLines&&it.backLines[li])||{en:false,mm:0,rd:false};return `<div class="pline" style="grid-template-columns:16px 78px 56px 1fr 64px">
+          <span class="oswatch" style="background:${OFFCOL[ol.L]}"></span>
+          <span class="lt">${ol.name}</span>
+          <span class="switch ${l.en?'':'off'}" onclick="setBackLineEn(${i},${li})">${l.en?'ON':'OFF'}</span>
+          <span class="sub"><input type="number" class="miniin" value="${l.mm}" ${l.en?'':'disabled'} onchange="setBackLineMm(${i},${li},this.value)"> mm</span>
+          <label class="tg" style="font-weight:500"><input type="checkbox" ${l.rd?'checked':''} ${l.en?'':'disabled'} onchange="setBackLineRd(${i},${li},this.checked)"> rd</label>
+        </div>`;}).join('')}
+        <div class="sub" style="margin-top:3px">The back face is machined with THESE lines (${enabledBackLines(it).length||'none'} on) — the front keeps its own set. Shown on the BACK sheet preview + DXF.</div>
+      </div>`:(backModeOf(it)==='same'?'<div class="sub" style="margin-top:5px">Back face machined with the same offsets as the front (Front + Back).</div>':'<div class="sub" style="margin-top:5px">Front face only.</div>')}
     </div>
     ${(it.type==='trad'||it.type==='flush'||it.type==='reeded')?reedBlock(i,it):''}
     <div style="margin-top:10px;text-align:right">${ap(i,'offset')}</div>`;}
@@ -1990,14 +2063,15 @@
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
-      const ins=insertSpecFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
-      const bead=beadingSpecFor(it);const el=bead?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
+      const insA=insertSpecsFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
+      const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
+      const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,lines:el,hinge:h,glass:bead?{guide:bead.guide,round:bead.round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
-        if(ins) add(ins.mat,{key:i+'_'+n+'_i',w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
-        if(bead) add(bead.mat,{key:i+'_'+n+'_b',w:bead.w,h:bead.h,origW:bead.w,origH:bead.h,color:'#b45309',name:'Beading',isBeading:true,beadSize:bead.size,beadClear:bead.clear,beadRound:bead.round,text:(it.text||'Glass')+' Beading '+bead.size+'mm',grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}});
+        insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
+        beadA.forEach((bead,ci)=>add(bead.mat,{key:i+'_'+n+'_b'+(ci||''),w:bead.w,h:bead.h,origW:bead.w,origH:bead.h,color:'#b45309',name:'Beading',isBeading:true,beadSize:bead.size,beadClear:bead.clear,beadRound:bead.round,text:(it.text||'Glass')+' Beading '+bead.size+'mm',grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
       }
     });
     return groups;
@@ -2296,13 +2370,16 @@
     return (sh.parts||[]).filter(p=>{
       if(p.isInsert)return false;
       const it=items[parseInt(p.key,10)];
-      return !!(it&&it.pocketSide==='front-back'&&enabledLines(it).length>0);
+      return !!(it&&it.pocketSide==='front-back'&&enabledBackLines(it).length>0);
     });
   }
-  // mirrored copy for the back view: X flipped on the sheet, frame left/right swapped, hinges hidden
+  // mirrored copy for the back view: X flipped on the sheet, frame left/right swapped, hinges hidden.
+  // With CUSTOM backside offsets the back face carries its OWN line set instead of the front's.
   function mirrorBackPart(p,S){
     const f=p.frame||{t:0,r:0,b:0,l:0};
-    return Object.assign({},p,{x:S.w-(p.x+p.w),frame:{t:f.t,b:f.b,l:f.r,r:f.l},hinge:{on:false},isBack:true,text:'BACK'});
+    const it=items[parseInt(p.key,10)];
+    const bl=(it&&backModeOf(it)==='custom')?enabledBackLines(it):p.lines;
+    return Object.assign({},p,{x:S.w-(p.x+p.w),frame:{t:f.t,b:f.b,l:f.r,r:f.l},lines:bl,hinge:{on:false},isBack:true,text:'BACK'});
   }
   function nestToolbar(){
     return `<button class="btn ${editMode?'primary':'ghost'} tiny" onclick="toggleEdit()">${ic('pencil',13)} Edit mode: ${editMode?'ON':'OFF'}</button>`
@@ -2436,30 +2513,31 @@
     }
     const f=p.frame||{t:0,r:0,b:0,l:0};
     const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
+    // internal openings: ONE cavity for a plain door, N cavities split by the centre rail (p.pnl)
+    const cavs=cavsFor(p.w,p.h,f,p.pnl).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
     if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
       const g10=(p.glass.guide||20)/10;
-      const ix=X+f.l/10,iy=Y+f.t/10,iw=W-(f.l+f.r)/10,ih=H-(f.t+f.b)/10;
-      if(iw>0.6&&ih>0.6){
-        s+=`<rect x="${ix.toFixed(1)}" y="${iy.toFixed(1)}" width="${iw.toFixed(1)}" height="${ih.toFixed(1)}" fill="#dbeafe66" stroke="#2563eb" stroke-width="0.35"/>`;
-        const bx=ix-g10,by=iy-g10,bw=iw+2*g10,bh=ih+2*g10;
-        if(bx>X&&by>Y)s+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${p.glass.round?0.25:0}" fill="none" stroke="#b45309" stroke-width="0.3"/>`;
-      }
+      cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6){
+        s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="#dbeafe66" stroke="#2563eb" stroke-width="0.35"/>`;
+        const bx=c.x-g10,by=c.y-g10;
+        if(bx>X&&by>Y)s+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${(c.w+2*g10).toFixed(1)}" height="${(c.h+2*g10).toFixed(1)}" rx="${p.glass.round?0.25:0}" fill="none" stroke="#b45309" stroke-width="0.3"/>`;
+      }});
     }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
-    else if(framed&&!(p.lines&&p.lines.length)){const lx=X+f.l/10,ty=Y+f.t/10,rw=W-(f.l+f.r)/10,rh=H-(f.t+f.b)/10;if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;}
+    else if(framed&&!(p.lines&&p.lines.length)){cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6)s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;});}
     (p.lines||[]).forEach(l=>{
-      const lx=X+(f.l+l.mm)/10, ty=Y+(f.t+l.mm)/10, rw=W-(f.l+f.r+2*l.mm)/10, rh=H-(f.t+f.b+2*l.mm)/10;
-      if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;
+      cavs.forEach(c=>{const lx=c.x+l.mm/10, ty=c.y+l.mm/10, rw=c.w-2*l.mm/10, rh=c.h-2*l.mm/10;
+        if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     });
     // flushback door: the extra reference rings (cavity+7 / +14 amber = pocket bands, +16 dashed = shadow line)
     if(p.type==='flush'&&!p.isInsert&&!p.isBeading&&!p.glass){
-      const lx=X+f.l/10,ty=Y+f.t/10,rw=W-(f.l+f.r)/10,rh=H-(f.t+f.b)/10;
-      if(rw>0.6&&rh>0.6){
-        const fring=(d,col,sw,dash)=>{if(d>=Math.min(f.l,f.r,f.t,f.b))return '';const dd=d/10;
-          return `<rect x="${(lx-dd).toFixed(2)}" y="${(ty-dd).toFixed(2)}" width="${(rw+2*dd).toFixed(2)}" height="${(rh+2*dd).toFixed(2)}" rx="0.25" fill="none" stroke="${col}" stroke-width="${sw}"${dash?' stroke-dasharray="1 0.8"':''}/>`;};
+      const dmax=Math.min(f.l,f.r,f.t,f.b);
+      cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6){
+        const fring=(d,col,sw,dash)=>{if(d>=dmax)return '';const dd=d/10;
+          return `<rect x="${(c.x-dd).toFixed(2)}" y="${(c.y-dd).toFixed(2)}" width="${(c.w+2*dd).toFixed(2)}" height="${(c.h+2*dd).toFixed(2)}" rx="0.25" fill="none" stroke="${col}" stroke-width="${sw}"${dash?' stroke-dasharray="1 0.8"':''}/>`;};
         s+=fring(7,'#d97706',0.2)+fring(14,'#d97706',0.2)+fring(16,'#64748b',0.18,true);
-      }
+      }});
     }
     if(p.hinge&&p.hinge.on){
       const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
@@ -4183,6 +4261,28 @@
   let hideValues=false;
   let project={client:'',phone:'',email:'',number:'',date:new Date().toISOString().slice(0,10),notes:''};
   let priceOverrides={};try{priceOverrides=JSON.parse(localStorage.getItem('kab_prices')||'{}');}catch(e){priceOverrides={};}
+  // ---- pricing method + website-style door formula ----
+  // Defaults come from the 2026-07-01 pricing study (doors ≈ £25 fixed + £139/m², £20 minimum) — all editable
+  // in Price Settings. 'production' = the sheet/CNC engine below, byte-identical to before; 'formula' swaps ONLY
+  // the doors subtotal (services, spray, Panels and VAT are unchanged).
+  let pricingCfg=(function(){const d={method:'production',formula:{fixed:25,rate:139,min:20}};
+    try{const s=JSON.parse(localStorage.getItem('kab_pricecfg'));if(s&&typeof s==='object')return {method:(s.method==='formula')?'formula':'production',formula:Object.assign(d.formula,s.formula||{})};}catch(e){}return d;})();
+  function savePricingCfg(){try{localStorage.setItem('kab_pricecfg',JSON.stringify(pricingCfg));}catch(e){}}
+  function setPriceMethod(v){pricingCfg.method=(v==='formula')?'formula':'production';savePricingCfg();render();}
+  function setFormulaCfg(k,v){pricingCfg.formula[k]=Math.max(0,+v||0);savePricingCfg();render();}
+  function formulaDoorPrice(it){const F=pricingCfg.formula;const area=Math.max(0,+it.w||0)*Math.max(0,+it.h||0)/1e6;
+    return Math.max(Math.round(+F.min||0),Math.round((+F.fixed||0)+(+F.rate||0)*area));}
+  // ---- custom materials: user-added names+prices, merged into the price book at boot (kab_custom_mats) ----
+  let customMats=(function(){try{const s=JSON.parse(localStorage.getItem('kab_custom_mats'));if(s&&typeof s==='object')return s;}catch(e){}return {};})();
+  Object.keys(customMats).forEach(n=>{PRICES[n]=Object.assign({},PRICES[n]||{},customMats[n]);});
+  function saveCustomMats(){try{localStorage.setItem('kab_custom_mats',JSON.stringify(customMats));}catch(e){}}
+  // ---- hourly / per-hour service rates (editable; defaults = production rules 35/25/50/250) ----
+  function rateOf(k,d){const v=priceOverrides['rate:'+k];return (v!=null&&+v>0)?+v:d;}
+  function setRate(k,v){if(String(v).trim()===''||+v<=0)delete priceOverrides['rate:'+k];else priceOverrides['rate:'+k]=+v;try{localStorage.setItem('kab_prices',JSON.stringify(priceOverrides));}catch(e){}render();}
+  // ---- company details for the customer PDF header (editable in Price Settings) ----
+  let companyCfg=(function(){const d={name:'FAST CNC Services',addr:'Upminster Lodge Farm, Tomkyns Ln, Upminster RM14 1TP',phone:'01708 349993',insta:'@fastcncservices',logo:'https://fastcnc.co.uk/wp-content/uploads/2024/11/logo-header.png'};
+    try{const s=JSON.parse(localStorage.getItem('kab_company'));if(s&&typeof s==='object')return Object.assign(d,s);}catch(e){}return d;})();
+  function setCompany(k,v){companyCfg[k]=String(v);try{localStorage.setItem('kab_company',JSON.stringify(companyCfg));}catch(e){}}
   function money(n){return hideValues?'•••':('£'+Math.round(+n||0));}
   function toggleHideValues(){hideValues=!hideValues;render();}
   function applyTheme(dark){document.body.classList.toggle('dark',!!dark);var c=document.getElementById('dmCheck');if(c)c.textContent=dark?'☑':'☐';try{localStorage.setItem('kab_theme',dark?'dark':'light');}catch(e){}if(typeof render==='function')render();}
@@ -4218,15 +4318,89 @@
   function setPriceOv(kind,key,v){priceOverrides[kind+':'+key]=Math.max(0,Math.round(+v||0));try{localStorage.setItem('kab_prices',JSON.stringify(priceOverrides));}catch(e){}render();}
   function svc(k){return priceOverrides['svc:'+k]||0;}
   function resetPricing(){priceOverrides={};try{localStorage.setItem('kab_prices','{}');}catch(e){}closeModal();render();}
+  // ---- Price Settings — everything price-related in one place, all persisted (localStorage + export .json) ----
   function openPricing(){
-    const mats=[];items.forEach(it=>{const ins=insertSpecFor(it);[it.mat,ins&&ins.mat].forEach(m=>{if(m&&mats.indexOf(m)<0)mats.push(m);});});
-    const rows=mats.length?mats.map(m=>'<tr><td>'+esc(m)+'</td><td><input type="number" value="'+priceForSheet(m,'8x4')+'" onchange="setPriceOv(\'mat\',\''+esc(m)+'\',this.value)"></td><td><input type="number" value="'+cncForThickness(m)+'" onchange="setPriceOv(\'cnc\',\''+esc(m)+'\',this.value)"></td></tr>').join(''):'<tr><td colspan="3" class="sub">Add parts to the order first.</td></tr>';
-    const html='<div class="sub">Edit the prices used in the quote. Saved on this computer for now (localStorage); a proper database comes later.</div>'
-      +'<table class="ptbl"><tr><th>Material</th><th>£/sheet (8x4)</th><th>£ CNC/sheet</th></tr>'+rows+'</table>'
-      +'<div style="margin-top:12px;font-weight:700">Services (£ / hour)</div>'
-      +'<div class="psvc"><label>Design <input type="number" value="'+svc('design')+'" onchange="setPriceOv(\'svc\',\'design\',this.value)" style="width:70px"></label><label>Cutting list <input type="number" value="'+svc('cutting')+'" onchange="setPriceOv(\'svc\',\'cutting\',this.value)" style="width:70px"></label><label>Assembly <input type="number" value="'+svc('assembly')+'" onchange="setPriceOv(\'svc\',\'assembly\',this.value)" style="width:70px"></label></div>'
-      +'<div style="margin-top:12px;text-align:right"><button class="btn ghost tiny" onclick="resetPricing()">Reset to defaults</button></div>';
-    openModal('Pricing settings',html);
+    const F=pricingCfg.formula;
+    const methodSec='<div class="qsec" style="margin-top:0">Pricing method</div>'
+      +'<label class="tg" style="margin-bottom:4px"><input type="radio" name="pmeth" '+(pricingCfg.method!=='formula'?'checked':'')+' onchange="setPriceMethod(\'production\')"> <b>Production / sheet-based</b> <span class="sub">— materials + CNC + machining % (the workshop engine, default)</span></label>'
+      +'<label class="tg"><input type="radio" name="pmeth" '+(pricingCfg.method==='formula'?'checked':'')+' onchange="setPriceMethod(\'formula\')"> <b>Website formula (per door)</b> <span class="sub">— fixed £ + £/m² per door, like fastcnc.co.uk</span></label>'
+      +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin:7px 0 2px;padding:8px;border:1px solid var(--line);border-radius:8px'+(pricingCfg.method==='formula'?'':';opacity:.55')+'">'
+      +'<label class="sub">Fixed £/door <input type="number" min="0" step="0.5" value="'+F.fixed+'" onchange="setFormulaCfg(\'fixed\',this.value)" style="width:64px"></label>'
+      +'<label class="sub">£ per m² <input type="number" min="0" step="0.5" value="'+F.rate+'" onchange="setFormulaCfg(\'rate\',this.value)" style="width:64px"></label>'
+      +'<label class="sub">Minimum £/door <input type="number" min="0" step="0.5" value="'+F.min+'" onchange="setFormulaCfg(\'min\',this.value)" style="width:64px"></label>'
+      +'<span class="sub" style="flex-basis:100%">Defaults £25 + £139/m² (min £20) come from the 2026-07-01 pricing study — adjust to the current website numbers if they moved.</span></div>';
+    const allMats=[];Object.keys(PRICES).forEach(n=>Object.keys(PRICES[n]).forEach(th=>allMats.push({n,th,custom:!!(customMats[n]&&customMats[n][th])})));
+    const matRows=allMats.map(m=>{const comb=m.n+' '+m.th;
+      return '<tr><td>'+esc(m.n)+' <span class="sub">'+m.th+'</span>'+(m.custom?' <span style="color:#7c3aed;font-weight:800;font-size:9px">CUSTOM</span>':'')+'</td>'
+      +'<td><input type="number" value="'+priceForSheet(comb,'8x4')+'" onchange="setPriceOv(\'mat\',\''+esc(comb)+'\',this.value)" style="width:64px"></td>'
+      +'<td><input type="number" value="'+cncForThickness(comb)+'" onchange="setPriceOv(\'cnc\',\''+esc(comb)+'\',this.value)" style="width:64px"></td>'
+      +'<td>'+(priceOverrides['mat:'+comb]!=null||priceOverrides['cnc:'+comb]!=null?'<span class="link" title="Back to the book price" onclick="clearMatOv(\''+esc(comb)+'\')">↺</span>':'')
+      +(m.custom?' <span class="link" style="color:#dc2626" onclick="delCustomMat(\''+esc(m.n)+'\',\''+m.th+'\')">✕</span>':'')+'</td></tr>';}).join('');
+    const matSec='<div class="qsec">Materials &amp; prices <span class="sub" style="text-transform:none;letter-spacing:0">— names + £/sheet (8x4 base; other sizes scale by area, MDF 18 on 10x4 stays the £75 rule) + CNC £/sheet</span></div>'
+      +'<div style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:8px"><table class="ptbl" style="margin:0"><thead><tr><th>Material</th><th>£/8x4</th><th>£ CNC</th><th></th></tr></thead><tbody>'+matRows+'</tbody></table></div>'
+      +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">'
+      +'<b class="sub">Add material:</b><input id="cmName" type="text" placeholder="Name (e.g. Oak Veneer MDF)" style="flex:1;min-width:150px;padding:5px;border:1px solid var(--line);border-radius:7px">'
+      +'<input id="cmTh" type="text" placeholder="18mm" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px">'
+      +'<input id="cmPrice" type="number" placeholder="£/8x4" style="width:66px;padding:5px;border:1px solid var(--line);border-radius:7px">'
+      +'<input id="cmCnc" type="number" placeholder="£ CNC" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:7px">'
+      +'<button class="btn ghost tiny" onclick="addCustomMat()">＋ Add</button></div>'
+      +'<div class="sub" style="margin-top:3px">Built-in names stay fixed (they carry production rules); your custom materials can be added/removed freely and appear everywhere (order entry, nesting, quote).</div>';
+    const rateSec='<div class="qsec">Service &amp; machine rates (£/hour)</div>'
+      +'<div style="display:flex;gap:14px;flex-wrap:wrap">'
+      +'<label class="sub">Design <input type="number" min="1" value="'+rateOf('design',35)+'" onchange="setRate(\'design\',this.value)" style="width:60px"></label>'
+      +'<label class="sub">Cutting list <input type="number" min="1" value="'+rateOf('cutting',25)+'" onchange="setRate(\'cutting\',this.value)" style="width:60px"></label>'
+      +'<label class="sub">Assembly <input type="number" min="1" value="'+rateOf('assembly',50)+'" onchange="setRate(\'assembly\',this.value)" style="width:60px"></label>'
+      +'<label class="sub">Machine time <input type="number" min="1" value="'+rateOf('machine',250)+'" onchange="setRate(\'machine\',this.value)" style="width:64px"></label>'
+      +'<span class="sub" style="flex-basis:100%">Defaults 35 / 25 / 50 / 250 (production rules). Machining uplifts stay: pocket/reeded by area (1m²=12min), drilling +5%, extra +10% each; VAT fixed at 20%.</span></div>';
+    const compSec='<div class="qsec">Company details (customer PDF header)</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+      +'<label class="sub">Company<input type="text" value="'+esc(companyCfg.name)+'" onchange="setCompany(\'name\',this.value)" style="width:100%;padding:5px;border:1px solid var(--line);border-radius:7px"></label>'
+      +'<label class="sub">Phone<input type="text" value="'+esc(companyCfg.phone)+'" onchange="setCompany(\'phone\',this.value)" style="width:100%;padding:5px;border:1px solid var(--line);border-radius:7px"></label>'
+      +'<label class="sub" style="grid-column:1/3">Address<input type="text" value="'+esc(companyCfg.addr)+'" onchange="setCompany(\'addr\',this.value)" style="width:100%;padding:5px;border:1px solid var(--line);border-radius:7px"></label>'
+      +'<label class="sub">Instagram / tag<input type="text" value="'+esc(companyCfg.insta)+'" onchange="setCompany(\'insta\',this.value)" style="width:100%;padding:5px;border:1px solid var(--line);border-radius:7px"></label>'
+      +'<label class="sub">Logo URL (printed header)<input type="text" value="'+esc(companyCfg.logo)+'" onchange="setCompany(\'logo\',this.value)" style="width:100%;padding:5px;border:1px solid var(--line);border-radius:7px"></label>'
+      +'</div>';
+    const saveSec='<div class="qsec">Save / load ALL settings</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      +'<button class="btn ghost tiny" onclick="exportSettings()">'+ic('export',12)+' Save settings (.json)</button>'
+      +'<button class="btn ghost tiny" onclick="document.getElementById(\'setImp\').click()">'+ic('open',12)+' Load settings (.json)</button>'
+      +'<input id="setImp" type="file" accept=".json" style="display:none" onchange="importSettings(event)">'
+      +'<span style="flex:1"></span><button class="btn ghost tiny" onclick="resetPricing()">Reset pricing to defaults</button></div>'
+      +'<div class="sub" style="margin-top:3px">One file carries: pricing method + formula, material prices &amp; custom materials, service rates, favourites, offset presets and the company header. Everything is also auto-saved on this computer.</div>';
+    openModal('Price Settings',methodSec+matSec+rateSec+compSec+saveSec,true);
+  }
+  function clearMatOv(comb){delete priceOverrides['mat:'+comb];delete priceOverrides['cnc:'+comb];try{localStorage.setItem('kab_prices',JSON.stringify(priceOverrides));}catch(e){}closeModal();openPricing();render();}
+  function addCustomMat(){
+    const n=(document.getElementById('cmName').value||'').trim(),thRaw=(document.getElementById('cmTh').value||'').trim();
+    const pr=Math.round(+document.getElementById('cmPrice').value||0),cnc=Math.round(+document.getElementById('cmCnc').value||0);
+    if(!n||!thRaw||pr<=0){alert('Fill material name, thickness and £/sheet first.');return;}
+    const th=/mm$/i.test(thRaw)?thRaw.toLowerCase():thRaw+'mm';
+    customMats[n]=customMats[n]||{};customMats[n][th]=pr;
+    PRICES[n]=Object.assign({},PRICES[n]||{},customMats[n]);saveCustomMats();
+    if(cnc>0){priceOverrides['cnc:'+n+' '+th]=cnc;try{localStorage.setItem('kab_prices',JSON.stringify(priceOverrides));}catch(e){}}
+    closeModal();openPricing();render();
+  }
+  function delCustomMat(n,th){
+    if(!confirm('Remove custom material "'+n+' '+th+'"?'))return;
+    if(customMats[n]){delete customMats[n][th];if(!Object.keys(customMats[n]).length){delete customMats[n];if(PRICES[n]&&!Object.keys(PRICES[n]).filter(t=>t!==th).length)delete PRICES[n];else if(PRICES[n])delete PRICES[n][th];}else{PRICES[n]=Object.assign({},PRICES[n]);delete PRICES[n][th];Object.assign(PRICES[n],customMats[n]);}}
+    saveCustomMats();closeModal();openPricing();render();
+  }
+  function exportSettings(){
+    dlBlob(JSON.stringify({ver:1,exportedAt:new Date().toISOString().slice(0,10),
+      priceOverrides,customMats,favMats,pricingCfg,companyCfg,profiles},null,1),'application/json','KABACAL_SETTINGS.json');
+  }
+  function importSettings(ev){
+    const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{try{const s=JSON.parse(r.result);
+      if(s.priceOverrides&&typeof s.priceOverrides==='object'){priceOverrides=s.priceOverrides;localStorage.setItem('kab_prices',JSON.stringify(priceOverrides));}
+      if(s.customMats&&typeof s.customMats==='object'){customMats=s.customMats;Object.keys(customMats).forEach(n=>{PRICES[n]=Object.assign({},PRICES[n]||{},customMats[n]);});saveCustomMats();}
+      if(Array.isArray(s.favMats)&&s.favMats.length){favMats=s.favMats;saveFavs();}
+      if(s.pricingCfg&&typeof s.pricingCfg==='object'){pricingCfg={method:(s.pricingCfg.method==='formula')?'formula':'production',formula:Object.assign({fixed:25,rate:139,min:20},s.pricingCfg.formula||{})};savePricingCfg();}
+      if(s.companyCfg&&typeof s.companyCfg==='object'){companyCfg=Object.assign(companyCfg,s.companyCfg);localStorage.setItem('kab_company',JSON.stringify(companyCfg));}
+      if(s.profiles&&typeof s.profiles==='object')profiles=Object.assign({},profiles,s.profiles);
+      closeModal();openPricing();render();alert('Settings loaded.');
+    }catch(e){alert('Invalid settings file: '+e.message);}};
+    r.readAsText(f);ev.target.value='';
   }
 
   // ---- Calculate / customer quote view ----
@@ -4281,9 +4455,11 @@
     // machining minutes per material, derived from the items (pocket->door mat, reeded->insert mat, drilling->door mat)
     const mm={};const bump=m=>mm[m]||(mm[m]={pocketMin:0,reedMin:0,fb:false,drilled:false});
     items.forEach(it=>{const q=+it.q||0;if(!q)return;
-      if(itemPockets(it)){const c=cavityOf(it),fb=it.pocketSide==='front-back',o=bump(it.mat);o.pocketMin+=(c.w/1000)*(c.h/1000)*12*q*(fb?2:1);if(fb)o.fb=true;}
+      {const fl=enabledLines(it).length>0,bl=it.pocketSide==='front-back'&&enabledBackLines(it).length>0;
+       if(fl||bl){const area=doorCavities(it).reduce((s,c)=>s+(c.w/1000)*(c.h/1000),0),o=bump(it.mat);
+         o.pocketMin+=area*12*q*((fl?1:0)+(bl?1:0));if(fl&&bl)o.fb=true;}}
       if(hingeInfo(it).on)bump(it.mat).drilled=true;
-      if(itemReeded(it)){const s=insertSpecFor(it);if(s)bump(s.mat).reedMin+=(s.w/1000)*(s.h/1000)*12*q;}
+      if(itemReeded(it)){insertSpecsFor(it).forEach(s=>bump(s.mat).reedMin+=(s.w/1000)*(s.h/1000)*12*q);}
     });
     const rows=[];let sheetN=0,partN=0,matTot=0,cncTot=0,bodyTot=0;
     groups.forEach((sheets,mat)=>{
@@ -4293,19 +4469,27 @@
       const pocketPct=minToPct(o.pocketMin,o.fb),reedPct=minToPct(o.reedMin,false),drillPct=o.drilled?0.05:0;
       const man=machOf(mat),extraPct=(man.extra||0)*0.10;
       const cncEff=Math.round(base*(1+pocketPct+reedPct+drillPct+extraPct));
-      const timeCost=Math.round((man.timeMin||0)*250/60*sheets.length);
+      const timeCost=Math.round((man.timeMin||0)*rateOf('machine',250)/60*sheets.length);
       const groupSub=mc+cncEff+timeCost,disc=Math.round(groupSub*(man.discPct||0)/100),groupTot=groupSub-disc;
       sheetN+=sheets.length;partN+=pc;matTot+=mc;cncTot+=cncEff+timeCost;bodyTot+=groupTot;
       rows.push({mat,sheets:sheets.length,parts:pc,mc,base,cncEff,pocketPct,reedPct,drillPct,extraPct,
         extra:man.extra||0,timeMin:man.timeMin||0,timeCost,discPct:man.discPct||0,disc,total:groupTot,
         uniform:Object.keys(szs).length===1,sz:sheets[0]?sheets[0].sz:'8x4'});
     });
-    const svc={design:Math.round(services.design*35),cutting:Math.round(services.cutting*25),assembly:Math.round(services.assembly*50)};
+    const svc={design:Math.round(services.design*rateOf('design',35)),cutting:Math.round(services.cutting*rateOf('cutting',25)),assembly:Math.round(services.assembly*rateOf('assembly',50))};
     const svcTot=svc.design+svc.cutting+svc.assembly;
     const spray=sprayCalc();                                   // spray never enters the group discount base (production rule)
     const panels=(typeof pnQuote==='function')?pnQuote():{rows:[],total:0,sheetN:0,partN:0};   // Panels mode section — 0 with no panel rooms, so doors-only totals are unchanged
-    const sub=bodyTot+svcTot+spray.total+panels.total,vat=Math.round(sub*0.2),total=sub+(vatOn?vat:0);
-    return {rows,sheetN,partN,matTot,cncTot,bodyTot,svc,svcTot,spray,panels,sub,vat,total};
+    // website-style formula pricing: swaps ONLY the doors subtotal when selected; production path untouched
+    let formula=null;
+    if(pricingCfg.method==='formula'){
+      const frows=items.filter(it=>(+it.q||0)>0&&+it.w>0&&+it.h>0).map(it=>{const each=formulaDoorPrice(it);
+        return {label:TYPES[it.type].name+' '+it.w+'×'+it.h+(it.text?' — '+it.text:''),q:+it.q||0,each,tot:each*(+it.q||0)};});
+      formula={rows:frows,total:frows.reduce((s,r)=>s+r.tot,0),cfg:Object.assign({},pricingCfg.formula)};
+    }
+    const doorsTot=formula?formula.total:bodyTot;
+    const sub=doorsTot+svcTot+spray.total+panels.total,vat=Math.round(sub*0.2),total=sub+(vatOn?vat:0);
+    return {rows,sheetN,partN,matTot,cncTot,bodyTot,doorsTot,method:pricingCfg.method,formula,svc,svcTot,spray,panels,sub,vat,total};
   }
   function svcInput(label,key,cost,rate){return '<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><b>'+label+'</b><input type="number" min="0" step="0.5" value="'+(services[key]||0)+'" onchange="setSvc(\''+key+'\',this.value)" style="width:52px;padding:3px;border:1px solid var(--line);border-radius:6px">h <span style="color:#64748b">'+rate+'</span>'+(cost?' = <b>'+money(cost)+'</b>':'')+'</label>';}
   // ======================================================================
@@ -4862,7 +5046,8 @@
   }
   function pnInit(){
     try{const s=JSON.parse(localStorage.getItem('kab_panels')||'null');if(s&&Array.isArray(s.rooms))panelRooms=s.rooms;}catch(e){}
-    try{if(localStorage.getItem('kab_mode')==='panels')setMode('panels');}catch(e){}
+    // Doors is ALWAYS the default mode on open (user rule 2026-07-07). Panels stays one click away
+    // in the header; the last-used mode is deliberately NOT restored.
   }
   // ---- Panels UI: room/wall tabs · wall canvas (SVG) · right inspector · sheets subview ----
   function pnRefresh(){pnSave();captureHistory();renderPanels();}
@@ -5368,16 +5553,22 @@
         +'<td style="text-align:center"><input type="number" min="0" max="100" value="'+r.discPct+'" title="Quantity discount %" onchange="setMach(\''+esc(r.mat)+'\',\'discPct\',this.value)" style="width:42px;padding:3px;border:1px solid var(--line);border-radius:6px"></td>'
         +'<td style="text-align:right;font-weight:700">'+money(r.total)+'</td></tr>';
     }).join('')||'<tr><td colspan="8" class="sub">No parts.</td></tr>';
+    const methodBar='<div class="sub" style="margin-bottom:6px">Pricing method: <b>'+(d.method==='formula'?'Website formula (£'+d.formula.cfg.fixed+' + £'+d.formula.cfg.rate+'/m², min £'+d.formula.cfg.min+')':'Production / sheet-based')+'</b> · <span class="link" onclick="openPricing()">Price Settings…</span></div>';
+    const formulaTable=d.formula?('<table class="ptbl"><thead><tr><th>Door / part</th><th style="text-align:center">Qty</th><th style="text-align:right">Each</th><th style="text-align:right">Total</th></tr></thead><tbody>'
+      +(d.formula.rows.map(r=>'<tr><td>'+esc(r.label)+'</td><td style="text-align:center">'+r.q+'</td><td style="text-align:right">'+money(r.each)+'</td><td style="text-align:right;font-weight:700">'+money(r.tot)+'</td></tr>').join('')||'<tr><td colspan="4" class="sub">No parts.</td></tr>')
+      +'</tbody></table><div class="sub" style="margin:2px 0 6px">Each door = fixed £'+d.formula.cfg.fixed+' + £'+d.formula.cfg.rate+' × area(m²), minimum £'+d.formula.cfg.min+' — materials/sheets are not charged separately in this method.</div>'):'';
     const html='<div class="quote">'
       +'<div class="q-head"><div><div class="q-brand">Quote</div><div class="sub">'+esc(project.client||'(client)')+'</div></div><div style="text-align:right"><div><b>'+esc(project.number||'(no order #)')+'</b></div><div class="sub">'+esc(fmtDate(project.date)||'')+'</div></div></div>'
-      +'<table class="ptbl"><thead><tr><th>Material / sheet type</th><th style="text-align:center">Sheets</th><th style="text-align:right">Material</th><th style="text-align:right">CNC/svc</th><th style="text-align:center" title="Extra processes (+10% each)">Extra</th><th style="text-align:center" title="min/sheet @ £250/hr">Time</th><th style="text-align:center" title="Quantity discount %">Disc%</th><th style="text-align:right">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>'
+      +methodBar
+      +(d.formula?formulaTable
+        :'<table class="ptbl"><thead><tr><th>Material / sheet type</th><th style="text-align:center">Sheets</th><th style="text-align:right">Material</th><th style="text-align:right">CNC/svc</th><th style="text-align:center" title="Extra processes (+10% each)">Extra</th><th style="text-align:center" title="min/sheet @ £'+rateOf('machine',250)+'/hr">Time</th><th style="text-align:center" title="Quantity discount %">Disc%</th><th style="text-align:right">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>')
       +(d.panels&&d.panels.rows.length?('<div class="sub" style="margin:10px 0 3px;font-weight:700">Wall panelling (Panels mode)</div>'
         +'<table class="ptbl"><thead><tr><th>Room</th><th>Material</th><th style="text-align:center">Sheets</th><th style="text-align:center">Panels</th><th style="text-align:right">Material</th><th style="text-align:right">CNC/svc</th><th style="text-align:right">Total</th></tr></thead><tbody>'
         +d.panels.rows.map(r=>{const szs=Object.keys(r.szs).map(k=>r.szs[k]+'× '+k).join(' · ');
           return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'<div class="sub" style="font-size:11px;color:#64748b">'+szs+' · material '+(r.matOv!=null?money(r.matOv)+'/sheet':'book')+' · CNC '+money(r.cncRate)+'/sheet</div></td><td style="text-align:center">'+r.sheets+'</td><td style="text-align:center">'+r.parts+'</td><td style="text-align:right">'+money(r.mc)+'</td><td style="text-align:right">'+money(r.cncEff)+'</td><td style="text-align:right;font-weight:700">'+money(r.total)+'</td></tr>';}).join('')
         +'</tbody></table>'):'')
       +'<div class="sub" style="margin:8px 0 3px;font-weight:700">Additional services</div>'
-      +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">'+svcInput('Design','design',d.svc.design,'£35/hr')+svcInput('Cutting list','cutting',d.svc.cutting,'£25/hr')+svcInput('Assembly','assembly',d.svc.assembly,'£50/hr')+'</div>'
+      +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">'+svcInput('Design','design',d.svc.design,'£'+rateOf('design',35)+'/hr')+svcInput('Cutting list','cutting',d.svc.cutting,'£'+rateOf('cutting',25)+'/hr')+svcInput('Assembly','assembly',d.svc.assembly,'£'+rateOf('assembly',50)+'/hr')+'</div>'
       +(d.spray.parts?('<div class="sub" style="margin:8px 0 3px;font-weight:700">Spray finish</div>'
         +'<div class="sub">'+d.spray.parts+' part'+(d.spray.parts===1?'':'s')+' · '+d.spray.area.toFixed(2)+' m² — '+d.spray.rows.map(r=>esc(r.profile)+' '+r.area.toFixed(2)+'m² × £'+r.rate).join(' · ')+' = <b>'+money(d.spray.base)+'</b></div>'
         +'<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:4px 0 6px">'
@@ -5386,7 +5577,7 @@
         +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(sprayAddons.gg?'checked':'')+' onchange="setSprayAddon(\'gg\',this.checked)"> Gun gloss £50/m²</label>'
         +'<label class="sub" style="display:inline-flex;gap:5px;align-items:center">Extra prep £<input type="number" min="0" value="'+(sprayAddons.prep||0)+'" onchange="setSprayAddon(\'prep\',this.value)" style="width:46px;padding:3px;border:1px solid var(--line);border-radius:6px">/m²</label>'
         +'<b>Spray total '+money(d.spray.total)+'</b></div>'):'')
-      +'<div class="q-tot"><div class="sumrow"><span class="k">Parts</span><span>'+d.partN+'</span></div><div class="sumrow"><span class="k">Sheets</span><span>'+d.sheetN+'</span></div><div class="sumrow"><span class="k">Material</span><span>'+money(d.matTot)+'</span></div><div class="sumrow"><span class="k">CNC + machining</span><span>'+money(d.cncTot)+'</span></div>'+(d.panels&&d.panels.total?'<div class="sumrow"><span class="k">Doors subtotal</span><span>'+money(d.bodyTot)+'</span></div><div class="sumrow"><span class="k">Panels subtotal ('+d.panels.partN+' panels · '+d.panels.sheetN+' sheets)</span><span>'+money(d.panels.total)+'</span></div>':'')+(d.svcTot?'<div class="sumrow"><span class="k">Additional services</span><span>'+money(d.svcTot)+'</span></div>':'')+(d.spray.parts?'<div class="sumrow"><span class="k">Spray finish</span><span>'+money(d.spray.total)+'</span></div>':'')+'<div class="sumrow"><span class="k">Subtotal ex VAT</span><span>'+money(d.sub)+'</span></div>'+(vatOn?'<div class="sumrow"><span class="k">VAT 20%</span><span>'+money(d.vat)+'</span></div>':'')+'<div class="sumrow"><span class="k">Total'+(vatOn?' inc VAT':'')+'</span><span class="total">'+money(d.total)+'</span></div></div>'
+      +'<div class="q-tot"><div class="sumrow"><span class="k">Parts</span><span>'+d.partN+'</span></div><div class="sumrow"><span class="k">Sheets</span><span>'+d.sheetN+'</span></div>'+(d.formula?'<div class="sumrow"><span class="k">Doors (website formula)</span><span>'+money(d.doorsTot)+'</span></div>':'<div class="sumrow"><span class="k">Material</span><span>'+money(d.matTot)+'</span></div><div class="sumrow"><span class="k">CNC + machining</span><span>'+money(d.cncTot)+'</span></div>')+(d.panels&&d.panels.total?'<div class="sumrow"><span class="k">Doors subtotal</span><span>'+money(d.bodyTot)+'</span></div><div class="sumrow"><span class="k">Panels subtotal ('+d.panels.partN+' panels · '+d.panels.sheetN+' sheets)</span><span>'+money(d.panels.total)+'</span></div>':'')+(d.svcTot?'<div class="sumrow"><span class="k">Additional services</span><span>'+money(d.svcTot)+'</span></div>':'')+(d.spray.parts?'<div class="sumrow"><span class="k">Spray finish</span><span>'+money(d.spray.total)+'</span></div>':'')+'<div class="sumrow"><span class="k">Subtotal ex VAT</span><span>'+money(d.sub)+'</span></div>'+(vatOn?'<div class="sumrow"><span class="k">VAT 20%</span><span>'+money(d.vat)+'</span></div>':'')+'<div class="sumrow"><span class="k">Total'+(vatOn?' inc VAT':'')+'</span><span class="total">'+money(d.total)+'</span></div></div>'
       +'<label class="sub" style="display:inline-flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" '+(vatOn?'checked':'')+' onchange="toggleVat(this.checked)"> Include VAT 20%</label>'
       +'<div class="sub" style="margin-top:4px">Machining = % of CNC base · Pocket/Reeded by area (1m²=12min), Drilling +5%, Extra +10% each.'+(hideValues?' Values hidden on screen — they still print.':'')+'</div>'
       +'</div>'
@@ -5398,7 +5589,7 @@
   function openPrintWindow(title,inner){
     const w=window.open('','_blank');
     if(!w){alert('Popup blocked — allow popups for this page to print / save the PDF.');return;}
-    const css='*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-page{break-inside:avoid}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}.dwg-page{break-after:page}.dwg-page:last-child{break-after:auto}}';
+    const css='*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-page{break-inside:avoid}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}.dwg-page{break-after:page}.dwg-page:last-child{break-after:auto}}.qph{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px;margin-bottom:10px}.qlogo{max-width:220px;max-height:52px;object-fit:contain;filter:brightness(0);display:block;margin:0 auto 6px}.qcompany{font-size:10.5px;color:#475569;line-height:1.5}.qcname{font-weight:900;font-size:13px;color:#0f172a;letter-spacing:.4px}';
     w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+css+'</style></head><body><div class="doc"><div class="toolbar"><button class="primary" onclick="window.print()">Print / Save as PDF</button><button onclick="window.close()">Close</button></div>'+inner+'</div></body></html>');
     w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
   }
@@ -5441,10 +5632,21 @@
     if(d.spray&&d.spray.parts)svcRows.push(['Spray finish — '+d.spray.parts+' part'+(d.spray.parts===1?'':'s')+' · '+d.spray.area.toFixed(2)+' m²',d.spray.total]);
     const svcTable=svcRows.length?'<div class="qsec">Additional services</div><table class="msum"><tbody>'+svcRows.map(s=>'<tr><td>'+s[0]+'</td><td class="r">'+moneyP(s[1])+'</td></tr>').join('')+'</tbody></table>':'';
     const totals='<div class="qtot"><div><div class="qtot-lab">TOTAL EX VAT</div>'+(vatOn?'<div class="qtot-sub">Plus VAT '+moneyP(d.vat)+'</div>':'')+'</div><div style="text-align:right"><div class="qtot-big">'+moneyP(d.sub)+'</div>'+(vatOn?'<div class="qtot-inc">Inc VAT '+moneyP(d.total)+'</div>':'')+'</div></div>';
-    return '<div class="qhead"><div class="qbrand">FAST CNC</div><div class="qtag">CUTTING SERVICE · Upminster Lodge Farm, Tomkyns Ln, Upminster RM14 1TP · 01708 349993 · @fastcncservices</div></div>'
-      +'<div class="qinfo"><div class="qbox"><span class="qbox-l">QUOTE</span><span class="qbox-v">'+esc(project.number||'—')+'</span></div><div class="qbox"><span class="qbox-l">DATE</span><span class="qbox-v">'+esc(fmtDate(project.date))+'</span></div><div class="qbox"><span class="qbox-l">CLIENT</span><span class="qbox-v">'+esc(project.client||'—')+'</span></div><div class="qbox"><span class="qbox-l">CONTACT</span><span class="qbox-v">'+esc([project.phone,project.email].filter(Boolean).join(' · ')||'--')+'</span></div></div>'
-      +'<div class="qsec">Materials &amp; service · '+d.partN+' parts · '+d.sheetN+' sheets</div>'
-      +'<table class="msum"><thead><tr><th>Material / sheet type</th><th class="c">Sheets</th><th class="c">Parts</th><th class="r">Material</th><th class="r">CNC / service</th><th class="r">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>'
+    // customer-facing header — matches the old calculator's print header (centered logo + company block),
+    // fed by the editable company details in Price Settings; falls back to the text brand if the logo is offline
+    const hdr='<div class="qph">'
+      +'<img class="qlogo" src="'+esc(companyCfg.logo||'')+'" alt="" onerror="this.style.display=\'none\';var f=document.getElementById(\'qbrandFb\');if(f)f.style.display=\'block\'">'
+      +'<div id="qbrandFb" class="qbrand" style="display:none">'+esc((companyCfg.name||'FAST CNC').toUpperCase())+'</div>'
+      +'<div class="qcompany"><div class="qcname">'+esc(companyCfg.name||'')+'</div><div>'+esc(companyCfg.addr||'')+'</div><div>'+[companyCfg.phone?('Phone: '+esc(companyCfg.phone)):'',companyCfg.insta?('Instagram: '+esc(companyCfg.insta)):''].filter(Boolean).join(' &nbsp;|&nbsp; ')+'</div></div></div>';
+    const fmlTable=d.formula?('<div class="qsec">Doors · '+d.partN+' parts</div>'
+      +'<table class="msum"><thead><tr><th>Door / part</th><th class="c">Qty</th><th class="r">Each</th><th class="r">Total</th></tr></thead><tbody>'
+      +(d.formula.rows.map(r=>'<tr><td>'+esc(r.label)+'</td><td class="c">'+r.q+'</td><td class="r">'+moneyP(r.each)+'</td><td class="r">'+moneyP(r.tot)+'</td></tr>').join('')||'<tr><td colspan="4">No parts.</td></tr>')
+      +'</tbody></table>'):'';
+    return hdr
+      +'<div class="qinfo"><div class="qbox"><span class="qbox-l">QUOTE NUMBER</span><span class="qbox-v">'+esc(project.number||'—')+'</span></div><div class="qbox"><span class="qbox-l">DATE</span><span class="qbox-v">'+esc(fmtDate(project.date))+'</span></div><div class="qbox"><span class="qbox-l">PREPARED FOR</span><span class="qbox-v">'+esc(project.client||'Valued Client')+'</span></div><div class="qbox"><span class="qbox-l">CONTACT</span><span class="qbox-v">'+esc([project.phone,project.email].filter(Boolean).join(' · ')||'--')+'</span></div></div>'
+      +(d.formula?fmlTable
+        :('<div class="qsec">Materials &amp; service · '+d.partN+' parts · '+d.sheetN+' sheets</div>'
+      +'<table class="msum"><thead><tr><th>Material / sheet type</th><th class="c">Sheets</th><th class="c">Parts</th><th class="r">Material</th><th class="r">CNC / service</th><th class="r">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>'))
       +pnQuoteHtmlSection(d)
       +svcTable
       +totals
