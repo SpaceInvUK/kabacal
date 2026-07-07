@@ -141,6 +141,92 @@ if (html) {
       }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
+
+  // 7. Doors-side engines — marker-extracted like PN_ENGINE and EXECUTED (Phase 4).
+  const grab = name => (html.match(new RegExp('/\\*' + name + '_START\\*/([\\s\\S]*?)/\\*' + name + '_END\\*/')) || [])[1];
+  const nestSrc = grab('NEST_ENGINE'), offSrc = grab('OFFCUT_ENGINE'), camSrc = grab('CAM_ENGINE');
+  must(!!nestSrc, 'NEST_ENGINE markers missing');
+  must(!!offSrc, 'OFFCUT_ENGINE markers missing');
+  must(!!camSrc, 'CAM_ENGINE markers missing');
+
+  // 7a. MaxRects nesting: conservation, bounds, no overlaps, sheet count for the standard job
+  if (nestSrc) {
+    try {
+      const api = new Function('sheetMeta', 'grainActive', 'rigidOrient', 'isHost',
+        nestSrc + ';return {mrInsert, mrNewBin, mrPackBins, autoPack, packInto};')(
+        () => ({ sz: '8x4', S: { w: 2440, h: 1220 }, g: 7, margin: 7 }),   // stub: default 8x4, 7mm margin/gap
+        () => false, p => ({ w: p.w, h: p.h }), () => false);
+      const parts = []; let k = 0;
+      const mk = (w, h, n) => { for (let i = 0; i < n; i++) parts.push({ key: String(k++), w, h }); };
+      mk(600, 400, 6); mk(715, 495, 2); mk(300, 300, 4);                    // the standard job
+      const bins = api.autoPack('MDF 18mm', parts);
+      const tot = bins.reduce((a, b) => a + b.parts.length, 0);
+      must(tot === 12, `nest: part conservation broken (12 in, ${tot} out)`);
+      must(bins.length === 2, `nest: standard job must pack on 2 sheets (got ${bins.length})`);
+      const ov = (a, b) => a.x < b.x + b.w - 0.01 && a.x + a.w > b.x + 0.01 && a.y < b.y + b.h - 0.01 && a.y + a.h > b.y + 0.01;
+      bins.forEach((s, si) => s.parts.forEach((p, i) => {
+        must(p.x >= 6.99 && p.y >= 6.99 && p.x + p.w <= 2433.01 && p.y + p.h <= 1213.01, `nest: part outside margins on sheet ${si}`);
+        for (let j = i + 1; j < s.parts.length; j++) must(!ov(p, s.parts[j]), `nest: parts overlap on sheet ${si}`);
+      }));
+      must(api.packInto({ sz: '8x4', S: { w: 2440, h: 1220 }, g: 7, margin: 7 }, parts.slice(0, 5)).length === 5,
+        'nest: packInto must keep all parts (sheet membership repack)');
+    } catch (e) { failures.push('nest engine runtime check failed: ' + (e && e.message || e)); }
+  }
+
+  // 7b. Offcuts: the NORMATIVE examples from KABACAL_RULES.md + outline/L geometry
+  if (offSrc) {
+    try {
+      const api = new Function(offSrc + ';return {offcutUsable, offcutEdges, offcutCross};')();
+      [[350, 600, true], [250, 700, false], [124, 900, false], [120, 1600, true],
+       [190, 1060, false], [256, 1586, true], [211, 1625, true], [503, 435, true]]
+        .forEach(([w, h, exp]) => must(api.offcutUsable(w, h) === exp, `offcutUsable(${w},${h}) must be ${exp}`));
+      must(api.offcutEdges([{ x: 0, y: 0, w: 100, h: 50 }]).length === 4, 'offcut: plain rect outline must have 4 edges');
+      const Lsegs = api.offcutEdges([{ x: 0, y: 0, w: 200, h: 50 }, { x: 150, y: 0, w: 50, h: 150 }]);
+      const len = Lsegs.reduce((a, s) => a + Math.abs(s[2] - s[0]) + Math.abs(s[3] - s[1]), 0);
+      must(Lsegs.length === 8 && len === 700, `offcut: L outline must be 8 grid segments / 700mm perimeter (got ${Lsegs.length}/${len})`);
+      must(!Lsegs.some(s => s[0] === 150 && s[2] === 150 && s[3] <= 50), 'offcut: internal L joint must be removed from the outline');
+      must(api.offcutCross({ x: 0, y: 0, w: 200, h: 50 }, { x: 150, y: 0, w: 50, h: 150 }) === true, 'offcut: corner-overlap L must be accepted');
+      must(api.offcutCross({ x: 0, y: 0, w: 200, h: 50 }, { x: 80, y: 0, w: 40, h: 150 }) === false, 'offcut: T shape must be rejected');
+      must(api.offcutCross({ x: 0, y: 0, w: 200, h: 200 }, { x: 50, y: 50, w: 50, h: 50 }) === false, 'offcut: containment must be rejected');
+    } catch (e) { failures.push('offcut engine runtime check failed: ' + (e && e.message || e)); }
+  }
+
+  // 7c. CAM geometry + Syntec post (contract: docs/CONTRACT-CAM.md)
+  if (camSrc) {
+    try {
+      const cj = { zZero: 'bed', datum: 'll', orient: 'portrait', rapidGap: 20, approach: 5 };
+      const api = new Function('camJob', camSrc + ';return {ringPts, tpPartMoves, tpOrientDims, tpDatumOff, tpXform, ncPegasus};')(cj);
+      const S = { w: 2440, h: 1220 }, part = { x: 7, y: 7, w: 600, h: 1000 };
+      const ring = api.ringPts(part, S, 3, 'll');
+      must(ring.length === 8 && ring[0].x === 4 && ring[0].y === 210, `cam: ring ll anchor must be (4,210), got (${ring[0].x},${ring[0].y})`);
+      must(ring[1].x === 307 && ring[1].y === 210, 'cam: ring must run CCW (second point = lower-centre)');
+      const P = { startDepth: 0, cutDepth: null, passDepth: 6, passes: null, side: 'outside', allowance: 0,
+                  lastPass: { on: true, val: 0.4 }, addDepth: { on: false, val: 0.2 }, tabs: { on: false },
+                  ramp: { on: true, dist: 100 }, order: 'narrow', startAt: 'll' };
+      const tool = { dia: 6, feed: 8000, plunge: 3000, rpm: 18000, passDepth: 6 };
+      const mv = []; api.tpPartMoves(mv, part, S, P, tool, 18);
+      mv.forEach(m => { if (m.r && m.z !== undefined) must(m.z >= 23 - 1e-6, `cam: rapid at Z${m.z} below approach height`); });
+      const zs = mv.filter(m => !m.r && m.z !== undefined).map(m => m.z);
+      must(Math.min(...zs) === 0, 'cam: final floor must be exactly Z0 (bed zero, cutDepth = thickness)');
+      must(zs.some(z => z === 12) && zs.some(z => z === 6), 'cam: 6mm pass ladder (12/6/0) missing');
+      const firstF = mv.find(m => m.f !== undefined);
+      must(firstF && firstF.f === 3000, 'cam: first feed move must be at plunge feed');
+      must(mv.some(m => m.f === 8000), 'cam: cutting feed missing');
+      const D = api.tpOrientDims(S);
+      must(D.W === 1220 && D.H === 2440, 'cam: portrait machine dims must be 1220x2440');
+      cj.datum = 'c'; const dc = api.tpDatumOff(D); cj.datum = 'll';
+      must(dc[0] === 610 && dc[1] === 1220, 'cam: centre datum offset must be (610,1220)');
+      const xf = api.tpXform([{ x: 7, y: 7 }], S);
+      must(xf[0].x === 1213 && xf[0].y === 7, `cam: portrait transform of (7,7) must be (1213,7), got (${xf[0].x},${xf[0].y})`);
+      const nc = api.ncPegasus([
+        { num: 1, rpm: 18000, moves: [{ r: 1, z: 38 }, { r: 1, x: 4, y: 210 }, { x: 4, y: 210, z: 12, f: 3000 }, { x: 100, y: 210, f: 8000 }] },
+        { num: 2, rpm: 16000, moves: [{ r: 1, z: 38 }] }]);
+      must(nc.startsWith('%\r\n:1248\r\nG90\r\nN30G0X0Y0\r\nN40G40G17G80G49\r\nN50T1M6'), 'cam: NC header drifted');
+      must(nc.includes('\r\nN') && nc.includes('G53Z0\r\n') && nc.includes('T2M06'), 'cam: toolchange block (G53Z0 + T2M06) missing');
+      must(nc.endsWith('M05M30\r\n'), 'cam: NC footer must end M05M30 + CRLF');
+      must(nc.includes('S18000M3') && nc.includes('S16000M3'), 'cam: per-segment spindle speeds missing');
+    } catch (e) { failures.push('cam engine runtime check failed: ' + (e && e.message || e)); }
+  }
 }
 
 // --pre-commit: git-aware rules on top of the full check (wired via .githooks/pre-commit)

@@ -74,10 +74,12 @@ Family: `cnc-calculator` repo = the production calculator Kabacal stays file-com
 
 ## Reading order by task
 
-- **Pricing** → this file's guarded table + `KABACAL_RULES.md` (panels pricing) — `docs/PRICING.md` planned
-- **Nesting / offcuts / DXF** → `KABACAL_RULES.md` + `.claude/agents/dxf-nesting-reviewer.md`
-- **CAM / NC / templates** → `KABACAL_RULES.md` (flushback + template rules, binary-order reversal) + `.claude/agents/cam-reviewer.md` (machine contract)
+- **Pricing** → `docs/PRICING.md` (mechanisms, rates, survive-any-refactor rules) + `KABACAL_RULES.md` (panels pricing)
+- **DXF / nesting / offcuts** → `docs/CONTRACT-DXF.md` (layer contract) + `KABACAL_RULES.md` (thresholds, L-shape, flushback rings)
+- **CAM / NC / templates** → `docs/CONTRACT-CAM.md` (machine + post + cutting pattern) + `KABACAL_RULES.md` (template rules, binary-order reversal)
 - **Panels** → `KABACAL_RULES.md` §Panels + the PN tests inside `tools/check.mjs`
-- **History / what shipped** → `ROADMAP.md` — read the **top 2 entries only** (it's 74KB of history)
+- **State / persistence / where things live** → `docs/ARCHITECTURE.md` (state registry, localStorage keys, `.fastcnc` schema, marker blocks)
+- **Testing / evidence** → `docs/TESTING.md` + `tests/golden/README.md`
+- **History / what shipped** → `ROADMAP.md` — read the **top 2 entries only** (it's 75KB+ of history)
 
-Claude Code sessions get extra conveniences via `CLAUDE.md` (skills, subagents). Everything load-bearing lives here and in the linked files — no hidden memory.
+Claude Code sessions get extra conveniences via `CLAUDE.md` (skills, subagents — the subagents are thin wrappers around the docs above). Everything load-bearing lives here and in the linked files — no hidden memory.

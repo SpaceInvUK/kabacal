@@ -2,6 +2,11 @@
 
 App: `index.html` (antigo `order-entry-beta.html`). URL: https://spaceinvuk.github.io/kabacal/
 
+> Este arquivo é o LIVRO DE REGRAS confirmadas com o Ednei — decisões de negócio, append-only.
+> Specs técnicas de interface ficam em `docs/` (CONTRACT-CAM, CONTRACT-DXF, PRICING); em conflito, ESTE arquivo ganha sobre o comportamento e os contracts ganham sobre o formato.
+>
+> **Índice:** Panels (medidas · otimizador 8x4/10x4 · shakers/correntes · vertical · aberturas/sill/skirting · offset lines · DXF · preço · persistência/nomes) · Nesting · Offcut (tamanho mínimo · forma/L · texto · chanfro · layers) · Flushback (geometria + templates + regra do binário INVERTIDO) · Templates por peça física (role) · Offset Depth/pockets.
+
 ## Panels (modo Panels — confirmado 2026-07-07)
 
 Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`panelRooms`, localStorage `kab_panels`); os painéis NUNCA entram na lista de parts do Doors. O Quote é o ponto de encontro: seção "Wall panelling" própria + Doors subtotal + Panels subtotal + total combinado; serviços/spray/VAT aplicam UMA vez no job. **Job só-Doors tem que sair byte-idêntico** (panels.total=0 — invariante no check.mjs e provado vs HEAD).

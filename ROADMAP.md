@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-07 (n) — Fases 3+4: contracts em docs/ + engines testáveis em node (6 comentários no app, zero comportamento)
+
+Sistema de handoff completo pra qualquer modelo + preparação modular.
+
+- **Fase 3 — a verdade saiu do `.claude/`**: `docs/CONTRACT-CAM.md` (máquina/portrait/tpXform, formato NC, padrão de corte, checklist de segurança — promovido do cam-reviewer), `docs/CONTRACT-DXF.md` (tabela completa das 26 layers com cores + consumidores/gadgets + convenções), `docs/PRICING.md` (os 6 mecanismos em ordem de resolução, fórmula do site com proveniência do estudo 2026-07-01, regras que sobrevivem a qualquer refactor, gap dos baskets anotado), `docs/ARCHITECTURE.md` (registro de estado por grupo, 17 chaves kab_*, schema do .fastcnc — CAM fica DENTRO de kabacalQuote —, mapa de split futuro, convenção de versionamento). Os 3 subagents viraram WRAPPERS finos apontando pros docs (apagar `.claude/` não perde conhecimento). `KABACAL_RULES.md` ganhou índice + nota de precedência. AGENTS.md: ordem de leitura aponta pros docs novos.
+- **Fase 4 — engines com markers + testes EXECUTADOS no check.mjs** (padrão PN_ENGINE): `NEST_ENGINE` (mrOverlap→packInto), `OFFCUT_ENGINE` (OFFCUT_NOTCH→offcutForSheet), `CAM_ENGINE` (ringPts→ncPegasus). **Diff do index.html = exatamente 6 linhas de comentário, 0 remoções.** Testes novos (~80 asserts): nesting = conservação de 12 peças/2 chapas/margens/sem overlap/packInto; offcut = a TABELA NORMATIVA do rules (350x600✓ 250x700✗ …), contorno em L (8 segmentos/700mm, junta interna removida), cross corner-only (T e containment rejeitados); CAM = âncora ll (4,210) CCW, escada 12/6/0 com piso Z0 exato, rapids nunca abaixo de Z23, plunge F3000 primeiro, dims portrait 1220×2440, datum centre (610,1220), tpXform (7,7)→(1213,7), post sintético (header/toolchange G53Z0+T2M06/spindles/footer M05M30+CRLF).
+- **Decisão registrada**: envelopes {v,data} nas 17 chaves localStorage foram deliberadamente ADIADOS (valor ~zero até precisar de migração real; risco alto de typo em 17 call sites densos) — convenção de versionamento documentada no ARCHITECTURE; .fastcnc já tem `version` e tooldb `ver:2`.
+- Plano modelo-independente COMPLETO (Fases 1–4): qualquer modelo entra pelo AGENTS.md → STATUS.md → doc da área; verdade executável no check.mjs/goldens/examples; gate git-level no pre-commit.
+
+### Testado (n)
+`node tools/check.mjs` ok (PN + NEST + OFFCUT + CAM engines executados) ✓ · diff do index.html = só os 6 markers (git diff -U0 conferido) ✓ · **golden self-check no browser com os markers**: NC ll byte-igual, DXF 18mm byte-igual, QUOTE_standard byte-igual, partN 12 ✓ · console limpo ✓ · teste do L do offcut corrigido durante o desenvolvimento (8 segmentos de grade, não 6 arestas lógicas — perímetro 700 confere) ✓ · hook pre-commit exigiu esta entrada do ROADMAP (dogfood) ✓.
+
 ## 2026-07-07 (m) — Fase 2: goldens ricos + examples + docs/TESTING.md + pre-commit hook (app intocado)
 
 Rede de regressão expandida — `index.html` sem NENHUMA mudança (só docs/tooling/goldens).

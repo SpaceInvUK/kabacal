@@ -2098,6 +2098,7 @@
   function fillCavity(cavities,push,p){for(const cav of cavities){let pw=p.w,ph=p.h;if(grainActive(p)){const o=rigidOrient(p);pw=o.w;ph=o.h;}let pos=cavPlace(cav,pw,ph);if(!pos&&!grainActive(p)){const r2=cavPlace(cav,ph,pw);if(r2){const t=pw;pw=ph;ph=t;pos=r2;}}if(pos){push(cav.sheet,Object.assign({},p,{x:pos.x,y:pos.y,w:pw,h:ph,rot:(pw!==p.w)?90:0,inCav:true}));return true;}}return false;}
   // orient a part to whichever way fits the sheet — rotate ONLY if it doesn't fit as entered (item 8). Rigid keeps long side along grain.
   function orientFor(p,uW,uH){if(grainActive(p)){const o=rigidOrient(p);return {w:o.w,h:o.h};}const w=p.w,h=p.h,fit=(a,b)=>a<=uW&&b<=uH;if(!fit(w,h)&&fit(h,w))return {w:h,h:w};return {w:w,h:h};}
+  /*NEST_ENGINE_START*/ // MaxRects packer — extracted + EXECUTED by tools/check.mjs; future split file (docs/ARCHITECTURE.md). Never remove/move the markers.
   // ---- MaxRects bin packing (Best Short Side Fit + free-rect split, rotation, cavity reuse) ----
   function mrOverlap(a,b){return a.x<b.x+b.w-0.01&&a.x+a.w>b.x+0.01&&a.y<b.y+b.h-0.01&&a.y+a.h>b.y+0.01;}
   function mrContains(a,b){return a.x<=b.x+0.01&&a.y<=b.y+0.01&&a.x+a.w>=b.x+b.w-0.01&&a.y+a.h>=b.y+b.h-0.01;}
@@ -2161,6 +2162,7 @@
     });
     return bin.parts;
   }
+  /*NEST_ENGINE_END*/
   function materialize(){
     if(placements)return;placements={};
     genParts().forEach((parts,mat)=>{autoPack(mat,parts).forEach((sh,s)=>sh.parts.forEach(p=>{placements[p.key]={g:mat,s:s,x:p.x,y:p.y,rot:p.rot||0};}));});
@@ -2245,6 +2247,7 @@
   // An L is shown when a second usable rectangle overlaps the main one AT A CORNER (both pieces usable). Each
   // piece is labelled with its FULL size (the two maximal rects overlap in the shared corner), e.g.
   // "2020 x 150 / 750 x 350". A 3mm 45-degree chamfer marks the offcut's outer corner so it is easy to spot.
+  /*OFFCUT_ENGINE_START*/ // offcut detection — extracted + EXECUTED by tools/check.mjs; rules in KABACAL_RULES.md. Never remove/move the markers.
   const OFFCUT_NOTCH=3;
   function ivSub(intervals,a,b){const out=[];intervals.forEach(seg=>{const s=seg[0],e=seg[1];if(b<=s||a>=e){out.push([s,e]);return;}if(a>s)out.push([s,Math.min(a,e)]);if(b<e)out.push([Math.max(b,s),e]);});return out;}
   // outline segments [x1,y1,x2,y2] of the union of 1-2 axis-aligned rects (rectangle or L); internal joint removed
@@ -2342,6 +2345,7 @@
     const label=rects.map(r=>r.w+' x '+r.h).join(' / ');   // two FULL sizes for an L (they overlap in the corner)
     return {x:x0,y:y0,w:x1-x0,h:y1-y0,W,H,rects,label};
   }
+  /*OFFCUT_ENGINE_END*/
   function toggleEdit(){editMode=!editMode;selKey=null;render();}
   function resetNest(){placements=null;selKey=null;render();}
   function reNest(){
@@ -3344,6 +3348,7 @@
   function tpThicknesses(){const s=new Set();tpSheets().forEach(f=>s.add(f.th));return [...s].sort((a,b)=>b-a);}
   function tpVisibleSheets(){const all=tpSheets();return tpFilter==='all'?all:all.filter(f=>f.th===+tpFilter);}
   function tpResolveTh(){const v=tpVisibleSheets();return v.length?v[0].th:18;}
+  /*CAM_ENGINE_START*/ // toolpath geometry + Syntec post — extracted + EXECUTED by tools/check.mjs; contract in docs/CONTRACT-CAM.md. Never remove/move the markers.
   // ---- geometry: CCW 8-point ring (machine coords, y-up) starting at the chosen anchor. CCW matches the
   // reference file (Outside/Right + Conventional in VCarve produced a CCW outside loop). ----
   function ringPts(p,S,d,startAt){
@@ -3479,6 +3484,7 @@
     L(true,'G53Z0');L(true,'M05');L(true,'T1M06');L(true,'G90G54');L(true,'G43H1');L(true,'G0X0.000Y0.000');L(true,'G49H0');L(true,'G0X0Y0');L(true,'G55X0Y0');L(true,'M05M30');
     return out.join('\r\n')+'\r\n';
   }
+  /*CAM_ENGINE_END*/
   function tpStats(moves){let x=0,y=0,z=0,f=8000,t=0,fd=0,rd=0;const R=15000;
     moves.forEach(m=>{const nx=m.x!==undefined?m.x:x,ny=m.y!==undefined?m.y:y,nz=m.z!==undefined?m.z:z,d=Math.hypot(nx-x,ny-y,nz-z);
       if(m.r){rd+=d;t+=d/R;}else{if(m.f!==undefined)f=m.f;fd+=d;t+=d/(f||1);}x=nx;y=ny;z=nz;});
