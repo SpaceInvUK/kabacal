@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (b) — Previews que se entendem: layers reais no Toolpaths, filtro por chapa, contexto no Simulate, cotas do Panels embaixo, H⇄V acessível (itens 5–7, 9–11)
+
+- **Toolpaths desenha a GEOMETRIA da layer** (item 5): ops internas deixaram de ser anéis errados em volta do retângulo — `OFFSET_A` = banda cavidade→+7 (fill even-odd translúcido + 2 contornos), `POKET_INSERT` = banda 7→14, `SHADOW` = anel kerf na cavidade+16, `IN_22MM`/`OUT_10MM`/`IN` = a linha da cavidade com kerf real, insert `OFFSET_5MM` = banda 6.9→11.95 da borda — tudo **por abertura** (`doorCavities`, rot via transposição do mrEmit) e por `role`. `OUT` mantém kerf+skin+centreline. Peças nunca mais ficam "retângulo em branco": cavidades desenhadas tracejadas mesmo sem toolpath.
+- **Canvas segue as chapas SELECIONADAS** (item 7): tick numa chapa → só ela aparece (chip "Showing N selected · Show all"); borda esquerda + dot na cor do material (`Edit → Material Colors`) ligam chapa↔material; cores por toolpath mantidas (pedido: manter a ideia das layers).
+- **Simulate com contexto de chapa** (item 6, parcial-honesto): header novo "🛠 480×497 — body → Sheet 1 (MDF…) · insert → Sheet 2 (MR MDF 12mm) · kerf REAL". A rota por chapa com kerf real vive no canvas/zoom do Toolpaths; sim 3D de remoção segue fase futura (já anotado no rodapé do modal).
+- **Panels: cotas embaixo** (itens 9+10): corrente de dimensões movida pro RODAPÉ da parede (início → juntas de painel → bordas de abertura → fim, com as LARGURAS de cada painel), "Wall width" também embaixo; texto de tamanho no CENTRO dos painéis removido — altura fica sutil no canto ("1030h"); altura da parede continua na direita. Viewer mais limpo, T reduzido 50→26.
+- **Orientação H⇄V acessível** (item 11): o engine SEMPRE funcionou (2600 h→1 peça 2600×1030; v→3 colunas 867×3000) — o controle é que só aparecia com a Wall selecionada. Agora: botão **⇄ Horizontal/Vertical** na toolbar do Panels (age na parede selecionada) + linha "Wall direction" também no painel de PEÇA. Layout/nesting/quote/DXF seguem (mesmo `wall.dir` de sempre; PN_ENGINE intocado).
+
+### Testado (b)
+pnWallSvg: chain embaixo c/ larguras (1700/900 na parede com porta), "Wall width: 2600mm" no rodapé, centro limpo, "…h" no canto, screenshot ✓ · dir h→v→3 colunas 867×3000 e volta ✓ · toggle ⇄ na toolbar + Direction no painel de peça ✓ · tpSheetSvg: bands even-odd ×2, tooltips por layer (OFFSET_A/POKET_INSERT/SHADOW) na geometria da CAVIDADE, cavidades tracejadas ✓ · filtro: 2 chapas→1 selecionada + chip + stripes ✓ · Simulate header "body → Sheet 1 · insert → Sheet 2" ✓ · **goldens byte-idênticos (NC ll + NC c + DXF + QUOTE_standard)** ✓ · `check.mjs` ok ✓ · console limpo ✓ · screenshots Toolpaths + Panels conferidos.
+
 ## 2026-07-08 (a) — New Project + materiais ocultáveis + settings persistentes + fab bar no lugar + toolpaths STALE (itens 0–4, 8 do pedido de workflow)
 
 Decisão Architect+CTO (item 0): New Project SOZINHO não cura orçamento errado — o mal é INCLUSÃO SILENCIOSA de Panels persistidos. Entregue em 3 peças: reset explícito + visibilidade no Quote + limpeza explícita.

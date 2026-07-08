@@ -3539,10 +3539,21 @@
     const S=f.sh.S,vbW=Math.round(S.w/10),vbH=Math.round(S.h/10);
     const click=forZoom?'':` onclick="tpCanvasClick(event,${idx})" style="cursor:pointer"`;
     let s=`<svg class="sheet-svg"${click} viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
+    // cavities of a placed part, in SHEET coords (rotated parts use the same transpose mapping as mrEmit)
+    const partCavs=p=>{
+      if(p.isInsert||p.isBeading)return [];
+      const host=p.type==='trad'||p.type==='flush'||p.type==='reeded'||(p.lines&&p.lines[0]&&p.lines[0].en);
+      if(!host)return [];
+      try{const cavs=doorCavities(Object.assign({},p,{w:p.rot?p.h:p.w,h:p.rot?p.w:p.h}));
+        return cavs.map(c=>p.rot?{x:p.x+c.y,y:p.y+c.x,w:c.h,h:c.w}:{x:p.x+c.x,y:p.y+c.y,w:c.w,h:c.h});}catch(e){return [];}
+    };
     (f.sh.parts||[]).forEach(p=>{if(p.isBack)return;
       const k=parseInt(p.key,10),isSel=selSet.has(k);
       // each part's OUT outline is a selectable cut line — click to select, Ctrl+click to add
-      s+=`<g class="npart${isSel?' sel':''}" data-key="${k}"><rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="${isSel?'#3b82f625':'#0f172a0a'}" stroke="${isSel?'#2563eb':'#94a3b8'}" stroke-width="${isSel?0.6:0.25}"><title>${esc(p.name)} ${p.w}×${p.h} — OUT line · click to select for cutting</title></rect></g>`;});
+      s+=`<g class="npart${isSel?' sel':''}" data-key="${k}"><rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="${isSel?'#3b82f625':'#0f172a0a'}" stroke="${isSel?'#2563eb':'#94a3b8'}" stroke-width="${isSel?0.6:0.25}"><title>${esc(p.name)} ${p.w}×${p.h} — OUT line · click to select for cutting</title></rect>`;
+      // faint real geometry so a part is never a blank rectangle: its cavity/opening outlines
+      partCavs(p).forEach(c=>{s+=`<rect x="${(c.x/10).toFixed(2)}" y="${(c.y/10).toFixed(2)}" width="${(c.w/10).toFixed(2)}" height="${(c.h/10).toFixed(2)}" fill="none" stroke="#64748b" stroke-width="0.22" stroke-dasharray="1.4 1.1" opacity="0.75"/>`;});
+      s+='</g>';});
     const sheetKey=f.mat+'#'+f.i;
     camPaths.forEach((pp,ci)=>{if(!pp.on||pp.kind!=='profile')return;
       const sc=pp.params.scope;
@@ -3552,12 +3563,30 @@
       const dF=sgn*r+sgn*(+P.allowance||0),dR=dF+sgn*((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
       tpPathParts(f,pp).forEach((p,seq)=>{
         const cutD=(P.cutDepth==null?f.th:+P.cutDepth);
-        const tip=`${esc(pp.name)} · ${esc(tool.name)} — kerf Ø${tool.dia}mm · ${P.side} · ${cutD}mm deep · layer ${esc(P.layer||'OUT')}`;
+        const L=P.layer||P.refLayer||'OUT';
+        const tip=`${esc(pp.name)} · ${esc(tool.name)} — kerf Ø${tool.dia}mm · ${P.side} · ${cutD}mm deep · layer ${esc(L)}`;
         const rect=(d,sw,op,dash)=>`<rect x="${((p.x-d)/10).toFixed(2)}" y="${((p.y-d)/10).toFixed(2)}" width="${((p.w+2*d)/10).toFixed(2)}" height="${((p.h+2*d)/10).toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}" opacity="${op}"${dash?' stroke-dasharray="2 1.6"':''}><title>${tip}</title></rect>`;
+        const rrect=(r,sw,op)=>`<rect x="${(r.x/10).toFixed(2)}" y="${(r.y/10).toFixed(2)}" width="${(r.w/10).toFixed(2)}" height="${(r.h/10).toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}" opacity="${op}"><title>${tip}</title></rect>`;
+        const band=(a,b)=>`<path d="M${(a.x/10).toFixed(2)} ${(a.y/10).toFixed(2)}h${(a.w/10).toFixed(2)}v${(a.h/10).toFixed(2)}h-${(a.w/10).toFixed(2)}z M${(b.x/10).toFixed(2)} ${(b.y/10).toFixed(2)}h${(b.w/10).toFixed(2)}v${(b.h/10).toFixed(2)}h-${(b.w/10).toFixed(2)}z" fill-rule="evenodd" fill="${col}" opacity="0.22"><title>${tip}</title></path>`;
+        const grow=(r,d)=>({x:r.x-d,y:r.y-d,w:r.w+2*d,h:r.h+2*d});
+        const edge=o=>({x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o});
         s+=`<g class="npart" data-key="${parseInt(p.key,10)}">`;         // clicking the kerf ring also selects the line/part
-        s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false);                 // REAL kerf: band exactly tool-Ø wide, centred on the cut line
-        if(Math.abs(dR-dF)>0.01)s+=rect(dR,0.3,0.9,true);               // dashed = roughing passes with the 0.4 skin
-        s+=rect(dF,0.28,1,false);                                        // centreline the cutter centre follows
+        if(L==='OUT'){                                                   // outer profile: kerf band + roughing skin + centreline (as before)
+          s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false);
+          if(Math.abs(dR-dF)>0.01)s+=rect(dR,0.3,0.9,true);
+          s+=rect(dF,0.28,1,false);
+        } else if(P.role==='insert'&&L==='OFFSET_5MM'){                  // insert pocket band: 6.9→11.95 from the edge
+          s+=band(edge(6.9),edge(11.95))+rrect(edge(6.9),0.25,0.9)+rrect(edge(11.95),0.25,0.9);
+        } else {                                                         // cavity-relative ops drawn on the REAL geometry, per opening
+          const cavs=partCavs(p);
+          if(!cavs.length){s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false)+rect(dF,0.28,1,false);}
+          cavs.forEach(cv=>{
+            if(L==='OFFSET_A')s+=band(cv,grow(cv,7))+rrect(cv,0.25,0.95)+rrect(grow(cv,7),0.25,0.95);
+            else if(L==='POKET_INSERT')s+=band(grow(cv,7),grow(cv,14))+rrect(grow(cv,7),0.25,0.95)+rrect(grow(cv,14),0.25,0.95);
+            else if(L==='SHADOW')s+=rrect(grow(cv,16),(tool.dia/10).toFixed(2),0.45)+rrect(grow(cv,16),0.25,1);
+            else s+=rrect(cv,(tool.dia/10).toFixed(2),0.45)+rrect(cv,0.25,1);   // IN_22MM / OUT_10MM / IN: the cavity line itself
+          });
+        }
         const a=tpAnchorPt(p,dF,P.startAt);
         s+=`<circle cx="${(a[0]/10).toFixed(1)}" cy="${(a[1]/10).toFixed(1)}" r="0.9" fill="${col}"/>`;
         s+=`<text x="${((p.x+p.w/2)/10).toFixed(1)}" y="${((p.y+p.h/2)/10+2).toFixed(1)}" font-size="5.5" font-family="Arial" font-weight="800" text-anchor="middle" fill="${col}" opacity="0.85">${seq+1}</text></g>`;
@@ -3566,11 +3595,16 @@
     return s+'</svg>';
   }
   function tpCanvasHtml(){
-    const vis=tpVisibleSheets();
-    if(!vis.length)return '<div class="card"><div class="sub">No sheets — add parts in Order entry first.</div></div>';
-    return vis.map((f,i)=>{
-      const nP=(f.sh.parts||[]).filter(p=>!p.isBack).length,key=f.mat+'#'+f.i;
-      return `<div class="sheet-card${selSheets.has(key)?' sheet-sel':''}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${selSheets.has(key)?'checked':''} onchange="toggleSheetSel('${esc(key)}',this.checked)" title="Select this sheet for cutting"> <b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm</span><span>${nP} part${nP===1?'':'s'} <button class="iconbtn" title="Zoom &amp; select the cut lines" style="width:22px;height:22px" onclick="tpOpenZoom(${i})">⤢</button></span></div>${tpSheetSvg(f,i,false)}</div>`;
+    const all=tpVisibleSheets();
+    if(!all.length)return '<div class="card"><div class="sub">No sheets — add parts in Order entry first.</div></div>';
+    // selected sheets drive the canvas: tick sheets to preview ONLY those (Sheet 1, Sheet 2, or both)
+    const selOn=[...selSheets].some(k=>all.some(f=>f.mat+'#'+f.i===k));
+    const vis=selOn?all.filter(f=>selSheets.has(f.mat+'#'+f.i)):all;
+    const chip=selOn?`<div class="sub" style="margin:0 0 6px;display:flex;gap:8px;align-items:center"><b>Showing ${vis.length} selected sheet${vis.length===1?'':'s'}</b> of ${all.length} <span class="link" onclick="clearSheetSel();renderToolpaths()">Show all</span></div>`:'';
+    return chip+all.map((f,i)=>{
+      if(selOn&&!selSheets.has(f.mat+'#'+f.i))return '';
+      const nP=(f.sh.parts||[]).filter(p=>!p.isBack).length,key=f.mat+'#'+f.i,mc=matColor(f.mat);
+      return `<div class="sheet-card${selSheets.has(key)?' sheet-sel':''}" style="border-left:4px solid ${mc}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${selSheets.has(key)?'checked':''} onchange="toggleSheetSel('${esc(key)}',this.checked);renderToolpaths()" title="Select this sheet — the canvas shows only ticked sheets"> <i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${mc};vertical-align:baseline" title="Material colour (Edit → Material Colors)"></i> <b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm</span><span>${nP} part${nP===1?'':'s'} <button class="iconbtn" title="Zoom &amp; select the cut lines" style="width:22px;height:22px" onclick="tpOpenZoom(${i})">⤢</button></span></div>${tpSheetSvg(f,i,false)}</div>`;
     }).join('');
   }
   // click on the toolpaths canvas: a cut line (.npart) selects it for cutting; empty sheet area opens the zoom
@@ -4167,7 +4201,15 @@
           <div class="sub">T${tool.num||'?'} Ø${tool.dia||'?'}mm · ${esc(op.side||'—')} · ${esc(op.layer||'')} · <b>${d}mm</b></div>
           <div style="height:5px;border-radius:3px;background:var(--line);margin-top:3px" title="depth vs ${th}mm material"><i style="display:block;height:5px;border-radius:3px;width:${Math.min(100,d/th*100).toFixed(0)}%;background:#2563eb"></i></div>
         </div></div>`;}).join('');
+    // sheet context: where this part actually sits (body + insert can live on different sheets/materials)
+    const locs=[];tpSheets().forEach((f,i)=>{
+      const hasBody=(f.sh.parts||[]).some(pt=>!pt.isBack&&!pt.isInsert&&parseInt(pt.key,10)===tplSim.item);
+      const hasIns=(f.sh.parts||[]).some(pt=>!pt.isBack&&pt.isInsert&&parseInt(pt.key,10)===tplSim.item);
+      if(hasBody)locs.push('body → Sheet '+(i+1)+' ('+f.mat+')');
+      if(hasIns)locs.push('insert → Sheet '+(i+1)+' ('+f.mat+')');
+    });
     box.innerHTML=`
+      <div class="sub" style="margin-bottom:6px">🛠 <b>${esc(it.w+' × '+it.h)}</b> — ${locs.length?locs.map(esc).join(' · '):'not on any sheet yet'} · kerf drawn at REAL tool width, colour = depth</div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
         <button class="btn ${role==='body'?'primary':'ghost'} tiny" ${tplB?'':'disabled'} onclick="tplSimSet('tab','body')">18mm Frame/Body</button>
         <button class="btn ${role==='insert'?'primary':'ghost'} tiny" ${tplI?'':'disabled'} onclick="tplSimSet('tab','insert')">12mm Insert</button>
@@ -5190,7 +5232,7 @@
   function pnWallSvg(room,L,wi){
     const wall=room.walls[wi];if(!wall)return '<div class="pn-hint">No wall.</div>';
     const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),D=L.D,f=D.frame;
-    const pad=34,T=50,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=T+hpx+34;
+    const pad=34,T=26,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=T+hpx+52;
     const X=x=>pad+x*sc, Y=y=>T+(H-y)*sc;
     const GEO={vx:[],vy:[],pts:[]};
     const snapRect=(x0,y0,x1,y1)=>{const A=X(x0),B=X(x1),C=Y(y1),E=Y(y0);GEO.vx.push(A,B);GEO.vy.push(C,E);GEO.pts.push({x:A,y:C},{x:B,y:C},{x:A,y:E},{x:B,y:E});};
@@ -5198,23 +5240,7 @@
     s+='<rect x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
     snapRect(0,0,W,H);
     s+='<line x1="'+(X(0)-12)+'" y1="'+Y(0)+'" x2="'+(X(W)+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
-    s+='<text x="'+X(W/2)+'" y="13" text-anchor="middle" font-size="11" fill="var(--muted)">Wall width: '+Math.round(W)+'mm</text>';
     s+='<text x="'+(X(W)+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(X(W)+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
-    // dimension chain: wall start → opening edges → wall end (same pnOpRect geometry the DXF uses)
-    (function(){
-      const ops=(wall.openings||[]).map(o=>pnOpRect(o,wall)).sort((a,b)=>a.x0-b.x0);
-      if(!ops.length)return;
-      const bs=[0];ops.forEach(r=>{bs.push(r.x0,r.x1);});bs.push(W);
-      const u=[];bs.forEach(b=>{if(!u.length||b-u[u.length-1]>1)u.push(b);});
-      const yL=32;
-      s+='<line x1="'+X(0)+'" y1="'+yL+'" x2="'+X(W)+'" y2="'+yL+'" stroke="var(--muted)" stroke-width="0.7" stroke-opacity="0.8"/>';
-      u.forEach(b=>{s+='<line x1="'+X(b)+'" y1="'+(yL-4)+'" x2="'+X(b)+'" y2="'+(yL+4)+'" stroke="var(--muted)" stroke-width="0.7"/>';});
-      for(let i=0;i<u.length-1;i++){
-        const a=u[i],b=u[i+1],seg=(b-a)*sc;
-        if(seg<30)continue;
-        s+='<text x="'+X((a+b)/2)+'" y="'+(yL-7)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(b-a)+'</text>';
-      }
-    })();
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
@@ -5243,7 +5269,8 @@
         s+='<rect x="'+X(p.x0+n.x)+'" y="'+Y(p.y0+n.y+n.h)+'" width="'+(n.w*sc)+'" height="'+(n.h*sc)+'" fill="var(--bg)" stroke="#2563eb" stroke-width="0.6" stroke-dasharray="4 3"/>';
       });
       s+='<text x="'+(px+pw/2)+'" y="'+(py+12)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(selp?'#2563eb':'var(--muted)')+'">'+(p.letter||'')+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
-      if(pw>56&&ph>36)s+='<text x="'+(px+pw/2)+'" y="'+(py+ph/2+4)+'" text-anchor="middle" font-size="9.5" fill="var(--muted)" fill-opacity="0.85">'+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
+      // panel WIDTH lives in the bottom dimension chain now; keep only a subtle HEIGHT in the corner
+      if(pw>40&&ph>26)s+='<text x="'+(px+5)+'" y="'+(py+ph-6)+'" font-size="8.5" fill="var(--muted)" fill-opacity="0.75">'+Math.round(p.h)+'h</text>';
       s+='</g>';
     });
     // wall seams of chained runs (drawn where a run crosses this wall boundary)
@@ -5290,6 +5317,21 @@
       s+='<line x1="'+X(0)+'" y1="'+Y(L.D.skirtH)+'" x2="'+X(W)+'" y2="'+Y(L.D.skirtH)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>';
       s+='<text x="'+(X(0)+4)+'" y="'+(Y(L.D.skirtH)-3)+'" font-size="9.5" fill="var(--muted)">skirting '+Math.round(L.D.skirtH)+'</text>';
     }
+    // BOTTOM dimension chain: wall start → panel joints → opening edges → wall end (widths live here now)
+    (function(){
+      const bs=[0,W];
+      pcs.forEach(p=>{bs.push(p.x0,p.x1);});
+      (wall.openings||[]).forEach(o=>{const r=pnOpRect(o,wall);bs.push(r.x0,r.x1);});
+      const u=[];bs.sort((a,b)=>a-b).forEach(b=>{if(!u.length||b-u[u.length-1]>1)u.push(b);});
+      const yL=T+hpx+14;
+      s+='<line x1="'+X(0)+'" y1="'+yL+'" x2="'+X(W)+'" y2="'+yL+'" stroke="var(--muted)" stroke-width="0.7" stroke-opacity="0.8"/>';
+      u.forEach(b=>{s+='<line x1="'+X(b)+'" y1="'+(yL-4)+'" x2="'+X(b)+'" y2="'+(yL+4)+'" stroke="var(--muted)" stroke-width="0.7"/>';});
+      for(let i=0;i<u.length-1;i++){
+        const a=u[i],b=u[i+1];if((b-a)*sc<26)continue;
+        s+='<text x="'+X((a+b)/2)+'" y="'+(yL-6)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(b-a)+'</text>';
+      }
+      s+='<text x="'+X(W/2)+'" y="'+(yL+24)+'" text-anchor="middle" font-size="11" fill="var(--muted)">Wall width: '+Math.round(W)+'mm</text>';
+    })();
     s+='<g id="pnMeas" style="pointer-events:none"></g>';
     s+='</svg>';
     pnSnapGeo={vx:GEO.vx,vy:GEO.vy,pts:GEO.pts,sc};
@@ -5462,6 +5504,7 @@
         let b='<div class="pn-row"><label>Shakers in panel</label><span class="pn-step"><button onclick="pnPieceOv(\'count\','+(cnt-1)+')">−</button><b>'+cnt+(ov.count?'':' · auto')+'</b><button onclick="pnPieceOv(\'count\','+(cnt+1)+')">+</button></span></div>';
         b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)')+'</div>';
         b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)')+'</div>';
+        b+='<div class="pn-row"><label>Wall direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],(wall&&wall.dir)||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>';
         b+='<div class="pn-row"><button class="pn-mini" onclick="pnPieceAuto()">↺ Back to auto (run grid)</button></div>';
         b+='<div class="pn-hint" style="margin-top:6px">Overrides change only this panel. Joints stay 40/40 — a manual count breaks shaker matching at this panel on purpose.</div>';
         body=SEC('Panel override',b);
@@ -5559,6 +5602,7 @@
       +'<span class="pn-tab add" onclick="pnAddWall()">+ wall</span></div>';
     const views='<div class="pn-views">'
       +'<button class="pn-mini" onclick="pnDownloadDxf()" title="Export panels DXF (one file per thickness, same layers as Doors)" style="font-weight:800">⬇ DXF</button>'
+      +'<button class="pn-mini" onclick="pnSet(\'wall\',\'dir\',(pnWallObj()&&pnWallObj().dir===\'v\')?\'h\':\'v\')" title="Rotate the selected wall\'s panelling: Horizontal ⇄ Vertical (layout, nesting, quote and DXF all follow)">⇄ '+((pnWallObj()&&pnWallObj().dir==='v')?'Vertical':'Horizontal')+'</button>'
       +'<button class="pn-mini" onclick="pnClearAllRooms(false)" title="Delete ALL rooms (asks first) — stops old panels riding along in a Doors-only quote" style="color:#dc2626">🗑 Clear all</button>'
       +'<button class="pn-mini '+(pnView==='wall'?'on':'')+'" onclick="pnSetView(\'wall\')">'+(pnSel.kind==='room'?'Room':'Wall')+'</button>'
       +'<button class="pn-mini '+(pnView==='sheets'?'on':'')+'" onclick="pnSetView(\'sheets\')">Sheets</button>'
