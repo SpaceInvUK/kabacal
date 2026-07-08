@@ -1811,12 +1811,12 @@
     ${ins?(function(){
       const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
       const ths=Object.keys(PRICES[ins.matName]||{}).map(t=>parseInt(t));if(ths.indexOf(ins.insTh)<0)ths.unshift(ins.insTh);
-      return `<div class="ins-card">${ic('layers',13)} Insert:
+      return `<div class="ins-card" title="Auto-generated INSERT: the board that fills this door's cavity (not glass — Glass replaces it). It is a real separate piece: nested on its own ${ins.insTh}mm sheet, priced, exported in the ${ins.insTh}mm DXF and machined by the insert templates.">${ic('layers',13)} <b>Insert</b> <span class="sub">(auto piece — fills the cavity)</span>:
         <select onchange="setInsOv(${i},'matName',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px;max-width:130px">${names.map(n=>`<option ${n===ins.matName?'selected':''}>${esc(n)}</option>`).join('')}</select>
         <select onchange="setInsOv(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px">${ths.map(t=>`<option value="${t}" ${t===ins.insTh?'selected':''}>${t}mm${t===ins.autoTh?' (auto)':''}</option>`).join('')}</select>
         <b>· ${ins.w}×${ins.h}mm</b>${ins.reed?' · reeded':''}
         ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
-        <span class="sub" style="margin-left:auto">nests on its own sheet</span></div>`;})():''}
+        <span class="sub" style="margin-left:auto" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
     <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <span class="sub" style="font-weight:700">Frame:</span>
       ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','r','b','l'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
@@ -3600,11 +3600,14 @@
     // selected sheets drive the canvas: tick sheets to preview ONLY those (Sheet 1, Sheet 2, or both)
     const selOn=[...selSheets].some(k=>all.some(f=>f.mat+'#'+f.i===k));
     const vis=selOn?all.filter(f=>selSheets.has(f.mat+'#'+f.i)):all;
-    const chip=selOn?`<div class="sub" style="margin:0 0 6px;display:flex;gap:8px;align-items:center"><b>Showing ${vis.length} selected sheet${vis.length===1?'':'s'}</b> of ${all.length} <span class="link" onclick="clearSheetSel();renderToolpaths()">Show all</span></div>`:'';
+    const chip=selOn?`<div class="sub" style="margin:0 0 6px;display:flex;gap:8px;align-items:center"><b>Previewing ${vis.length} ticked sheet${vis.length===1?'':'s'}</b> of ${all.length} — untick to bring a sheet back, or <span class="link" onclick="clearSheetSel();renderToolpaths()">Show all</span></div>`:'';
+    // ticked sheets show FULL preview; the others stay as compact header rows (checkbox still there),
+    // so Sheet 1, Sheet 2 or BOTH are always one click away — nothing ever disappears.
     return chip+all.map((f,i)=>{
-      if(selOn&&!selSheets.has(f.mat+'#'+f.i))return '';
       const nP=(f.sh.parts||[]).filter(p=>!p.isBack).length,key=f.mat+'#'+f.i,mc=matColor(f.mat);
-      return `<div class="sheet-card${selSheets.has(key)?' sheet-sel':''}" style="border-left:4px solid ${mc}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${selSheets.has(key)?'checked':''} onchange="toggleSheetSel('${esc(key)}',this.checked);renderToolpaths()" title="Select this sheet — the canvas shows only ticked sheets"> <i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${mc};vertical-align:baseline" title="Material colour (Edit → Material Colors)"></i> <b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm</span><span>${nP} part${nP===1?'':'s'} <button class="iconbtn" title="Zoom &amp; select the cut lines" style="width:22px;height:22px" onclick="tpOpenZoom(${i})">⤢</button></span></div>${tpSheetSvg(f,i,false)}</div>`;
+      const collapsed=selOn&&!selSheets.has(key);
+      const head=`<div class="sheet-head"><span><input type="checkbox" class="ssel" ${selSheets.has(key)?'checked':''} onchange="toggleSheetSel('${esc(key)}',this.checked);renderToolpaths()" title="Tick = show this sheet's full preview (tick several to compare)"> <i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${mc};vertical-align:baseline" title="Material colour (Edit → Material Colors)"></i> <b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm</span><span>${nP} part${nP===1?'':'s'}${collapsed?' <span class="sub">· tick to preview</span>':''} <button class="iconbtn" title="Zoom &amp; select the cut lines" style="width:22px;height:22px" onclick="tpOpenZoom(${i})">⤢</button></span></div>`;
+      return `<div class="sheet-card${selSheets.has(key)?' sheet-sel':''}" style="border-left:4px solid ${mc}${collapsed?';opacity:.72':''}">${head}${collapsed?'':tpSheetSvg(f,i,false)}</div>`;
     }).join('');
   }
   // click on the toolpaths canvas: a cut line (.npart) selects it for cutting; empty sheet area opens the zoom
@@ -3735,7 +3738,7 @@
       h+=`<div class="tp-row ${tpUI.sel===pp.id?'sel':''}" onclick="tpUI.sel='${pp.id}';tpSide()"${stale?' style="opacity:.55"':''}>
         <input type="checkbox" class="selcb" ${pp.on?'checked':''} onclick="event.stopPropagation()" onchange="tpToggle('${pp.id}',this.checked)">
         <span class="dot" style="background:${stale?'#f59e0b':col}"></span>
-        <span class="nm">${esc(pp.name)} [${tool?tool.num:'?'}]${stale?' <span style="color:#b45309;font-weight:800;font-size:9.5px" title="Source parts changed/deleted — this path cuts nothing until recreated">STALE</span>':''}</span>
+        <span class="nm">${esc(pp.name)} [${tool?tool.num:'?'}]${stale?' <span style="color:#b45309;font-weight:800;font-size:9.5px" title="Source parts changed/deleted — this path cuts nothing until recreated">STALE</span>':(!pp.on?' <span style="color:#94a3b8;font-weight:800;font-size:9.5px" title="Loaded OFF on purpose — the template keeps its cutting order and you tick each operation when ready. OFF paths generate no NC.">OFF</span>':'')}</span>
         <span class="sub2">${tool?esc(tool.name):'no tool'}</span>
         <button class="iconbtn" title="Edit" style="width:22px;height:22px" onclick="event.stopPropagation();tpEdit('${pp.id}')">${ic('pencil',11)}</button>
         <button class="iconbtn" title="Delete" style="width:22px;height:22px" onclick="event.stopPropagation();tpDel('${pp.id}')">${ic('trash',11)}</button>
@@ -4102,7 +4105,7 @@
       }
       const params=Object.assign(tpDefaults(tool),{layer:engLayer,refLayer:op.layer||'OUT',role:role,scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
       camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
-        name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (next op)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:tpScopeSig(its)});
+        name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:tpScopeSig(its)});
       tpSeq++;made++;
       if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
     });
@@ -4122,7 +4125,9 @@
     const lines=[];
     hits.forEach(t=>{const r=tplApply(t.id,true);if(r)lines.push('• '+r.name+': '+r.made+' toolpath(s)'+(r.report.length?'\n  '+r.report.join('\n  '):''));});
     renderToolpaths();
-    alert('Auto applied '+hits.length+' template(s), operations in each file\'s order:\n\n'+lines.join('\n'));
+    const liveN=camPaths.filter(p=>p.on).length,offN=camPaths.length-liveN;
+    alert('Auto applied '+hits.length+' template(s) — '+liveN+' operation(s) LIVE, '+offN+' loaded OFF.\n\n'+lines.join('\n')
+      +'\n\nOFF operations are intentional: the template keeps its real cutting order and you tick each one in the tree when you are ready. OFF paths generate no NC.');
   }
   function tplDel(id){const i=tpTemplates.findIndex(t=>t.id===id);if(i<0)return;if(!confirm('Remove template "'+tpTemplates[i].name+'"?'))return;tpTemplates.splice(i,1);saveTpTemplates();tpSide();}
   function tplExport(){if(!tpTemplates.length){alert('No templates to save yet.');return;}dlBlob(JSON.stringify(tpTemplates,null,1),'application/json','KABACAL_TEMPLATES.json');}
@@ -4189,8 +4194,12 @@
     if(!it){box.innerHTML='<div class="sub">Part no longer exists.</div>';return;}
     const tplB=tplSimTpl('body'),tplI=tplSimTpl('insert');
     if(tplSim.tab==='insert'&&!tplI)tplSim.tab='body';
-    const tpl=(tplSim.tab==='insert')?tplI:tplB;
-    if(!tpl){box.innerHTML='<div class="sub">No template matches this part (check part type / thickness). Import one or pick a Flushback item.</div>';return;}
+    let tpl=(tplSim.tab==='insert')?tplI:tplB;
+    let generic=false;
+    if(!tpl){ // no matching template: show a GENERIC outside profile instead of a dead end
+      generic=true;tplSim.tab='body';
+      tpl={name:'Generic profile (no template matches this part)',ops:[{name:'Profile OUT — through cut',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{}}]};
+    }
     const role=tplSim.tab,ops=tpl.ops||[],n=ops.length;tplSim.step=Math.max(1,Math.min(n,tplSim.step));
     const th=role==='insert'?((insertSpecFor(it)||{}).insTh||12):thicknessOf(it.mat);
     const rows=ops.map((op,i)=>{
@@ -4208,8 +4217,20 @@
       if(hasBody)locs.push('body → Sheet '+(i+1)+' ('+f.mat+')');
       if(hasIns)locs.push('insert → Sheet '+(i+1)+' ('+f.mat+')');
     });
+    // sheet strip: the actual sheets this part lives on, straight from the toolpath canvas renderer
+    const strip=(function(){let h='';tpSheets().forEach((f,i)=>{
+      const on=(f.sh.parts||[]).some(pt=>!pt.isBack&&parseInt(pt.key,10)===tplSim.item);
+      if(!on)return;
+      h+='<div style="flex:1;min-width:170px;max-width:300px"><div class="sub" style="font-weight:700;margin-bottom:2px">Sheet '+(i+1)+' · '+esc(f.mat)+' · '+f.th+'mm</div>'+tpSheetSvg(f,i,true)+'</div>';});
+      return h?'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'+h+'</div>':'';})();
+    const act=(tpl.ops||[])[Math.max(0,Math.min((tpl.ops||[]).length-1,tplSim.step-1))]||{};
+    const actTool=tplResolveTool(act.tool)||{num:(act.tool||{}).num,dia:(act.tool||{}).dia};
+    const actD=(act.params&&act.params.cutDepth!=null)?+act.params.cutDepth:th;
     box.innerHTML=`
       <div class="sub" style="margin-bottom:6px">🛠 <b>${esc(it.w+' × '+it.h)}</b> — ${locs.length?locs.map(esc).join(' · '):'not on any sheet yet'} · kerf drawn at REAL tool width, colour = depth</div>
+      ${generic?'<div class="pn-warn" style="margin-bottom:6px">⚠ No machining template matches this part — showing a GENERIC outside profile so the cut, kerf and depth are still visible. Apply/import a template for the real operations.</div>':''}
+      ${strip}
+      <div style="margin-bottom:6px;padding:5px 9px;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;font-size:12px"><b>NOW:</b> op ${tplSim.step}/${(tpl.ops||[]).length} — ${esc(act.name||'')} · <b>T${actTool.num||'?'} Ø${actTool.dia||'?'}mm</b> · ${esc(act.side||'')} · ${actD}mm deep · layer ${esc(act.layer||'OUT')}</div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
         <button class="btn ${role==='body'?'primary':'ghost'} tiny" ${tplB?'':'disabled'} onclick="tplSimSet('tab','body')">18mm Frame/Body</button>
         <button class="btn ${role==='insert'?'primary':'ghost'} tiny" ${tplI?'':'disabled'} onclick="tplSimSet('tab','insert')">12mm Insert</button>
@@ -4930,23 +4951,44 @@
     // the preview always matches the settings; joints/slices never move.
     pieces.forEach(p=>{
       const w=walls[p.wi],ov=w&&w.panelOv&&w.panelOv[p.pid];if(!ov)return;
-      const f=D.frame;
+      const fL=(+ov.frame>0)?+ov.frame:D.frame,f=fL;
       const seen={},bands=[];
       (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
       const colsBefore=bands.length?Math.max(1,Math.round((p.cells||[]).length/bands.length)):Math.max(1,(p.cells||[]).length);
       if(ov.sideL)p.sides.l={rule:ov.sideL,mm:pnSideMM(ov.sideL,D)};
       if(ov.sideR)p.sides.r={rule:ov.sideR,mm:pnSideMM(ov.sideR,D)};
-      const inner=p.w-p.sides.l.mm-p.sides.r.mm;
-      const c=Math.max(1,Math.round(+ov.count>0?+ov.count:colsBefore));
-      const cw=(inner-f*(c-1))/c;
-      if(!(cw>40))return;
-      if(p.dir==='h'){
-        const cy0=p.sides.b,cy1=p.h-p.sides.t;
-        p.cells=[];if(cy1-cy0>=60)for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:cy0,w:cw,h:cy1-cy0});
-      }else{
-        p.cells=[];bands.forEach(b=>{for(let i=0;i<c;i++)p.cells.push({x:p.sides.l.mm+i*(cw+f),y:b[0],w:cw,h:b[1]});});
+      // per-panel HEIGHT — joints/width never move; the sheet CROSS limit caps a band panel, the 10x4 cap a
+      // vertical one. A clamped edit gets an explicit note on the panel — never silently ignored.
+      if(+ov.h>0){
+        const minH=fL*2+60,maxH=(p.dir==='v')?PN_CAP['10x4']:PN_CROSS;
+        const hh=Math.min(Math.max(+ov.h,minH),maxH);
+        if(Math.abs(hh-(+ov.h))>0.5)p.ovNote='height clamped to '+Math.round(hh)+'mm (sheet limit '+Math.round(maxH)+')';
+        p.y1=p.y0+hh;p.h=hh;p.ovH=hh;
+        if(p.dir==='v')p.sheet=(p.h>PN_CAP['8x4'])?'10x4':'8x4';
       }
-      if(+ov.count>0)p.ovCount=c;
+      // per-panel FRAME — internal grid only (top/bottom margins + cell gaps); joint halves stay 40/40
+      if(+ov.frame>0){p.sides.t=fL;p.sides.b=(p.y0<=0.5&&D.skirtOn&&!p.isCap&&!p.isLower)?(D.skirtH+fL):fL;p.ovFrame=fL;}
+      // per-panel ORIENTATION — the panel's internal shaker style: 'h' = one row of shakers,
+      // 'v' = columns × rows grid. Mixing panels on one wall is allowed; joints stay put.
+      const gDir=(ov.dir==='v'||ov.dir==='h')?ov.dir:(bands.length>1?'v':'h');
+      if(ov.dir)p.ovDir=gDir;
+      const inner=p.w-p.sides.l.mm-p.sides.r.mm;
+      const cols=Math.max(1,Math.round(+ov.cols>0?+ov.cols:(+ov.count>0?+ov.count:colsBefore)));
+      const cw=(inner-fL*(cols-1))/cols;
+      if(!(cw>40)){p.ovNote=p.ovNote||'grid does not fit (cells under 40mm) — showing auto cells';return;}
+      if(gDir==='v'&&!(+ov.rows>0)&&!(+ov.h>0)&&!(+ov.frame>0)&&!ov.dir&&bands.length){
+        // legacy path: count-only override on an already-vertical panel keeps its original row bands
+        p.cells=[];bands.forEach(b=>{for(let i=0;i<cols;i++)p.cells.push({x:p.sides.l.mm+i*(cw+fL),y:b[0],w:cw,h:b[1]});});
+      }else{
+        const rows=(gDir==='v')?Math.max(1,Math.round(+ov.rows>0?+ov.rows:Math.max(2,bands.length))):Math.max(1,Math.round(+ov.rows>0?+ov.rows:1));
+        const cy0=p.sides.b,cy1=p.h-p.sides.t,rh=(cy1-cy0-fL*(rows-1))/rows;
+        if(!(rh>40)){p.ovNote=p.ovNote||'grid does not fit (cells under 40mm) — showing auto cells';return;}
+        p.cells=[];
+        for(let r2=0;r2<rows;r2++){const a=cy0+r2*(rh+fL);for(let i=0;i<cols;i++)p.cells.push({x:p.sides.l.mm+i*(cw+fL),y:a,w:cw,h:rh});}
+        p.ovRows=rows;
+      }
+      if(+ov.count>0||+ov.cols>0)p.ovCount=cols;
+      if(ov.dir||+ov.rows>0||+ov.cols>0||+ov.h>0||+ov.frame>0)p.ovGrid=true;
     });
     return {pieces,runs,warns,D};
   }
@@ -5210,7 +5252,10 @@
   function pnSetOp(field,val){const o=pnOpObj();if(!o)return;const numeric=['w','h','x','bottom'];o[field]=numeric.indexOf(field)>=0?pnNum(val):val;pnRefresh();}
   function pnDelOpening(){const w=pnWallObj();if(!w)return;w.openings=(w.openings||[]).filter(o=>o.id!==pnSel.id);pnSel={room:pnSel.room,wall:pnSel.wall,kind:'wall',id:null};pnRefresh();}
   function pnPieceOv(field,val){const w=pnWallObj();if(!w)return;w.panelOv=w.panelOv||{};const ov=w.panelOv[pnSel.id]=w.panelOv[pnSel.id]||{};
-    if(field==='count')ov.count=Math.max(1,pnNum(val));else ov[field]=val;pnRefresh();}
+    if(field==='count'||field==='cols'||field==='rows')ov[field]=Math.max(1,pnNum(val));
+    else if(field==='h'||field==='frame'){const t=String(val).trim();if(t===''||+t<=0)delete ov[field];else ov[field]=Math.max(1,pnNum(t));}
+    else ov[field]=val;
+    pnRefresh();}
   function pnPieceAuto(){const w=pnWallObj();if(!w||!w.panelOv)return;delete w.panelOv[pnSel.id];pnRefresh();}
   function pnSetLine(i,field,val){const r=pnRoomObj();if(!r)return;r.lines=r.lines&&r.lines.length===7?r.lines:pnDefaultLines();
     const l=r.lines[i];if(!l)return;
@@ -5501,13 +5546,24 @@
         const ov=(wall&&wall.panelOv&&wall.panelOv[p.pid])||{};
         head='<div class="t">'+esc(p.name)+'</div><div class="s">physical panel · '+Math.round(p.w)+'×'+Math.round(p.h)+' mm · sheet '+p.sheet+'</div>';
         const cnt=p.ovCount||((p.cells||[]).length&&p.dir==='h'?(p.cells||[]).length:Math.max(1,Math.round((p.cells||[]).length/Math.max(1,+wall.vRows||2))));
-        let b='<div class="pn-row"><label>Shakers in panel</label><span class="pn-step"><button onclick="pnPieceOv(\'count\','+(cnt-1)+')">−</button><b>'+cnt+(ov.count?'':' · auto')+'</b><button onclick="pnPieceOv(\'count\','+(cnt+1)+')">+</button></span></div>';
+        const isCustom=!!(ov.count||ov.cols||ov.rows||ov.h||ov.frame||ov.dir||ov.sideL||ov.sideR);
+        const gDirNow=p.ovDir||((p.cells||[]).some((c1,i1)=>(p.cells||[]).some((c2,i2)=>i2>i1&&Math.abs(c1.y-c2.y)>1))?'v':'h');
+        const bandsN=(function(){const s={};(p.cells||[]).forEach(c=>s[Math.round(c.y)]=1);return Math.max(1,Object.keys(s).length);})();
+        const colsNow=Math.max(1,Math.round((p.cells||[]).length/bandsN));
+        const frNow=p.ovFrame||(L?L.D.frame:80);
+        let b='<div class="pn-row" style="background:'+(isCustom?'#fef3c7':'transparent')+';border-radius:6px;padding:2px 6px"><label style="font-weight:800">Status</label><b style="color:'+(isCustom?'#b45309':'#16a34a')+'">'+(isCustom?'CUSTOM (this panel only)':'AUTO (run grid)')+'</b></div>';
+        if(p.ovNote)b+='<div class="pn-warn" style="margin:4px 0">⚠ '+esc(p.ovNote)+'</div>';
+        b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints on the WALL to move it">'+Math.round(p.w)+'mm · from joints</span></div>';
+        b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
+        b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],gDirNow,'pnPieceOv(\'dir\',\'%V\')')+'</div>';
+        b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
+        b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';
+        b+='<div class="pn-row"><label>Frame</label><input type="number" min="1" value="'+Math.round(frNow)+'" onchange="pnPieceOv(\'frame\',this.value)" title="Internal grid frame for THIS panel (top/bottom margins + gaps between shakers). Joint edges stay 40/40 of the wall frame."><span class="sub" style="margin-left:4px">mm'+(ov.frame?'':' · wall default')+'</span></div>';
         b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)')+'</div>';
         b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)')+'</div>';
-        b+='<div class="pn-row"><label>Wall direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],(wall&&wall.dir)||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>';
-        b+='<div class="pn-row"><button class="pn-mini" onclick="pnPieceAuto()">↺ Back to auto (run grid)</button></div>';
-        b+='<div class="pn-hint" style="margin-top:6px">Overrides change only this panel. Joints stay 40/40 — a manual count breaks shaker matching at this panel on purpose.</div>';
-        body=SEC('Panel override',b);
+        b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceAuto()" style="font-weight:800">↺ Reset this panel to AUTO</button></div>';
+        b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40; width moves only via wall/run settings. Wall &amp; room settings are in the sections below.</div>';
+        body=SEC('PANEL SETTINGS — '+esc(p.name),b);
       } else {pnSel.kind='wall';}
     }
     if(pnSel.kind==='wall'&&wall){

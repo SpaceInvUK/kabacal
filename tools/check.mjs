@@ -139,6 +139,21 @@ if (html) {
         must(ps.length >= 5, 'vertical 5200 wall needs >=5 columns');
         ps.forEach(p => { must(p.w <= api.PN_CROSS + 0.5, 'vertical column wider than 1206'); must(p.sheet === '10x4', '3000-tall vertical piece must be 10x4'); });
       }
+      { // per-panel overrides (2026-07-08): height / orientation / cols×rows / frame — edited panel only
+        const base = api.pnLayoutRoom(room([wall({ w: 6500 })])).pieces.sort((x, y) => x.x0 - y.x0);
+        must(base.length >= 3, 'override test needs >=3 pieces');
+        const pid = base[1].pid;
+        const othersBefore = [base[0], base[2]].map(p => (p.cells || []).length + ':' + Math.round(p.x0) + '-' + Math.round(p.x1)).join('|');
+        const ps = api.pnLayoutRoom(room([wall({ w: 6500, panelOv: { [pid]: { h: 800, dir: 'v', cols: 3, rows: 2, frame: 60 } } })])).pieces.sort((x, y) => x.x0 - y.x0);
+        const ed = ps.find(p => p.pid === pid);
+        must(!!ed && Math.abs(ed.h - 800) < 0.6, 'panelOv.h must set the panel height (got ' + (ed && ed.h) + ')');
+        must(ed.cells.length === 6, 'panelOv dir=v cols=3 rows=2 must give 6 cells (got ' + ed.cells.length + ')');
+        must([...new Set(ed.cells.map(c => Math.round(c.y)))].length === 2, 'panelOv rows=2 must give 2 cell bands');
+        const othersAfter = [ps[0], ps[2]].map(p => (p.cells || []).length + ':' + Math.round(p.x0) + '-' + Math.round(p.x1)).join('|');
+        must(othersAfter === othersBefore, 'neighbour panels must be untouched by a per-panel override');
+        const pc = api.pnLayoutRoom(room([wall({ w: 2300, panelOv: { 'w0p1': { h: 9999 } } })])).pieces[0];
+        must(pc.h <= api.PN_CROSS + 0.5 && /clamped/.test(pc.ovNote || ''), 'oversize panel height must clamp WITH a visible note');
+      }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
 
