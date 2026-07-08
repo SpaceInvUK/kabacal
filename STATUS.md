@@ -13,7 +13,7 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## In flight
 
-- Nothing mid-work. 2D room builder Phase 2 shipped 2026-07-08 (ROADMAP *g*): thickness-driven corner maths (physical shortening + frame+panel allowance), endpoint locks, keep-90°, draggable openings, distinct panel layer, corner explainability. Phase 3 (full columns/returns, multi-hop constraint solve, optional 2.5D preview) not started. Active sessions: claim `.session.lock`.
+- Nothing mid-work. 2D builder usability pass shipped 2026-07-08 (ROADMAP *h*): 100mm default wall, inside-face reference, visible "corner clearance" gap (wall full length, panel inset), click-to-toggle lock, calmer keep-90° (drag moves only grabbed node; length-edit one-hop excludes anchor — fixed a self-cancelling bug), non-trapping node drag, editable through/butt per corner, wall-band draw preview. All plan-view/interaction only — 8 goldens byte-identical. Phase 3 (full columns/returns, multi-hop constraint solve, optional 2.5D) not started. Active sessions: claim `.session.lock`.
 
 ## Resolved
 

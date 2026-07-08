@@ -189,7 +189,7 @@ if (html) {
       }
       { // 2D room builder: compilePlan (2026-07-08) — plan is the source, walls derived; safe + preserving
         must(typeof api.pnPlanCompile === 'function', 'pnPlanCompile must be exported from PN_ENGINE');
-        must(api.PN_WALL_T === 150 && api.PN_PANEL_T === 22, 'plan defaults must be wall 150 / panel 22');
+        must(api.PN_WALL_T === 100 && api.PN_PANEL_T === 22, 'plan defaults must be wall 150 / panel 22');
         // no plan → walls untouched (manual rooms + goldens safe)
         const manual = room([wall({ w: 2600 })]);
         must(api.pnPlanCompile(manual) === manual.walls, 'no plan → room.walls returned unchanged (same ref)');

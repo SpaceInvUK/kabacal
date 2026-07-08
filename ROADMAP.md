@@ -2,6 +2,23 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (h) — Construtor 2D: usabilidade + visual de canto (só rendering/interação; geometria compilada intacta)
+
+Ajustes do teste do Ednei. Zona guardada: só rendering do plan + interação do builder + `PN_WALL_T` (visual). Geometria compilada, DXF, quote, nesting **não mudam** para salas sem `plan`; through/butt default `auto` mantém a inferência. **8 goldens byte-idênticos.**
+
+1. **Espessura de parede default 100mm** (`PN_WALL_T`, só builder; era 150). Plans existentes mantêm o `edge.wallThickness` salvo.
+2. **Referência = face interna**: a linha dos nós é a face INTERNA (onde o painel encaixa). A parede sai pra FORA; o painel fica dentro. Acaba o "painel dentro da parede / retângulos cruzando".
+3. **Corner clearance** (nome do vão de canto): a parede fica no comprimento MEDIDO cheio; o painel recua pelo encurtamento físico (tick `clr N`). Parede 1000 + butt 22 → parede 1000 cheia, painel para 22 antes. Não parece parede menor.
+4. **Lock por clique**: sumiu o círculo vermelho; cadeado aberto/fechado pequeno ao lado de cada ponta; **clicar a ponta = trava/destrava**, **arrastar = move (se destravada)**.
+5. **Keep 90° mais calmo**: arrastar canto move SÓ o nó pego (ortho-align suave nos eixos dos vizinhos, sem empurrar vizinho, sem grudar em outro nó → some o "parede presa"). A translação quadrada de um salto agora só no edit numérico de comprimento, e EXCLUI a âncora da aresta editada (o comprimento muda de fato — bug corrigido).
+6. **Through/butt editável**: `edge.endA/endB` = auto|through|butt por canto, no inspector; a clearance vai pra parede que encosta. Default auto = inferência (maior passa reto).
+7. **Preview de desenho** = faixa com a espessura da parede (cinza, contorno teal) + comprimento ao vivo — igual à parede final, sem barra azul.
+8. **Junção/painel** ficam limpos pela referência de face interna (itens 2/3).
+
+### Testado (h)
+
+`node tools/check.mjs` ok ✓ · **8 goldens byte-idênticos** ✓ · parede nova = 100mm ✓ · ghost = faixa de parede sem azul, com comprimento ✓ · U: base 1956 (@22), legenda "wall 100mm", "clr 22", painel teal ✓ · lock: clique alterna on/off ✓ · through override: forçar Start=through → shortenL 0, base 1978; auto → 1956 ✓ · **keep-90 corrigido**: editar e1 4000→4600 mantém âncora `a`, move `b`→4600 e translada `c`→4600 (e2 continua vertical) ✓ · save/load preserva lock + endA/endB ✓ · sala manual + Doors intactos ✓ · console limpo ✓.
+
 ## 2026-07-08 (g) — Construtor 2D Fase 2: matemática de canto por espessura, locks, keep-90°, arrastar aberturas, painel visível
 
 Zonas guardadas: Panels geometry + save/load + **matemática que altera dimensão física do painel em cantos** (só para salas COM `plan`). Prova: **8 goldens byte-idênticos** (nenhum golden usa plan/canto) + testes executados novos travando a aritmética exata (22 e 18mm) até as peças. Sem golden binário novo: a aritmética de canto fica travada por asserts exatos em mm no check.mjs (mais forte que um DXF binário para verificar os números); o writer de DXF de painéis já é coberto pelo GOLDEN_PANELS.

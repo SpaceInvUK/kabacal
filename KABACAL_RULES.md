@@ -92,7 +92,17 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 - **Drag openings**: door/window/object drag along their wall (offset snaps 10mm, clamped); width/height/bottom/offset also numeric; compiles to `wall.openings`.
 - **Panel layer visibility**: wall = neutral grey structure; panel = distinct SOLID TEAL band + bold outline + light centre line, in front on the interior side, with a legend. Clearly not a wall shadow.
 - **Explainability**: the wall inspector shows, dynamically, e.g. "measured 2000 → panel 1956 (panel 22 · frame 80) / Start: butts into neighbour −22mm · corner allowance 102mm / End: through corner" — all values recompute with the actual thickness/frame.
-- Deferred to Phase 3: full column/return objects, multi-hop constraint solving, editable through/butt choice per corner.
+- Deferred to Phase 3: full column/return objects, multi-hop constraint solving.
+
+### 2D builder usability pass (2026-07-08)
+
+- **Default wall thickness now 100mm** (`PN_WALL_T`, 2D-builder only; was 150). Existing plans keep their stored `edge.wallThickness`.
+- **Inside-face reference**: the drawn node line = the wall's INSIDE face (where the panel is fitted). The wall thickness extrudes OUTWARD only; the panel sits on the inside going in by `pt`. This kills the "panel inside the wall / rectangles crossing" look — panel clearly on the interior, wall solid to the exterior.
+- **Corner clearance** (the agreed name for the corner gap): the wall stays FULL measured length; the panel band is inset by the physical shortening (`clr N` tick shown). So a 1000mm wall with a 22mm butt shows a full 1000 wall and a panel stopping 22 short — not a shorter wall.
+- **Endpoint lock UI**: no more red circle. Small open/closed padlock glyph beside each endpoint; **click an endpoint = toggle lock**, **drag = move (if unlocked)**. Locked endpoints can't move (message on attempt).
+- **Keep 90° is calmer**: dragging a corner moves ONLY the grabbed node (soft ortho-align to neighbours' axes, no neighbour shift, never snaps onto another node → no "trapped wall"). The one-hop square translation now applies only to a numeric Length edit, and it EXCLUDES the edited edge's anchor (so the length actually changes).
+- **Through/butt editable**: `edge.endA`/`edge.endB` = `auto` (inference) | `through` | `butt`, per corner, from the wall inspector. The clearance moves to whichever wall butts. Default `auto` = longer-through inference (unchanged; goldens safe).
+- Draw preview is a wall-thickness band (grey, teal outline) + live length — matches the final wall, not a blue bar.
 
 ## Nesting
 
