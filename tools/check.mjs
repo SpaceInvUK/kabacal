@@ -167,6 +167,26 @@ if (html) {
         const geomB = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 3000, notes: ['note one', 'note two'], panelNotes: { w0p1: ['x'] } })])).pieces.map(p => [p.x0, p.x1, p.y0, p.y1, p.cells.length]));
         must(geomA === geomB, 'notes must not change any geometry');
       }
+      { // vertical ZONE (2026-07-08): one panel → physical vertical (≤1200×≤3000, 10x4); wall auto-refills; mixed OK
+        const plain = api.pnLayoutRoom(room([wall({ w: 5000 })])).pieces;
+        must(plain.every(p => p.dir === 'h'), 'wall without a zone must be all horizontal');
+        const L = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z1', x: 2000, w: 1000, h: 3000, cols: 0, rows: 2 }] })]));
+        const vz = L.pieces.filter(p => p.isZone);
+        must(vz.length === 1, 'exactly one vertical zone piece expected (got ' + vz.length + ')');
+        const z = vz[0];
+        must(z.dir === 'v' && Math.abs(z.w - 1000) < 0.6 && Math.abs(z.h - 3000) < 0.6, `zone must be 1000×3000 vertical (got ${z.w}×${z.h})`);
+        must(z.sheet === '10x4', '3000-tall zone must be a 10x4 piece');
+        must(z.cells.length >= 2 && [...new Set(z.cells.map(c => Math.round(c.y)))].length === 2, 'zone rows=2 → two cell bands');
+        must(Math.abs(z.sides.l.mm - 40) < 0.01 && Math.abs(z.sides.r.mm - 40) < 0.01, 'zone joints must be 40/40 to the refilled band');
+        const band = L.pieces.filter(p => p.wi === 0 && !p.isZone);
+        must(band.length >= 2 && band.every(p => p.dir === 'h'), 'the rest of the wall must auto-refill with horizontal panels');
+        must(band.some(p => p.x1 <= z.x0 + 0.6) && band.some(p => p.x0 >= z.x1 - 0.6), 'horizontal panels must sit on BOTH sides of the vertical panel');
+        const wide = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z2', x: 100, w: 1600, h: 3500 }] })])).pieces.find(p => p.isZone);
+        must(wide.w <= 1200.6 && wide.h <= 3000.6, `zone must clamp to 1200×3000 (got ${wide.w}×${wide.h})`);
+        const noZoneGeom = JSON.stringify(plain.map(p => [Math.round(p.x0), Math.round(p.x1)]));
+        const stillPlain = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 5000, vZones: [] })])).pieces.map(p => [Math.round(p.x0), Math.round(p.x1)]));
+        must(noZoneGeom === stillPlain, 'empty vZones array must equal no-zone geometry (byte-identical safety)');
+      }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
 

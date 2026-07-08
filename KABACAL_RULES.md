@@ -33,7 +33,8 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 
 ### Vertical
 
-- Colunas ≤1206 de largura (auto = teto(L/1206); override nunca abaixo do mínimo), altura padrão 3000 (= cap do 10x4). Rows: stepper, default 2; a fileira de baixo alinha com a linha do painel horizontal (hPanelH − frame).
+- **Parede inteira vertical** (`wall.dir='v'`): colunas ≤1206 de largura (auto = teto(L/1206); override nunca abaixo do mínimo), altura padrão 3000 (= cap do 10x4). Rows: stepper, default 2; a fileira de baixo alinha com a linha do painel horizontal (hPanelH − frame).
+- **Painel físico vertical em parede horizontal (mixed orientation, 2026-07-08)**: selecionar um painel e pôr Orientation = Vertical cria um `wall.vZones[{id,x,w,h,cols,rows}]` — um painel FÍSICO vertical de verdade (não só troca o estilo do shaker). Máx **1200 largura × 3000 altura**, chapa 10x4, em pé. No `pnWallSpans` a zona é uma PARADA DURA com joints 40/40 nos dois lados → a banda horizontal **auto-preenche** os vãos à esquerda/direita; os outros painéis continuam horizontais. Vários painéis verticais na mesma parede = OK. Grade da zona = mesma regra da parede vertical (colunas ≤1200, rows default 2, fileira de baixo alinhada). "Back to horizontal" remove a zona. Sem zonas = geometria byte-idêntica (goldens intactos). A troca de estilo de shaker por painel (`panelOv.dir`, motor de 83ebf1e) continua no motor mas saiu da UI de orientação — orientação agora é FÍSICA.
 
 ### Aberturas / sill / skirting
 
@@ -46,6 +47,7 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 ### Notes (2026-07-08)
 
 - Notas por parede: `wall.notes = []` (várias, texto livre; add/edit/delete no inspector quando a parede está selecionada). Per-painel: `wall.panelNotes[pid] = []` (aparece no PANEL SETTINGS). **Não afetam geometria nem preço** (invariante testado no check.mjs); viajam no `.fastcnc` dentro de `panelRooms`; arquivos antigos sem o campo carregam normal.
+- **Notas do Quote (cliente, 2026-07-08)**: `project.quoteNotes` — editável na aba Quote (textarea "shown to the customer"), aparece no PDF do cliente (`buildQuoteHtml`, bloco Notes). Precedência: PDF mostra `quoteNotes || notes` (o "Notes / reference" da client bar segue como fallback pra arquivos antigos). As notas INTERNAS de parede/painel NUNCA vão pro PDF do cliente. Persiste via `kabacal` meta.
 
 ### Seleção wall × panel (2026-07-08)
 

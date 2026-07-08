@@ -2,7 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
-## 2026-07-08 (d) — Panels: skirting por parede + import do skirting antigo + notas por parede/painel + seleção wall×panel no canvas
+## 2026-07-08 (e) — Quote notes (cliente) + PAINEL FÍSICO VERTICAL de verdade (mixed orientation via zones)
+
+Dois itens confirmados pelo Ednei. O room/wall-builder 3D fica só como plano (resposta ao Ednei / STATUS). Zonas guardadas tocadas: **Panels geometry + DXF + nesting + quote** (por causa do painel vertical) e **print doc** (quote notes). Prova: **todos os 8 goldens byte-idênticos** (nenhum job de golden usa zone nem quoteNotes → caminho antigo intacto).
+
+- **Quote notes (cliente)**: `project.quoteNotes` — textarea na aba Quote ("shown to the customer on the quote / PDF"); sai no PDF do cliente (`quoteNotes || notes`, fallback pro campo antigo). Notas internas de parede/painel continuam SÓ no editor de Panels, nunca no PDF do cliente. Persiste no `.fastcnc` (kabacal meta).
+- **Painel físico vertical (a regra real, confirmada)**: selecionar um painel → Orientation = Vertical cria `wall.vZones[{id,x,w≤1200,h≤3000,cols,rows}]` = painel FÍSICO vertical em pé na chapa 10x4 (não só troca estilo de shaker). `pnWallSpans` trata a zona como parada dura 40/40 → a banda horizontal **auto-preenche** os vãos dos dois lados; outros painéis seguem horizontais; vários verticais na mesma parede OK. PANEL SETTINGS da zona: Width (≤1200) / Height (≤3000) / Columns / Rows editáveis + "Back to horizontal" remove. Nomeação/vn/pid (`vz{id}`), nesting, DXF (`PANELS_<esp>`), quote e save/load fluem por serem só mais uma peça. `panelOv.dir` (estilo de shaker, motor de 83ebf1e) fica no motor + teste, mas saiu da UI — orientação agora é FÍSICA.
+- check.mjs: testes executados novos — zone 1200×3000 10x4 + joints 40/40 + banda dos dois lados + clamp 1600→1200/3500→3000 + `vZones:[]` == sem-zona (segurança byte-idêntica); notas do quote não mexem em geometria/preço (quote goldens idênticos).
+
+### Testado (e)
+
+`node tools/check.mjs` ok (+ testes de zone e quote-notes) ✓ · **8 goldens byte-idênticos**: NC ll/c, DXF standard/rich/panels, QUOTE_standard/rich/mixed — todos OK ✓ · quote note aparece no PDF, nota interna de parede NÃO aparece, precedência quoteNotes>notes, round-trip persiste ✓ · painel vertical: parede 5000 → seleciono painel B → vira 1200×3000 vertical 10x4 (joints 40/40, 6 células 2×3), A/C horizontais dos dois lados, seleção vai pra zona, inspector "VERTICAL PANEL (physical)" com Width/Height editáveis ✓ · editar largura→1000, DXF inclui "Wall 1B" (3 OUT), quote 3 chapas/3 peças, save/load preserva (w1000/h3000/dir v), 2 verticais na mesma parede, "back to horizontal" remove ✓ · console limpo ✓ · (screenshot do preview ainda trava no ambiente — verificação por eval/a11y).
 
 Correções práticas do teste do Ednei (o 3D/wall-builder fica só como REVIEW de arquitetura, sem código — ver STATUS / resposta ao Ednei). Zona guardada tocada: **Panels geometry + DXF** (por causa do skirting mudar a cavidade) e **import**. Prova: todos os goldens byte-idênticos (nenhum override = caminho antigo intacto).
 

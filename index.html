@@ -4684,14 +4684,28 @@
     return best?best.c:1;
   }
   function pnOpRect(o,wall){const W=+wall.w||0,ow=+o.w||0;let x=+o.x||0;if((o.from||'L')==='R')x=W-x-ow;x=Math.max(0,Math.min(Math.max(0,W-ow),x));return {x0:x,x1:x+ow};}
-  // coverage spans of one wall between doors/objects (a window does NOT break coverage — it is a cutout)
+  // A vertical ZONE = one panel of a horizontal wall turned into a physical vertical panel (mixed orientation).
+  // Width capped at 1200 (under the 1206 sheet-cross), height default = room vertical panel height, ≤3000 (10x4).
+  function pnZoneRect(z,wall,D){
+    const W=Math.max(0,+wall.w||0);
+    const w=Math.max(120,Math.min(+z.w>0?+z.w:1200,1200,W||1200));
+    const x=Math.max(0,Math.min(Math.max(0,W-w),+z.x||0));
+    const h=Math.max(300,Math.min(+z.h>0?+z.h:((D&&D.vPanelH)||3000),PN_CAP['10x4']));
+    return {x0:x,x1:x+w,w:w,h:h};
+  }
+  // coverage spans of one wall between doors/objects/vertical-zones (a window does NOT break coverage — it is a
+  // cutout). A vertical zone is a hard stop with 40/40 joints on both sides, so the horizontal band auto-refills
+  // the spans left and right of it. No zones/openings → one full-wall span (unchanged, goldens byte-identical).
   function pnWallSpans(wall,D){
     const W=Math.max(0,+wall.w||0);
-    const ops=(wall.openings||[]).filter(o=>o.type==='door'||o.type==='object').map(o=>({r:pnOpRect(o,wall),t:o.type,o})).sort((a,b)=>a.r.x0-b.r.x0);
+    const stops=(wall.openings||[]).filter(o=>o.type==='door'||o.type==='object').map(o=>({r:pnOpRect(o,wall),t:o.type,o}));
+    if((wall.dir||'h')!=='v')(wall.vZones||[]).forEach(z=>stops.push({r:pnZoneRect(z,wall,D),t:'vzone',o:z}));
+    stops.sort((a,b)=>a.r.x0-b.r.x0);
+    const ruleOf=t=>t==='door'?'door':(t==='vzone'?'joint':'normal');
     const spans=[];let cur=0,lr=wall.sideL||'normal',lOpen=null;
-    ops.forEach(e=>{
-      if(e.r.x0>cur+0.5)spans.push({x0:cur,x1:e.r.x0,lr,rr:e.t==='door'?'door':'normal',lOpen,rOpen:e.o});
-      lr=e.t==='door'?'door':'normal';lOpen=e.o;cur=Math.max(cur,e.r.x1);
+    stops.forEach(e=>{
+      if(e.r.x0>cur+0.5)spans.push({x0:cur,x1:e.r.x0,lr,rr:ruleOf(e.t),lOpen,rOpen:e.o});
+      lr=ruleOf(e.t);lOpen=e.o;cur=Math.max(cur,e.r.x1);
     });
     if(cur<W-0.5)spans.push({x0:cur,x1:W,lr,rr:wall.sideR||'normal',lOpen,rOpen:null});
     return spans;
@@ -4917,12 +4931,47 @@
       }
     });
   }
+  // one physical VERTICAL panel embedded in a horizontal wall (mixed orientation) — same vertical shaker rule
+  // as a full vertical wall (columns ≤1200, rows default 2, bottom row aligned to the horizontal panel line).
+  // The band auto-refills around it because pnWallSpans already treats the zone as a hard 40/40 stop.
+  function pnZonePieces(wall,wi,D,pieces,warns){
+    if((wall.dir||'h')==='v')return;
+    const f=D.frame,W=Math.max(0,+wall.w||0),sk=D.skirtFor(wi);
+    (wall.vZones||[]).forEach(z=>{
+      const r=pnZoneRect(z,wall,D);
+      const lRule=r.x0<=0.5?(wall.sideL||'normal'):'joint';
+      const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):'joint';
+      const p={wi,dir:'v',isZone:true,zid:z.id,x0:r.x0,x1:r.x1,y0:0,y1:r.h,w:r.w,h:r.h,
+        sheet:r.h>PN_CAP['8x4']?'10x4':'8x4',
+        sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
+      if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
+      const inner=r.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
+      if(inner>=80&&cy1-cy0>=60){
+        const nc=(+z.cols>0)?Math.max(1,Math.round(+z.cols)):pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
+        if(ccw>40){
+          const rowsY=[],alignTop=D.hPanelH-f;
+          if(rows>1&&alignTop>cy0+PN_SHK.min&&alignTop<cy1-PN_SHK.min){
+            rowsY.push([cy0,alignTop]);
+            const upN=rows-1,u0=alignTop+f,uh=(cy1-u0-f*(upN-1))/upN;
+            for(let r2=0;r2<upN;r2++){const a=u0+r2*(uh+f);rowsY.push([a,a+uh]);}
+          } else {
+            const rh=(cy1-cy0-f*(rows-1))/rows;
+            for(let r2=0;r2<rows;r2++){const a=cy0+r2*(rh+f);rowsY.push([a,a+rh]);}
+          }
+          rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;for(let c=0;c<nc;c++)p.cells.push({x:p.sides.l.mm+c*(ccw+f),y:ry[0],w:ccw,h:ry[1]-ry[0]});});
+        }
+      }
+      (wall.openings||[]).forEach(o=>{const or=pnOpRect(o,wall);if(or.x0<r.x1-1&&or.x1>r.x0+1)warns.push('Vertical panel overlaps "'+(o.name||o.type)+'" on Wall '+(wi+1)+' — move one apart.');});
+      pieces.push(p);
+    });
+  }
   function pnDefaultDeps(){return {nestCost:function(ps){let c=0;ps.forEach(p=>{c+=(p.sheet==='10x4'||Math.max(p.w,p.h)>PN_CAP['8x4'])?1.25:1;});return {cost:c,waste:0};}};}
   function pnLayoutRoom(room,deps){
     deps=deps||pnDefaultDeps();
     const D=pnRoomDefs(room),walls=room.walls||[],warns=[],pieces=[];
-    // combo-independent pieces first (vertical walls, caps above openings, window lower panels)
+    // combo-independent pieces first (vertical walls, embedded vertical zones, caps, window lower panels)
     walls.forEach((w,wi)=>{if((w.dir||'h')==='v')pnLayoutVWall(w,wi,D,pieces,warns);});
+    walls.forEach((w,wi)=>pnZonePieces(w,wi,D,pieces,warns));
     walls.forEach((w,wi)=>pnOpeningPieces(w,wi,D,pieces));
     const basePieces=pieces.slice();
     // horizontal band: runs → grids → stretches → candidate splits → room-level pick
@@ -4950,7 +4999,7 @@
     const pnLetter=n=>{let s='';do{s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26)-1;}while(n>=0);return s;};
     pieces.forEach(p=>{
       perWall[p.wi]=(perWall[p.wi]||0)+1;
-      p.pid='w'+p.wi+'p'+perWall[p.wi];
+      p.pid=p.isZone?('vz'+p.zid):('w'+p.wi+'p'+perWall[p.wi]);   // zone pid stays stable across re-layout
       p.vn=++vn;
       p.letter=pnLetter(perWall[p.wi]-1);
       p.name='Wall '+(p.wi+1)+p.letter;
@@ -5281,6 +5330,38 @@
     else ov[field]=val;
     pnRefresh();}
   function pnPieceAuto(){const w=pnWallObj();if(!w||!w.panelOv)return;delete w.panelOv[pnSel.id];pnRefresh();}
+  // ---- mixed orientation: a physical VERTICAL panel = a vertical zone on the wall (wall.vZones) ----
+  function pnZoneOf(wall,pid){if(!wall||String(pid).indexOf('vz')!==0)return null;const id=String(pid).slice(2);return (wall.vZones||[]).find(z=>String(z.id)===id)||null;}
+  function pnPieceOrient(v){
+    const w=pnWallObj(),r=pnRoomObj();if(!w||!r)return;
+    let L;try{L=pnRoom(r);}catch(e){return;}
+    const p=(L?L.pieces:[]).find(x=>x.pid===pnSel.id);if(!p)return;
+    if(v==='v'&&!p.isZone){
+      // turn THIS panel into a physical vertical panel; the wall auto-refills the rest as horizontal
+      w.vZones=w.vZones||[];
+      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:Math.min(Math.round(p.w),1200),h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
+      w.vZones.push(z);
+      pnSel={room:pnSel.room,wall:pnSel.wall,kind:'piece',id:'vz'+z.id};
+      pnRefresh();
+    } else if(v==='h'&&p.isZone){
+      w.vZones=(w.vZones||[]).filter(z=>('vz'+z.id)!==p.pid);
+      pnSel={room:pnSel.room,wall:pnSel.wall,kind:'wall',id:null};
+      pnRefresh();
+    }
+  }
+  function pnZoneSet(field,val){
+    const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;const n=pnNum(val);
+    if(field==='w')z.w=Math.max(120,Math.min(1200,n));
+    else if(field==='h')z.h=Math.max(300,Math.min(PN_CAP['10x4'],n));
+    else if(field==='x')z.x=Math.max(0,n);
+    pnRefresh();
+  }
+  function pnZoneStep(field,d){
+    const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;
+    if(field==='cols')z.cols=Math.max(0,Math.round(+z.cols||0)+d);
+    else z.rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)+d);
+    pnRefresh();
+  }
   // ---- per-wall skirting override (room default unless the wall sets its own) ----
   function pnWallSkirt(field,val){
     const w=pnWallObj(),r=pnRoomObj();if(!w||!r)return;
@@ -5605,18 +5686,28 @@
         const bandsN=(function(){const s={};(p.cells||[]).forEach(c=>s[Math.round(c.y)]=1);return Math.max(1,Object.keys(s).length);})();
         const colsNow=Math.max(1,Math.round((p.cells||[]).length/bandsN));
         const frNow=p.ovFrame||(L?L.D.frame:80);
-        let b='<div class="pn-row" style="background:'+(isCustom?'#fef3c7':'transparent')+';border-radius:6px;padding:2px 6px"><label style="font-weight:800">Status</label><b style="color:'+(isCustom?'#b45309':'#16a34a')+'">'+(isCustom?'CUSTOM (this panel only)':'AUTO (run grid)')+'</b></div>';
+        const isZone=!!p.isZone;
+        let b='<div class="pn-row" style="background:'+((isZone||isCustom)?'#fef3c7':'transparent')+';border-radius:6px;padding:2px 6px"><label style="font-weight:800">Status</label><b style="color:'+((isZone||isCustom)?'#b45309':'#16a34a')+'">'+(isZone?'VERTICAL PANEL (physical)':(isCustom?'CUSTOM (this panel only)':'AUTO (run grid)'))+'</b></div>';
         if(p.ovNote)b+='<div class="pn-warn" style="margin:4px 0">⚠ '+esc(p.ovNote)+'</div>';
-        b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints on the WALL to move it">'+Math.round(p.w)+'mm · from joints</span></div>';
-        b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
-        b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],gDirNow,'pnPieceOv(\'dir\',\'%V\')')+'</div>';
-        b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
-        b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';
-        b+='<div class="pn-row"><label>Frame</label><input type="number" min="1" value="'+Math.round(frNow)+'" onchange="pnPieceOv(\'frame\',this.value)" title="Internal grid frame for THIS panel (top/bottom margins + gaps between shakers). Joint edges stay 40/40 of the wall frame."><span class="sub" style="margin-left:4px">mm'+(ov.frame?'':' · wall default')+'</span></div>';
-        b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)')+'</div>';
-        b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)')+'</div>';
-        b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceAuto()" style="font-weight:800">↺ Reset this panel to AUTO</button></div>';
-        b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40; width moves only via wall/run settings. Wall &amp; room settings are in the sections below.</div>';
+        b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],isZone?'v':'h','pnPieceOrient(\'%V\')')+'</div>';
+        if(isZone){
+          b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel — stands upright on the 10x4 vertical sheet, max 1200 wide × 3000 high. The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
+          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="1200" value="'+Math.round(p.w)+'" onchange="pnZoneSet(\'w\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 1200</span></div>';
+          b+='<div class="pn-row"><label>Height</label><input type="number" min="300" max="3000" value="'+Math.round(p.h)+'" onchange="pnZoneSet(\'h\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 3000</span></div>';
+          b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1)">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1)">+</button></span></div>';
+          b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1)">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1)">+</button></span></div>';
+          b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceOrient(\'h\')" style="font-weight:800">↺ Back to horizontal (remove vertical panel)</button></div>';
+        } else {
+          b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints on the WALL to move it">'+Math.round(p.w)+'mm · from joints</span></div>';
+          b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
+          b+='<div class="pn-row"><label>Shaker columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
+          b+='<div class="pn-row"><label>Shaker rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';
+          b+='<div class="pn-row"><label>Frame</label><input type="number" min="1" value="'+Math.round(frNow)+'" onchange="pnPieceOv(\'frame\',this.value)" title="Internal grid frame for THIS panel (top/bottom margins + gaps between shakers). Joint edges stay 40/40 of the wall frame."><span class="sub" style="margin-left:4px">mm'+(ov.frame?'':' · wall default')+'</span></div>';
+          b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)')+'</div>';
+          b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)')+'</div>';
+          b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceAuto()" style="font-weight:800">↺ Reset this panel to AUTO</button></div>';
+        }
+        b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40. Wall &amp; room settings are in the sections below.</div>';
         body=SEC('PANEL SETTINGS — '+esc(p.name),b);
         body+=SEC('Panel notes',pnNotesUi((wall.panelNotes&&wall.panelNotes[p.pid])||[],'pnPNoteAdd','pnPNoteSet','pnPNoteDel'));
       } else {pnSel.kind='wall';}
@@ -5843,6 +5934,11 @@
       +'<div class="q-tot"><div class="sumrow"><span class="k">Parts</span><span>'+d.partN+'</span></div><div class="sumrow"><span class="k">Sheets</span><span>'+d.sheetN+'</span></div>'+(d.formula?'<div class="sumrow"><span class="k">Doors (website formula)</span><span>'+money(d.doorsTot)+'</span></div>':'<div class="sumrow"><span class="k">Material</span><span>'+money(d.matTot)+'</span></div><div class="sumrow"><span class="k">CNC + machining</span><span>'+money(d.cncTot)+'</span></div>')+(d.panels&&d.panels.total?'<div class="sumrow"><span class="k">Doors subtotal</span><span>'+money(d.bodyTot)+'</span></div><div class="sumrow"><span class="k">Panels subtotal ('+d.panels.partN+' panels · '+d.panels.sheetN+' sheets)</span><span>'+money(d.panels.total)+'</span></div>':'')+(d.svcTot?'<div class="sumrow"><span class="k">Additional services</span><span>'+money(d.svcTot)+'</span></div>':'')+(d.spray.parts?'<div class="sumrow"><span class="k">Spray finish</span><span>'+money(d.spray.total)+'</span></div>':'')+'<div class="sumrow"><span class="k">Subtotal ex VAT</span><span>'+money(d.sub)+'</span></div>'+(vatOn?'<div class="sumrow"><span class="k">VAT 20%</span><span>'+money(d.vat)+'</span></div>':'')+'<div class="sumrow"><span class="k">Total'+(vatOn?' inc VAT':'')+'</span><span class="total">'+money(d.total)+'</span></div></div>'
       +'<label class="sub" style="display:inline-flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" '+(vatOn?'checked':'')+' onchange="toggleVat(this.checked)"> Include VAT 20%</label>'
       +'<div class="sub" style="margin-top:4px">Machining = % of CNC base · Pocket/Reeded by area (1m²=12min), Drilling +5%, Extra +10% each.'+(hideValues?' Values hidden on screen — they still print.':'')+'</div>'
+      +'<div class="qnotes-edit" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">'
+        +'<div class="sub" style="font-weight:700;margin-bottom:4px">Quote notes <span style="font-weight:400;color:#64748b">— shown to the customer on the quote / PDF</span></div>'
+        +'<textarea id="qNotes" rows="3" style="width:100%;font:inherit;font-size:12.5px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);resize:vertical" placeholder="e.g. Lead time 3 weeks · 50% deposit · prices held 30 days" onchange="setProject(\'quoteNotes\',this.value)">'+esc(project.quoteNotes||'')+'</textarea>'
+        +'<div class="sub" style="color:#64748b;margin-top:3px">Internal wall / panel notes stay in the Panels editor and never appear on the customer quote.</div>'
+      +'</div>'
       +'</div>'
       +'<div style="margin-top:10px;text-align:right"><button class="btn primary" onclick="openQuoteDoc()">Print / Save as PDF</button> <button class="btn ghost" onclick="openCutList()">Cut list</button></div>';
     box.innerHTML=html;
@@ -5914,7 +6010,7 @@
       +svcTable
       +totals
       +'<div class="qsec">Parts</div>'+partsTableHtml()
-      +(project.notes?'<div class="qnote"><b>Notes:</b> '+esc(project.notes)+'</div>':'')
+      +((project.quoteNotes||project.notes)?'<div class="qnote"><b>Notes:</b> '+esc(project.quoteNotes||project.notes)+'</div>':'')
       +'<div class="qsec">Drawings</div>'+printSheetsHtml()
       +'<div class="foot">Generated by Kabacal · Quote valid 30 days · FAST CNC Services</div>';
   }

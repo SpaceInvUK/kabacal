@@ -13,14 +13,15 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## In flight
 
-- Nothing mid-work. Panels skirting/notes/import/selection shipped 2026-07-08 (ROADMAP *d*). Active sessions: claim `.session.lock`.
+- Nothing mid-work. Quote notes + real physical vertical panel (zones) shipped 2026-07-08 (ROADMAP *e*). Active sessions: claim `.session.lock`.
 
-## Open product question (needs Ednei)
+## Resolved
 
-- **What does per-panel "Vertical" mean?** Shipped `panelOv.dir` (83ebf1e) flips a panel's INTERNAL shaker style (one row ↔ columns×rows grid) — it does NOT turn the panel into a physical 3000-tall vertical-sheet piece with the wall auto-refilling around it (which is what the earlier request described). A `vZones` attempt at the latter was stashed (`round4-vZones-superseded-by-83ebf1e`), not shipped. Decide which behaviour "Vertical" should mean before building more orientation.
+- **Per-panel "Vertical" = physical vertical panel** (Ednei confirmed 2026-07-08). Implemented via `wall.vZones` (physical 1200×3000 10x4 piece; wall auto-refills around it; mixed orientation). The old `panelOv.dir` shaker-style flip stays in the engine + its check test but is off the orientation UI. Earlier stash `round4-vZones-superseded-by-83ebf1e` is now obsolete (superseded by the shipped clean version) — safe to drop.
 
 ## Decision log
 
+- 2026-07-08 · **Vertical zones** (`wall.vZones`) = real physical vertical panels (mixed orientation, band auto-refill, 40/40); **quote notes** (`project.quoteNotes`) on the customer PDF, separate from internal wall/panel notes. All 8 goldens byte-identical.
 - 2026-07-08 · **Per-wall skirting** added (`wall.skirt`), resolver `D.skirtFor` (panel>wall>room); per-panel prepared (`wall.panelSkirt`), no UI. Old-import skirting now maps block+per-part faithfully (305→225). Notes (`wall.notes`, `wall.panelNotes`) are inert (no geometry/price). All goldens byte-identical.
 - 2026-07-08 · **3D / wall-builder = architecture review only** (no code this session). Recommendation on record in ROADMAP-adjacent report / chat: SVG top-down (2D) first feeding the existing PN engine; Three.js deferred. See the review before starting.
 - 2026-07-07 · **Doors is the default mode** on boot (`kab_mode` no longer restored). Panels stays one click away.
