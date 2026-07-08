@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (f) — Construtor 2D top-down de salas/paredes (Beta, Fase 1) que COMPILA nas paredes atuais
+
+Aprovado pelo Ednei. SVG top-down (nada de 3D/Three.js — performance). O plano desenhado é a FONTE; `room.walls` é DERIVADO → o motor/quote/DXF atuais continuam iguais. Zona guardada: Panels geometry/save-load (aditivo). Prova: **8 goldens byte-idênticos** (nenhum golden usa `room.plan` → caminho antigo intacto).
+
+- **Modelo (aditivo)**: `room.plan = {nodes[{id,x,y}], edges[{id,a,b,wallThickness,height}], openings[{id,edgeId,type,offset,width,height,bottom}], objects[…], panelLayer{thickness:22,side}}`, tudo em mm. `pnPlanCompile(room)` (PURO, dentro do PN_ENGINE, node-testado): 1 parede por edge (id `pe_<edgeId>`, largura = comprimento, altura = edge.height||3200), **preserva** dir/sides/skirt/notes/panelOv/vZones/openings-do-inspector por id ao recompilar; openings/objects do plano compilam em `wall.openings` (ids `plan_`). **Sem `plan` → walls intactas** (salas manuais e goldens idênticos).
+- **Builder UI (`pnView='plan'`)**: entradas "▦ draw" (tab), "▦ Draw a room" (vazio), "▦ 2D Builder" (sala existente). Ferramentas Draw (arrastar cria parede 150mm, snap em cantos/ortho, comprimento arredonda 10mm, encadeia pelo endpoint) · Select (arrastar canto move as paredes que o compartilham; clicar parede edita comprimento/espessura/altura + add door/window/object) · Pan (roda = zoom sempre, ⤢ = fit). Parede desenhada como retângulo (150mm) + **camada de painel 22mm** em azul na frente (interior); cota de comprimento em mm, nome "Wall N", cantos visíveis. Door = folha + arco de abertura; Window = moldura + linha central; Object = retângulo tracejado — todos com rótulo de tamanho.
+- **Compat**: pnView reseta pra 'wall' ao criar/selecionar sala manual (bug pego no QA: pnView='plan' vazava e carimbava um plano vazio numa sala manual). Save/load leva `plan` + walls derivadas; arquivos antigos sem plan carregam igual. Doors intacto.
+- **Fase 2 (planejado)**: arrastar/editar openings direto no desenho, inferência de canto/coluna; **Fase 3**: preview 2.5D/3D opcional (só visual, nunca muda geometria de produção).
+- check.mjs: `pnPlanCompile` exportado + testes (1 parede 3000×3200, 3 paredes conectadas 4000/3000/4000, preserva settings por id, opening compila, sem-plano = mesma ref).
+
+### Testado (f)
+
+`node tools/check.mjs` ok (+ testes do compilePlan) ✓ · **8 goldens byte-idênticos** (NC ll/c, DXF standard/rich/panels, QUOTE_standard/rich/mixed) ✓ · desenhar 3 paredes conectadas → compila 3 walls (pe_e1/2/3, 4000/3000/4000, h3200) que o motor consome (6 peças, "Room 1 Wall 1A") e o quote calcula (£1945/5 chapas) ✓ · SVG: 3 wall polys, 6 cantos, cotas 4000/3000mm, camada de painel azul, grid, nomes ✓ · add door → símbolo com arco de abertura + compila em wall.openings ✓ · editar comprimento 4600 move o nó ✓ · draw via mouseup real commita parede (2500mm) ✓ · save/load preserva plan(3 edges)+walls(3) e recompila ✓ · sala manual continua sem plan, 2 peças, e criar manual a partir do builder volta pra Wall view ✓ · console limpo ✓ · (screenshot do preview ainda trava no ambiente — verificação por eval/a11y).
+
 ## 2026-07-08 (e) — Quote notes (cliente) + PAINEL FÍSICO VERTICAL de verdade (mixed orientation via zones)
 
 Dois itens confirmados pelo Ednei. O room/wall-builder 3D fica só como plano (resposta ao Ednei / STATUS). Zonas guardadas tocadas: **Panels geometry + DXF + nesting + quote** (por causa do painel vertical) e **print doc** (quote notes). Prova: **todos os 8 goldens byte-idênticos** (nenhum job de golden usa zone nem quoteNotes → caminho antigo intacto).

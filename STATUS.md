@@ -13,7 +13,7 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## In flight
 
-- Nothing mid-work. Quote notes + real physical vertical panel (zones) shipped 2026-07-08 (ROADMAP *e*). Active sessions: claim `.session.lock`.
+- Nothing mid-work. 2D room builder Beta (Phase 1) shipped 2026-07-08 (ROADMAP *f*) — draws walls top-down, compiles to `room.walls` via `pnPlanCompile`. Phase 2 (openings dragged on the plan) + Phase 3 (optional 2.5D preview) not started. Active sessions: claim `.session.lock`.
 
 ## Resolved
 
@@ -21,6 +21,7 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## Decision log
 
+- 2026-07-08 · **2D room builder** (`room.plan` → `pnPlanCompile` → `room.walls`): SVG top-down, additive, no plan = unchanged. Plan is editor source; walls stay the engine's single input. SVG-first by decision (no Three.js; performance). All 8 goldens byte-identical.
 - 2026-07-08 · **Vertical zones** (`wall.vZones`) = real physical vertical panels (mixed orientation, band auto-refill, 40/40); **quote notes** (`project.quoteNotes`) on the customer PDF, separate from internal wall/panel notes. All 8 goldens byte-identical.
 - 2026-07-08 · **Per-wall skirting** added (`wall.skirt`), resolver `D.skirtFor` (panel>wall>room); per-panel prepared (`wall.panelSkirt`), no UI. Old-import skirting now maps block+per-part faithfully (305→225). Notes (`wall.notes`, `wall.panelNotes`) are inert (no geometry/price). All goldens byte-identical.
 - 2026-07-08 · **3D / wall-builder = architecture review only** (no code this session). Recommendation on record in ROADMAP-adjacent report / chat: SVG top-down (2D) first feeding the existing PN engine; Three.js deferred. See the review before starting.

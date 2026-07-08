@@ -93,7 +93,7 @@ if (html) {
   must(html.includes("cncRate=(room.cncCost!=null&&room.cncCost!=='')?+room.cncCost:330"), 'panels CNC default £330/sheet missing');
   if (pnSrc) {
     try {
-      const api = new Function(pnSrc + ';return {pnLayoutRoom:pnLayoutRoom,PN_CAP:PN_CAP,PN_CROSS:PN_CROSS};')();
+      const api = new Function(pnSrc + ';return {pnLayoutRoom:pnLayoutRoom,PN_CAP:PN_CAP,PN_CROSS:PN_CROSS,pnPlanCompile:pnPlanCompile,pnPlanLen:pnPlanLen,PN_WALL_T:PN_WALL_T,PN_PANEL_T:PN_PANEL_T};')();
       const wall = o => Object.assign({ w: 2600, h: 3200, dir: 'h', sideL: 'normal', sideR: 'normal', shakerCount: 0, vRows: 2, vCols: 0, openings: [], panelOv: {} }, o);
       const room = (walls, o) => Object.assign({ name: '', mat: 'MDF 18mm', frame: 80, target: 350, doorAllow: 175, skirtOn: true, skirtH: 225, sillH: 22, hPanelH: 1030, vPanelH: 3000, sheetPref: 'auto', walls }, o || {});
       const near = (a, b, t) => Math.abs(a - b) <= (t == null ? 0.5 : t);
@@ -186,6 +186,31 @@ if (html) {
         const noZoneGeom = JSON.stringify(plain.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         const stillPlain = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 5000, vZones: [] })])).pieces.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         must(noZoneGeom === stillPlain, 'empty vZones array must equal no-zone geometry (byte-identical safety)');
+      }
+      { // 2D room builder: compilePlan (2026-07-08) — plan is the source, walls derived; safe + preserving
+        must(typeof api.pnPlanCompile === 'function', 'pnPlanCompile must be exported from PN_ENGINE');
+        must(api.PN_WALL_T === 150 && api.PN_PANEL_T === 22, 'plan defaults must be wall 150 / panel 22');
+        // no plan → walls untouched (manual rooms + goldens safe)
+        const manual = room([wall({ w: 2600 })]);
+        must(api.pnPlanCompile(manual) === manual.walls, 'no plan → room.walls returned unchanged (same ref)');
+        // one wall from two nodes 3000 apart
+        const p1 = { nodes: [{ id: 'n1', x: 0, y: 0 }, { id: 'n2', x: 3000, y: 0 }], edges: [{ id: 'e1', a: 'n1', b: 'n2', height: 3200 }] };
+        const w1 = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: p1 });
+        must(w1.length === 1 && w1[0].w === 3000 && w1[0].h === 3200 && w1[0].id === 'pe_e1', `1-wall plan → 3000×3200 wall (got ${w1[0] && w1[0].w})`);
+        must(api.pnLayoutRoom(room(w1)).pieces.length >= 1, 'compiled wall must feed the layout engine');
+        // three connected walls (shared nodes) → three walls with the right lengths
+        const p3 = { nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }, { id: 'd', x: 0, y: 3000 }],
+          edges: [{ id: 'e1', a: 'a', b: 'b' }, { id: 'e2', a: 'b', b: 'c' }, { id: 'e3', a: 'c', b: 'd' }] };
+        const w3 = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: p3 });
+        must(w3.length === 3 && w3[0].w === 4000 && w3[1].w === 3000 && w3[2].w === 4000, 'three connected walls → 4000/3000/4000');
+        // preserve prior wall settings by id across recompile; plan drives size
+        const prevRoom = { mat: 'MDF 18mm', walls: [{ id: 'pe_e1', w: 999, h: 999, dir: 'v', shakerCount: 5, skirt: { mode: 'custom', on: false } }], plan: p1 };
+        const w1b = api.pnPlanCompile(prevRoom)[0];
+        must(w1b.w === 3000 && w1b.dir === 'v' && w1b.shakerCount === 5 && w1b.skirt && w1b.skirt.on === false, 'recompile preserves dir/shaker/skirt by id, size from plan');
+        // plan opening compiles onto the edge's wall
+        const pOp = { nodes: p1.nodes, edges: p1.edges, openings: [{ id: 'o1', edgeId: 'e1', type: 'door', offset: 800, width: 900, height: 2100 }] };
+        const wOp = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: pOp })[0];
+        must(wOp.openings.length === 1 && wOp.openings[0].type === 'door' && wOp.openings[0].w === 900 && wOp.openings[0].x === 800, 'plan opening compiles into wall.openings');
       }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }

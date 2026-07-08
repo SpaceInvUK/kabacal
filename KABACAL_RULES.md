@@ -73,6 +73,15 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 - `.fastcnc` ganha o campo ADITIVO `panelRooms` (arquivos antigos seguem carregando, inclusive saves da Fase 1 sem os campos novos de preço); quotes antigos do app de panneling (`calcMode:'panel'`) importam para rooms automaticamente (`empty`→Object).
 - **Nomes (regra 2026-07-07, supersede o P1/P2V)**: `Wall 3A / 3B / 3C` — letra por parede em ordem VISUAL (esquerda→direita, baixo→cima), prefixo do nome do room; iguais no viewer/inspector/DXF/quote. `vn` = sequência visual do room inteiro → **PART_NUMBER do DXF segue a ordem visual**, não a ordem de leitura da chapa. Vertical não leva mais sufixo no nome (a direção fica visível no viewer/inspector).
 
+### 2D room builder (Beta, 2026-07-08)
+
+- Top-down SVG plan (`pnView='plan'`) to draw a room from above; entry: "▦ draw" room tab / "▦ Draw a room" empty-state / "▦ 2D Builder" button on an existing room. Everything in **mm**.
+- **Draw** tool: click-drag-release makes a wall; endpoints SNAP to existing corners (connect/chain) and to ortho; length rounds to 10mm. **Select** tool: drag a corner (moves every wall sharing it) or click a wall to edit length/thickness/height + add openings. **Pan** tool: drag; wheel always zooms; ⤢ fits. Same zoom/pan feel as the rest of Panels.
+- Defaults: **wall thickness 150mm**, **panel layer 22mm** (drawn in blue in front of each wall on the room-interior side; `plan.panelLayer.thickness` is configurable — 18/12/9 later, not hard-coded).
+- Doors/windows/objects: proper top-down symbols (door = leaf + swing arc; window = frame + centre line; object = dashed rect), attached to a wall at an offset, with width/height; they compile into `wall.openings` so the existing engine nests/quotes/DXFs them.
+- **The plan compiles into real Panels walls** (`pnPlanCompile`, see ARCHITECTURE) — the walls then behave EXACTLY like manually-created walls (shakers, skirting, orientation/zones, openings, quote, DXF). The builder feeds the engine; it does not replace it. 2.5D/3D stays a later optional preview (no Three.js now; SVG keeps performance intact — draw only on state change).
+- Limitation (Phase 1): editing one wall's length moves the shared corner, so a connected neighbour re-angles (expected graph behaviour); drag corners to true up. Openings drawn in the builder live on `plan`; openings added in the Wall inspector live on the wall — both survive recompile (plan ones carry `plan_` ids).
+
 ## Nesting
 
 - Margem externa da sheet: `7mm`. Espacamento entre pecas: `7mm`.
