@@ -4642,13 +4642,25 @@
   const PN_SHK={min:150,max:700,target:350};  // shaker cavity width limits + auto target
   function pnThick(mat){const m=String(mat||'').match(/(\d+(?:\.\d+)?)mm/);return m?+m[1]:18;}
   function pnRoomDefs(room){
+    const rSkOn=room.skirtOn!==false, rSkH=+(room.skirtH!=null?room.skirtH:225)||0, walls=room.walls||[];
     return {
       frame:+(room.frame!=null?room.frame:80)||80,
       target:+(room.target!=null?room.target:PN_SHK.target)||PN_SHK.target,
       th:pnThick(room.mat),
       doorAllow:+(room.doorAllow!=null?room.doorAllow:175)||175,
-      skirtOn:room.skirtOn!==false,
-      skirtH:+(room.skirtH!=null?room.skirtH:225)||0,
+      skirtOn:rSkOn,
+      skirtH:rSkH,
+      // Per-wall skirting: a wall may carry `skirt:{mode:'custom',on,h}` to override the room default.
+      // Per-panel is PREPARED (not yet wired to UI): `wall.panelSkirt[pid]` with the same shape wins over wall.
+      // With no override anywhere this returns the room default → layout byte-identical to before.
+      skirtFor:function(wi,pid){
+        let on=rSkOn,h=rSkH,src='room';const w=walls[wi];
+        const ws=w&&w.skirt;
+        if(ws&&ws.mode==='custom'){on=ws.on!==false;h=+(ws.h!=null?ws.h:rSkH)||0;src='wall';}
+        const ps=(pid&&w&&w.panelSkirt)?w.panelSkirt[pid]:null;
+        if(ps&&ps.mode==='custom'){on=ps.on!==false;h=+(ps.h!=null?ps.h:h)||0;src='panel';}
+        return {on:on,h:h,src:src};
+      },
       sillH:+(room.sillH!=null?room.sillH:22)||0,
       hPanelH:Math.min(PN_CROSS,+(room.hPanelH!=null?room.hPanelH:1030)||1030),
       vPanelH:Math.min(PN_CAP['10x4'],+(room.vPanelH!=null?room.vPanelH:3000)||3000),
@@ -4789,10 +4801,10 @@
       let acc=0,seg=run.segs[0],segStart=0;
       for(const g of run.segs){const sl=g.x1-g.x0;if(b0<acc+sl-0.5){seg=g;segStart=acc;break;}acc+=sl;segStart=acc;}
       const lRule=(b0<=0.5)?run.lr:'joint',rRule=(b1>=run.len-0.5)?run.rr:'joint';
-      const len=b1-b0;
+      const len=b1-b0,sk=D.skirtFor(seg.wi);
       const p={wi:seg.wi,dir:'h',x0:seg.x0+(b0-segStart),x1:seg.x0+(b1-segStart),y0:0,y1:D.hPanelH,w:len,h:D.hPanelH,
         sheet:len>PN_CAP['8x4']?'10x4':'8x4',
-        sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:D.frame,b:D.skirtOn?(D.skirtH+D.frame):D.frame},cells:[]};
+        sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:D.frame,b:sk.on?(sk.h+D.frame):D.frame},cells:[]};
       const cy0=p.sides.b,cy1=D.hPanelH-p.sides.t;
       if(cy1-cy0>=60)st.run.grid.cells.forEach(c=>{if(c.x0>=b0-0.5&&c.x1<=b1+0.5)p.cells.push({x:c.x0-b0,y:cy0,w:c.x1-c.x0,h:cy1-cy0});});
       out.push(p);
@@ -4833,7 +4845,7 @@
     const f=D.frame,w=x1-x0,h=y1-y0;
     const p=Object.assign({wi,dir:'h',x0,x1,y0,y1,w,h,sheet:(Math.max(w,h)>PN_CAP['8x4'])?'10x4':'8x4',
       sides:{l:{rule:'joint',mm:f/2},r:{rule:'joint',mm:f/2},t:f,b:f},cells:[]},ex||{});
-    if(p.isLower&&D.skirtOn)p.sides.b=D.skirtH+f;
+    if(p.isLower){const sk=D.skirtFor(wi);if(sk.on)p.sides.b=sk.h+f;}
     const inner=w-p.sides.l.mm-p.sides.r.mm,cy0=p.sides.b,cy1=h-p.sides.t;
     if(inner>=PN_SHK.min*0.5&&cy1-cy0>=60){
       const c=pnBalanceCount(inner,f,D.target),cw=(inner-f*(c-1))/c;
@@ -4883,9 +4895,9 @@
       n=Math.max(n,Math.ceil(SL/PN_CROSS));                    // max-width rule beats a requested column count
       const cw=SL/n;
       for(let i=0;i<n;i++){
-        const lRule=i===0?sp.lr:'joint',rRule=i===n-1?sp.rr:'joint';
+        const lRule=i===0?sp.lr:'joint',rRule=i===n-1?sp.rr:'joint',sk=D.skirtFor(wi);
         const p={wi,dir:'v',x0:sp.x0+i*cw,x1:sp.x0+(i+1)*cw,y0:0,y1:H,w:cw,h:H,sheet:H>PN_CAP['8x4']?'10x4':'8x4',
-          sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:D.skirtOn?(D.skirtH+f):f},cells:[]};
+          sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
         if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(H)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
         const inner=cw-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+wall.vRows||2)),cy0=p.sides.b,cy1=H-f;
         if(inner>=80&&cy1-cy0>=60){
@@ -4967,7 +4979,7 @@
         if(p.dir==='v')p.sheet=(p.h>PN_CAP['8x4'])?'10x4':'8x4';
       }
       // per-panel FRAME — internal grid only (top/bottom margins + cell gaps); joint halves stay 40/40
-      if(+ov.frame>0){p.sides.t=fL;p.sides.b=(p.y0<=0.5&&D.skirtOn&&!p.isCap&&!p.isLower)?(D.skirtH+fL):fL;p.ovFrame=fL;}
+      if(+ov.frame>0){const sk=D.skirtFor(p.wi,p.pid);p.sides.t=fL;p.sides.b=(p.y0<=0.5&&sk.on&&!p.isCap&&!p.isLower)?(sk.h+fL):fL;p.ovFrame=fL;}
       // per-panel ORIENTATION — the panel's internal shaker style: 'h' = one row of shakers,
       // 'v' = columns × rows grid. Mixing panels on one wall is allowed; joints stay put.
       const gDir=(ov.dir==='v'||ov.dir==='h')?ov.dir:(bands.length>1?'v':'h');
@@ -5174,20 +5186,32 @@
   // legacy import: old production panelling quotes (.fastcnc blocks with calcMode 'panel') → panelRooms
   function pnImportLegacy(doc){
     const rooms=[];let rn=0;
+    // skirting lives at BLOCK level (whole panel job) AND per PART (per wall) in the old CNC Calculator:
+    // panelSkirtingEnabledForPart/HeightForPart = part value wins, else block. Legacy 305 height meant
+    // "225 skirting + 80 frame" and the old app normalises it to 225 — we replicate that so imports match.
+    const normH=v=>{let h=+v;if(!(h>0))return 225;if(h===305)h=225;return h;};
     ((doc&&doc.blocks)||[]).forEach(b=>{
       if(String(b.calcMode)!=='panel')return;
       const parts=Array.isArray(b.parts)?b.parts:[];
+      const rSkOn=String(b.panelSkirtingEnabled||'No')==='Yes';
+      const rSkH=(b.panelSkirtingHeight==null||b.panelSkirtingHeight==='')?225:normH(b.panelSkirtingHeight);
       const walls=parts.map(p=>{
         const dir=String(p.wallPanelDirection||b.panelDirection||'horizontal')==='vertical'?'v':'h';
         const ops=(Array.isArray(p.wallOpenings)?p.wallOpenings:[]).map(o=>({id:'po'+(++pnUid),type:o.type==='door'?'door':(o.type==='window'?'window':'object'),
           name:o.name||o.type||'Object',w:+o.width||0,h:+o.height||0,x:+o.x||0,from:'L',bottom:+(o.bottom||0),topPanel:'yes'})).filter(o=>o.w>0&&o.h>0);
-        return {id:'pw'+(++pnUid),w:+p.wallWidth||+b.wallWidth||5200,h:+(p.wallHeight||b.wallHeight)||3200,dir,
-          sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:ops,panelOv:{}};
+        // per-wall skirting: part value wins if present, else block (room) default; store an override only when it differs
+        const pe=String(p.panelSkirtingEnabled==null?'':p.panelSkirtingEnabled).trim();
+        const wOn=pe===''?rSkOn:(pe==='Yes');
+        const wH=(p.panelSkirtingHeight==null||p.panelSkirtingHeight==='')?rSkH:normH(p.panelSkirtingHeight);
+        const wall={id:'pw'+(++pnUid),w:+p.wallWidth||+b.wallWidth||5200,h:+(p.wallHeight||b.wallHeight)||3200,dir,
+          sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:ops,panelOv:{},notes:[]};
+        if(wOn!==rSkOn||wH!==rSkH)wall.skirt={mode:'custom',on:wOn,h:wH};   // faithful per-wall override
+        return wall;
       });
-      if(!walls.length)walls.push({id:'pw'+(++pnUid),w:+b.wallWidth||5200,h:+b.wallHeight||3200,dir:'h',sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:[],panelOv:{}});
+      if(!walls.length)walls.push({id:'pw'+(++pnUid),w:+b.wallWidth||5200,h:+b.wallHeight||3200,dir:'h',sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:[],panelOv:{},notes:[]});
       rooms.push({id:'pr'+(++pnUid),name:b.roomName||('Room '+(++rn)),mat:(b.material||'MDF')+' '+(b.thickness||'18mm'),
         frame:+b.frameSize||80,target:350,doorAllow:+b.panelDoorAllowance||175,
-        skirtOn:(b.panelSkirtingEnabled||'')==='Yes',skirtH:+b.panelSkirtingHeight||225,sillH:22,
+        skirtOn:rSkOn,skirtH:rSkH,sillH:22,
         hPanelH:+b.panelHorizontalHeight||1030,vPanelH:+b.panelVerticalHeight||3000,sheetPref:'auto',
         matCost:(+b.materialCost>0?+b.materialCost:null),cncCost:(+b.cncServiceCost>0?+b.cncServiceCost:330),
         lines:pnDefaultLines(),walls});
@@ -5257,6 +5281,35 @@
     else ov[field]=val;
     pnRefresh();}
   function pnPieceAuto(){const w=pnWallObj();if(!w||!w.panelOv)return;delete w.panelOv[pnSel.id];pnRefresh();}
+  // ---- per-wall skirting override (room default unless the wall sets its own) ----
+  function pnWallSkirt(field,val){
+    const w=pnWallObj(),r=pnRoomObj();if(!w||!r)return;
+    if(field==='mode'){
+      if(val==='default'){delete w.skirt;}
+      else{const rH=+(r.skirtH!=null?r.skirtH:225)||225;w.skirt={mode:'custom',on:(w.skirt?w.skirt.on!==false:(r.skirtOn!==false)),h:(w.skirt&&w.skirt.h!=null?w.skirt.h:rH)};}
+    } else {
+      w.skirt=w.skirt||{mode:'custom',on:true,h:(+(r.skirtH!=null?r.skirtH:225)||225)};w.skirt.mode='custom';
+      if(field==='on')w.skirt.on=(val===true||val==='yes');
+      else if(field==='h')w.skirt.h=Math.max(0,pnNum(val));
+    }
+    pnRefresh();
+  }
+  // ---- notes: multiple free-text notes per wall; per-panel notes prepared via wall.panelNotes[pid].
+  // Notes never touch geometry or pricing; onchange persists without a re-render so focus stays put. ----
+  function pnWallNotesArr(){const w=pnWallObj();if(!w)return null;if(!Array.isArray(w.notes))w.notes=[];return w.notes;}
+  function pnNoteAdd(){const a=pnWallNotesArr();if(!a)return;a.push('');pnRefresh();}
+  function pnNoteSet(i,val){const a=pnWallNotesArr();if(!a||i<0||i>=a.length)return;a[i]=String(val);pnSave();}
+  function pnNoteDel(i){const a=pnWallNotesArr();if(!a)return;a.splice(i,1);pnRefresh();}
+  function pnPanelNotesArr(){const w=pnWallObj();if(!w)return null;w.panelNotes=w.panelNotes||{};if(!Array.isArray(w.panelNotes[pnSel.id]))w.panelNotes[pnSel.id]=[];return w.panelNotes[pnSel.id];}
+  function pnPNoteAdd(){const a=pnPanelNotesArr();if(!a)return;a.push('');pnRefresh();}
+  function pnPNoteSet(i,val){const a=pnPanelNotesArr();if(!a||i<0||i>=a.length)return;a[i]=String(val);pnSave();}
+  function pnPNoteDel(i){const a=pnPanelNotesArr();if(!a)return;a.splice(i,1);pnRefresh();}
+  function pnNotesUi(list,addFn,setFn,delFn){
+    const rows=(list||[]).map((n,i)=>'<div class="pn-row" style="align-items:flex-start"><textarea rows="2" style="flex:1;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);resize:vertical" onchange="'+setFn+'('+i+',this.value)" placeholder="note…">'+esc(n||'')+'</textarea><button class="pn-mini" title="Delete note" onclick="'+delFn+'('+i+')" style="color:#dc2626;margin-left:4px">✕</button></div>').join('');
+    return (rows||'<div class="pn-hint">no notes</div>')+'<div class="pn-row" style="margin-top:6px"><button class="pn-mini" onclick="'+addFn+'()">+ Add note</button></div>';
+  }
+  // select the wall from the canvas background (keep zoom + measure state; just switch the inspector context)
+  function pnPickWall(){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'wall',id:null};renderPanels();}
   function pnSetLine(i,field,val){const r=pnRoomObj();if(!r)return;r.lines=r.lines&&r.lines.length===7?r.lines:pnDefaultLines();
     const l=r.lines[i];if(!l)return;
     if(field==='en')l.en=!l.en;else if(field==='rd')l.rd=!l.rd;else l.mm=Math.max(0,pnNum(val));
@@ -5282,7 +5335,7 @@
     const GEO={vx:[],vy:[],pts:[]};
     const snapRect=(x0,y0,x1,y1)=>{const A=X(x0),B=X(x1),C=Y(y1),E=Y(y0);GEO.vx.push(A,B);GEO.vy.push(C,E);GEO.pts.push({x:A,y:C},{x:B,y:C},{x:A,y:E},{x:B,y:E});};
     let s='<svg viewBox="0 0 '+vbW+' '+Math.round(vbH)+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0" id="pnSvg">';
-    s+='<rect x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
+    s+='<rect class="pnbg" x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
     snapRect(0,0,W,H);
     s+='<line x1="'+(X(0)-12)+'" y1="'+Y(0)+'" x2="'+(X(W)+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
     s+='<text x="'+(X(W)+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(X(W)+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
@@ -5357,10 +5410,11 @@
       if(ohh>40&&ow>34)s+='<text x="'+(ox+ow/2)+'" y="'+(ty+12)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(+o.w||0)+' × '+Math.round(oh)+'</text>';
       s+='</g>';
     });
-    if(L.D.skirtOn){
-      GEO.vy.push(Y(L.D.skirtH));
-      s+='<line x1="'+X(0)+'" y1="'+Y(L.D.skirtH)+'" x2="'+X(W)+'" y2="'+Y(L.D.skirtH)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>';
-      s+='<text x="'+(X(0)+4)+'" y="'+(Y(L.D.skirtH)-3)+'" font-size="9.5" fill="var(--muted)">skirting '+Math.round(L.D.skirtH)+'</text>';
+    const wSk=L.D.skirtFor(wi);
+    if(wSk.on){
+      GEO.vy.push(Y(wSk.h));
+      s+='<line x1="'+X(0)+'" y1="'+Y(wSk.h)+'" x2="'+X(W)+'" y2="'+Y(wSk.h)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>';
+      s+='<text x="'+(X(0)+4)+'" y="'+(Y(wSk.h)-3)+'" font-size="9.5" fill="var(--muted)">skirting '+Math.round(wSk.h)+(wSk.src==='wall'?' (wall)':'')+'</text>';
     }
     // BOTTOM dimension chain: wall start → panel joints → opening edges → wall end (widths live here now)
     (function(){
@@ -5564,6 +5618,7 @@
         b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceAuto()" style="font-weight:800">↺ Reset this panel to AUTO</button></div>';
         b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40; width moves only via wall/run settings. Wall &amp; room settings are in the sections below.</div>';
         body=SEC('PANEL SETTINGS — '+esc(p.name),b);
+        body+=SEC('Panel notes',pnNotesUi((wall.panelNotes&&wall.panelNotes[p.pid])||[],'pnPNoteAdd','pnPNoteSet','pnPNoteDel'));
       } else {pnSel.kind='wall';}
     }
     if(pnSel.kind==='wall'&&wall){
@@ -5588,6 +5643,18 @@
         '<div class="pn-row"><label>Left</label>'+pnSideSel(wall.sideL,'pnSet(\'wall\',\'sideL\',this.value)')+'</div>'
         +'<div class="pn-row"><label>Right</label>'+pnSideSel(wall.sideR,'pnSet(\'wall\',\'sideR\',this.value)')+'</div>'
         +'<div class="pn-hint">Joint on both facing sides of two walls chains them into one shaker run (40/40 at the seam).</div>');
+      (function(){
+        const wsk=L?L.D.skirtFor(pnSel.wall):{on:(room.skirtOn!==false),h:+(room.skirtH!=null?room.skirtH:225)||225,src:'room'};
+        const custom=!!(wall.skirt&&wall.skirt.mode==='custom');
+        let sk='<div class="pn-row"><label>Source</label>'+pnSegHtml([['default','Room default'],['custom','Custom']],custom?'custom':'default','pnWallSkirt(\'mode\',\'%V\')')+'</div>';
+        if(custom){
+          sk+='<div class="pn-row"><label>Enabled</label>'+pnSegHtml([['yes','On'],['no','Off']],wall.skirt.on!==false?'yes':'no','pnWallSkirt(\'on\',\'%V\'===\'yes\')')+'</div>'
+            +'<div class="pn-row"><label>Height (mm)</label><input type="number" min="0" value="'+Math.round(wall.skirt.h!=null?wall.skirt.h:(+room.skirtH||225))+'" onchange="pnWallSkirt(\'h\',this.value)"></div>';
+        }
+        sk+='<div class="pn-hint">now: '+(wsk.on?('skirting '+Math.round(wsk.h)+'mm'):'no skirting')+' · from '+(wsk.src==='wall'?'THIS wall':'room default')+' · shaker starts at skirting + frame. Per-panel skirting is planned.</div>';
+        body+=SEC('Skirting (this wall)',sk);
+      })();
+      body+=SEC('Wall notes',pnNotesUi(wall.notes,'pnNoteAdd','pnNoteSet','pnNoteDel'));
       const opsL=(wall.openings||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
       body+=SEC('Openings',(opsL||'<div class="pn-hint">none</div>')
         +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">'
@@ -5689,6 +5756,7 @@
     root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});
     root.querySelectorAll('.pno').forEach(g=>{g.onclick=(ev)=>{ev.stopPropagation();if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelOpening(g.dataset.oid);};});
     root.querySelectorAll('.pnw').forEach(g=>{g.onclick=()=>{if(Date.now()-pnSupress<250)return;pnSelWall(+g.dataset.wi);};});
+    root.querySelectorAll('.pnbg').forEach(g=>{g.style.cursor='pointer';g.onclick=()=>{if(pnMeasureOn||Date.now()-pnSupress<250)return;if(pnSel.kind!=='wall')pnPickWall();};});
     const svg=root.querySelector('.pn-canvas svg');
     if(svg&&pnView!=='sheets'){
       pnZoomWire(svg);

@@ -39,7 +39,17 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 
 - Door 900×2100 · Window 1200×1100 com bottom 900 · Object 2000×2000; X medido de L ou R; colisão é MOSTRADA (⚠), nunca move sozinho.
 - Door/Object cortam a cobertura; Window é recorte + painel inferior separado sob a largura toda; sill de janela = setting do room (default 22). Cap panel acima de Door/Object (toggle), lados meio-frame; cap alto/largo demais vira colunas ≤1206.
-- Skirting default 225 (linha guia tracejada só no preview; shaker inferior começa em skirting+frame). Nunca vai para nesting/DXF.
+- Skirting default 225 (linha guia tracejada só no preview; shaker inferior começa em skirting+frame). A linha-guia nunca vai pro DXF, mas a POSIÇÃO do shaker inferior (skirting+frame) muda a geometria da cavidade — logo entra no DXF como o começo da banda de baixo.
+- **Skirting por parede (2026-07-08)**: cada parede pode sobrepor o default do room via `wall.skirt = {mode:'custom', on, h}`. Resolução no `D.skirtFor(wi[,pid])`: panel > wall > room. Sem override = default do room (layout byte-idêntico). O inspector da parede mostra a fonte (Room default | Custom) + o valor resolvido ("now: skirting 150mm · from THIS wall"). **Per-panel está PREPARADO** (`wall.panelSkirt[pid]`, mesma forma) mas sem UI ainda.
+- **Import do skirting (2026-07-08)**: o CNC Calculator antigo guarda skirting no BLOCO (`panelSkirtingEnabled`/`panelSkirtingHeight`) E por PART/parede (mesmos campos no part), resolvendo com `panelSkirtingEnabledForPart`/`HeightForPart` (valor do part ganha, senão bloco); altura legada `305` = "225+80" e é normalizada pra 225. O `pnImportLegacy` reproduz isso: room = default do bloco; cada parede cujo part difere ganha `wall.skirt`. Não perde mais o skirting por parede.
+
+### Notes (2026-07-08)
+
+- Notas por parede: `wall.notes = []` (várias, texto livre; add/edit/delete no inspector quando a parede está selecionada). Per-painel: `wall.panelNotes[pid] = []` (aparece no PANEL SETTINGS). **Não afetam geometria nem preço** (invariante testado no check.mjs); viajam no `.fastcnc` dentro de `panelRooms`; arquivos antigos sem o campo carregam normal.
+
+### Seleção wall × panel (2026-07-08)
+
+- Clique no PAINEL (rect `.pnk`) → PANEL SETTINGS. Clique no FUNDO da parede (rect `.pnbg`) → WALL SETTINGS (skirting/notas/aberturas/tamanho/regras da parede). Direto do canvas, não só pela aba/tab. O clique no fundo mantém o zoom (`pnPickWall`, não reseta `pnVb`); arrastar (pan) não dispara seleção.
 
 ### Offset lines A–G
 

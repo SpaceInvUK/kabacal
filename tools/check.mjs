@@ -154,6 +154,19 @@ if (html) {
         const pc = api.pnLayoutRoom(room([wall({ w: 2300, panelOv: { 'w0p1': { h: 9999 } } })])).pieces[0];
         must(pc.h <= api.PN_CROSS + 0.5 && /clamped/.test(pc.ovNote || ''), 'oversize panel height must clamp WITH a visible note');
       }
+      { // skirting (2026-07-08): per-wall override changes ONLY that wall's ground band; room default unchanged; notes are inert
+        const bandBottom = pcs => Math.round(Math.min(...pcs.filter(p => p.y0 <= 0.5 && !p.isCap).map(p => p.sides.b)));
+        const roomDef = api.pnLayoutRoom(room([wall({ w: 2300 }), wall({ w: 2300 })]));
+        const b0 = bandBottom(roomDef.pieces.filter(p => p.wi === 0)), b1 = bandBottom(roomDef.pieces.filter(p => p.wi === 1));
+        must(b0 === 305 && b1 === 305, `default skirting: ground band bottom must be 225+80=305 (got ${b0}/${b1})`);
+        const mixed = api.pnLayoutRoom(room([wall({ w: 2300 }), wall({ w: 2300, skirt: { mode: 'custom', on: true, h: 150 } }), wall({ w: 2300, skirt: { mode: 'custom', on: false } })]));
+        must(bandBottom(mixed.pieces.filter(p => p.wi === 0)) === 305, 'wall without override keeps room skirting (305)');
+        must(bandBottom(mixed.pieces.filter(p => p.wi === 1)) === 230, 'wall skirt 150 → band bottom 150+80=230');
+        must(bandBottom(mixed.pieces.filter(p => p.wi === 2)) === 80, 'wall skirt off → band bottom = frame only (80)');
+        const geomA = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 3000 })])).pieces.map(p => [p.x0, p.x1, p.y0, p.y1, p.cells.length]));
+        const geomB = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 3000, notes: ['note one', 'note two'], panelNotes: { w0p1: ['x'] } })])).pieces.map(p => [p.x0, p.x1, p.y0, p.y1, p.cells.length]));
+        must(geomA === geomB, 'notes must not change any geometry');
+      }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
 

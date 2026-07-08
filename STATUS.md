@@ -13,10 +13,16 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## In flight
 
-- Nothing known mid-work right now. Doors-focus round (ROADMAP entry *k*) shipped at `e4f1b05`; Phase-1 model-independence docs shipped in this commit. Active sessions: claim `.session.lock` and list your task here if it spans sessions.
+- Nothing mid-work. Panels skirting/notes/import/selection shipped 2026-07-08 (ROADMAP *d*). Active sessions: claim `.session.lock`.
+
+## Open product question (needs Ednei)
+
+- **What does per-panel "Vertical" mean?** Shipped `panelOv.dir` (83ebf1e) flips a panel's INTERNAL shaker style (one row ↔ columns×rows grid) — it does NOT turn the panel into a physical 3000-tall vertical-sheet piece with the wall auto-refilling around it (which is what the earlier request described). A `vZones` attempt at the latter was stashed (`round4-vZones-superseded-by-83ebf1e`), not shipped. Decide which behaviour "Vertical" should mean before building more orientation.
 
 ## Decision log
 
+- 2026-07-08 · **Per-wall skirting** added (`wall.skirt`), resolver `D.skirtFor` (panel>wall>room); per-panel prepared (`wall.panelSkirt`), no UI. Old-import skirting now maps block+per-part faithfully (305→225). Notes (`wall.notes`, `wall.panelNotes`) are inert (no geometry/price). All goldens byte-identical.
+- 2026-07-08 · **3D / wall-builder = architecture review only** (no code this session). Recommendation on record in ROADMAP-adjacent report / chat: SVG top-down (2D) first feeding the existing PN engine; Three.js deferred. See the review before starting.
 - 2026-07-07 · **Doors is the default mode** on boot (`kab_mode` no longer restored). Panels stays one click away.
 - 2026-07-07 · **Edging pricing deferred** (user's call) until pricing consolidation.
 - 2026-07-07 · Panels shipped (engine + quote + DXF). **Panels CAM/offcuts = Phase 2**, not started.
