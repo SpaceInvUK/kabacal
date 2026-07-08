@@ -82,6 +82,18 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 - **The plan compiles into real Panels walls** (`pnPlanCompile`, see ARCHITECTURE) — the walls then behave EXACTLY like manually-created walls (shakers, skirting, orientation/zones, openings, quote, DXF). The builder feeds the engine; it does not replace it. 2.5D/3D stays a later optional preview (no Three.js now; SVG keeps performance intact — draw only on state change).
 - Limitation (Phase 1): editing one wall's length moves the shared corner, so a connected neighbour re-angles (expected graph behaviour); drag corners to true up. Openings drawn in the builder live on `plan`; openings added in the Wall inspector live on the wall — both survive recompile (plan ones carry `plan_` ids).
 
+### 2D builder Phase 2 (2026-07-08) — corners, locks, keep-square, dragging
+
+- **Corner inference**: at a shared node the LONGER wall passes THROUGH; the SHORTER one BUTTS into it (tie → earlier-drawn passes through). A free end (no shared node) stays normal.
+- **Physical panel shortening (thickness-driven, NEVER hard-coded 22)**: a butting end shortens that wall's compiled panel run by the actual panel thickness `pt` (= `plan.panelLayer.thickness`). Butting both ends → −2·pt. Example (U base, measured 2000): pt22 → 1956, pt18 → 1964. Reduces the compiled `wall.w` so panels never overlap at corners.
+- **Internal corner allowance (separate calc)**: a butting/corner end uses the `corner` side rule → `pnSideMM` returns `frame + cornerTh`, where `cornerTh` = plan panel thickness (`pnRoomDefs`). Example: frame 80 + pt22 = 102, frame 80 + pt18 = 98. For NON-plan rooms `cornerTh === material thickness` so pnSideMM is byte-identical to before (goldens safe).
+- **Endpoint locks**: `node.lock` — a locked corner can't move; length edits move the free end (or are blocked with a message if both ends locked); dragging a locked node is refused with a message. Saved in `plan`.
+- **Keep 90° square** (`plan.keepSquare`, default ON): editing a length / dragging a corner also translates the far ends of directly-connected axis-aligned neighbours by the same delta (one hop) so orthogonal neighbours stay square. Locked far ends are left (that neighbour re-angles). Limitation: one-hop only — closed loops / multi-bend chains may need a manual node tidy.
+- **Drag openings**: door/window/object drag along their wall (offset snaps 10mm, clamped); width/height/bottom/offset also numeric; compiles to `wall.openings`.
+- **Panel layer visibility**: wall = neutral grey structure; panel = distinct SOLID TEAL band + bold outline + light centre line, in front on the interior side, with a legend. Clearly not a wall shadow.
+- **Explainability**: the wall inspector shows, dynamically, e.g. "measured 2000 → panel 1956 (panel 22 · frame 80) / Start: butts into neighbour −22mm · corner allowance 102mm / End: through corner" — all values recompute with the actual thickness/frame.
+- Deferred to Phase 3: full column/return objects, multi-hop constraint solving, editable through/butt choice per corner.
+
 ## Nesting
 
 - Margem externa da sheet: `7mm`. Espacamento entre pecas: `7mm`.

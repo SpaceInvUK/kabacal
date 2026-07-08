@@ -2,6 +2,25 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (g) — Construtor 2D Fase 2: matemática de canto por espessura, locks, keep-90°, arrastar aberturas, painel visível
+
+Zonas guardadas: Panels geometry + save/load + **matemática que altera dimensão física do painel em cantos** (só para salas COM `plan`). Prova: **8 goldens byte-idênticos** (nenhum golden usa plan/canto) + testes executados novos travando a aritmética exata (22 e 18mm) até as peças. Sem golden binário novo: a aritmética de canto fica travada por asserts exatos em mm no check.mjs (mais forte que um DXF binário para verificar os números); o writer de DXF de painéis já é coberto pelo GOLDEN_PANELS.
+
+- **Inferência de canto**: no nó compartilhado a parede MAIOR passa reto (through); a MENOR encosta (butt) — empate → a desenhada antes passa. Ponta livre = normal.
+- **Encurtamento físico (dirigido pela espessura, nunca 22 fixo)**: ponta butt encurta a largura compilada `wall.w` pela espessura real do painel `pt` (=`plan.panelLayer.thickness`); butt nas duas pontas → −2·pt. U base 2000: pt22→1956, pt18→1964.
+- **Allowance interno (cálculo separado)**: ponta butt usa a regra de lado `corner` → `pnSideMM` = `frame + cornerTh`, `cornerTh` = espessura do painel do plan (`pnRoomDefs`). frame80+pt22=102, +pt18=98. **Sala sem plan: `cornerTh===espessura do material` → pnSideMM byte-idêntico (goldens intactos).**
+- **Locks de ponta** (`node.lock`): ponta travada não move; editar comprimento move a ponta livre (ou bloqueia com aviso se ambas travadas); arrastar nó travado é recusado com aviso. Salva no plan.
+- **Keep 90° square** (`plan.keepSquare`, ON): editar comprimento / arrastar canto translada as pontas distantes dos vizinhos axis-aligned pelo mesmo delta (um salto) → vizinhos ortogonais continuam quadrados; pontas travadas ficam. Limite: um salto só.
+- **Arrastar aberturas**: door/window/object arrastam ao longo da parede (offset snap 10mm, clamp); compila em `wall.openings`.
+- **Painel mais visível**: parede cinza (estrutura) vs painel TEAL sólido com contorno forte + linha central clara, na frente (lado interno), com legenda. Não parece mais sombra da parede.
+- **Explicação dinâmica** no inspector da parede: "measured 2000 → panel 1956 (panel 22 · frame 80) / Start: butts −22mm · allowance 102 / End: through".
+- Fase 3 (deferido): objetos coluna/return completos, constraint solving multi-salto, escolha through/butt editável por canto.
+- Fix de QA: `pnPlanSetPanelT` agora recompila (a espessura do painel dirige o corte de canto — antes só mudava o preview).
+
+### Testado (g)
+
+`node tools/check.mjs` ok (+ testes de canto: U 22→1956/18→1964, allowance 102/98, L butt 2978, largura chega às peças 1964, cornerTh fallback) ✓ · **8 goldens byte-idênticos** (NC ll/c, DXF standard/rich/panels, QUOTE_standard/rich/mixed) ✓ · U no builder: base 1956 (pt22)/1964 (pt18), allowance 102/98, laterais 3000 through ✓ · explicação "butts −22 · allowance 98" no inspector ✓ · lock: ambas travadas bloqueia + mantém 3000; A travada → cresce por B pra 3500 ✓ · keep-square: editar Wall1 4000→4600 mantém Wall2 vertical (c translada +600) ✓ · arrastar porta muda offset e compila ✓ · painel teal + parede cinza + legenda ✓ · save/load preserva locks/keepSquare/plan/openings ✓ · sala manual sem plan intacta, Doors intacto ✓ · console limpo ✓.
+
 ## 2026-07-08 (f) — Construtor 2D top-down de salas/paredes (Beta, Fase 1) que COMPILA nas paredes atuais
 
 Aprovado pelo Ednei. SVG top-down (nada de 3D/Three.js — performance). O plano desenhado é a FONTE; `room.walls` é DERIVADO → o motor/quote/DXF atuais continuam iguais. Zona guardada: Panels geometry/save-load (aditivo). Prova: **8 goldens byte-idênticos** (nenhum golden usa `room.plan` → caminho antigo intacto).

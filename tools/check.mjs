@@ -202,7 +202,8 @@ if (html) {
         const p3 = { nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }, { id: 'd', x: 0, y: 3000 }],
           edges: [{ id: 'e1', a: 'a', b: 'b' }, { id: 'e2', a: 'b', b: 'c' }, { id: 'e3', a: 'c', b: 'd' }] };
         const w3 = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: p3 });
-        must(w3.length === 3 && w3[0].w === 4000 && w3[1].w === 3000 && w3[2].w === 4000, 'three connected walls → 4000/3000/4000');
+        // corner inference (Phase 2): the shorter middle wall butts both ends → shortened by 2×panel (default 22): 3000-44
+        must(w3.length === 3 && w3[0].w === 4000 && w3[1].w === 2956 && w3[2].w === 4000, `three connected walls → 4000/2956/4000 (middle butts both ends, got ${w3.map(w=>w.w)})`);
         // preserve prior wall settings by id across recompile; plan drives size
         const prevRoom = { mat: 'MDF 18mm', walls: [{ id: 'pe_e1', w: 999, h: 999, dir: 'v', shakerCount: 5, skirt: { mode: 'custom', on: false } }], plan: p1 };
         const w1b = api.pnPlanCompile(prevRoom)[0];
@@ -211,6 +212,32 @@ if (html) {
         const pOp = { nodes: p1.nodes, edges: p1.edges, openings: [{ id: 'o1', edgeId: 'e1', type: 'door', offset: 800, width: 900, height: 2100 }] };
         const wOp = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: pOp })[0];
         must(wOp.openings.length === 1 && wOp.openings[0].type === 'door' && wOp.openings[0].w === 900 && wOp.openings[0].x === 800, 'plan opening compiles into wall.openings');
+      }
+      { // Phase 2 corner maths — thickness-driven physical shortening + frame+panel allowance (NOT hard-coded 22)
+        const U = pt => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt, side: 'front' },
+          nodes: [{ id: 'A', x: 0, y: 3000 }, { id: 'B', x: 0, y: 0 }, { id: 'C', x: 2000, y: 0 }, { id: 'D', x: 2000, y: 3000 }],
+          edges: [{ id: 'L', a: 'A', b: 'B' }, { id: 'M', a: 'B', b: 'C' }, { id: 'R', a: 'C', b: 'D' }] } });   // U: sides 3000, base 2000
+        const u22 = api.pnPlanCompile(U(22)), base22 = u22.find(w => w.id === 'pe_M');
+        must(base22.w === 1956, `U base with 22mm panels must be 2000-22-22=1956 (got ${base22.w})`);
+        must(base22.sideL === 'corner' && base22.sideR === 'corner', 'U base both ends butt → corner side rule');
+        must(base22.cornerInfo.allowance === 102 && base22.cornerInfo.l.shorten === 22, 'U base allowance 80+22=102, shorten 22');
+        must(u22.find(w => w.id === 'pe_L').w === 3000 && u22.find(w => w.id === 'pe_L').sideL === 'normal', 'U side wall passes through — full length, normal end');
+        const u18 = api.pnPlanCompile(U(18)), base18 = u18.find(w => w.id === 'pe_M');
+        must(base18.w === 1964, `U base with 18mm panels must be 2000-18-18=1964 (got ${base18.w})`);
+        must(base18.cornerInfo.allowance === 98, 'U base allowance with 18mm must be 80+18=98 (thickness-driven, not 102)');
+        // L: shorter wall butts once
+        const Lp = pt => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt },
+          nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }], edges: [{ id: 'e1', a: 'a', b: 'b' }, { id: 'e2', a: 'b', b: 'c' }] } });
+        const l22 = api.pnPlanCompile(Lp(22));
+        must(l22.find(w => w.id === 'pe_e1').w === 4000, 'L through wall keeps full length');
+        must(l22.find(w => w.id === 'pe_e2').w === 2978 && l22.find(w => w.id === 'pe_e2').cornerInfo.l.shorten === 22, 'L butting wall 3000-22=2978');
+        // corner allowance in the actual engine uses panel thickness for a plan room; compile→walls then lay out
+        const uc = U(18); uc.walls = api.pnPlanCompile(uc);
+        const dPlan = api.pnLayoutRoom(uc);   // must run without throwing and produce pieces from the compiled walls
+        must(dPlan.pieces.length >= 1, 'plan room with corners still lays out through the engine');
+        // the shortened base width must flow all the way to the physical pieces (compile → engine)
+        const baseW = dPlan.pieces.filter(p => p.wi === 1 && !p.isCap).reduce((s, p) => s + (p.x1 - p.x0), 0);
+        must(Math.abs(baseW - 1964) < 1.5, `U base pieces must span the shortened 1964mm through the engine (got ${Math.round(baseW)})`);
       }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
