@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (a) — New Project + materiais ocultáveis + settings persistentes + fab bar no lugar + toolpaths STALE (itens 0–4, 8 do pedido de workflow)
+
+Decisão Architect+CTO (item 0): New Project SOZINHO não cura orçamento errado — o mal é INCLUSÃO SILENCIOSA de Panels persistidos. Entregue em 3 peças: reset explícito + visibilidade no Quote + limpeza explícita.
+
+- **✚ New Project** (botão no header): confirma → oferece salvar `.fastcnc` → limpa o JOB (Doors, Panels+`kab_panels`, toolpaths+seq, seleções, serviços/spray/machine, overrides por chapa, undo, meta do projeto → número novo) e abre em Doors. **Mantém** settings globais: price book/overrides, custom+hidden mats, rates, empresa, toolDb, templates, favs, tema, `camJob`.
+- **Banner âmbar no Quote** quando Panels entra no total ("INCLUDES Wall Panelling — N rooms · £X") com "Review panels" e "Remove from this quote…" (confirmado); **🗑 Clear all** também na toolbar do Panels (`pnClearAllRooms`).
+- **Materiais ocultáveis** (item 1): built-ins não podem ser apagados (carregam regras de produção) mas ganham 🚫 **Hide** — somem de TODOS os pickers (order entry, quick mats, group picker) mas `PRICES`/regras/jobs antigos continuam funcionando (mat em uso continua aparecendo no próprio seletor). Seção "Hidden materials" com ↩ restore no Price Settings. Chave nova `kab_hidden_mats`; custom mats seguem com ✕ delete.
+- **Settings persistem de verdade** (item 2): presets de offset (`profiles`) agora têm chave própria `kab_profiles` (boot-load, save em new/saveAs/del/import/load-job); `importSettings` grava TUDO no localStorage (incl. hiddenMats) — carregou uma vez, fica. Export vira `ver:2` com `hiddenMats`.
+- **Fab bar só no contexto certo** (item 3): a barra flutuante de seleção só aparece em Doors + Order entry (`renderSelBar` gate + hook no `setView`). Some no Quote/Toolpaths/Panels.
+- **Toolpaths com ciclo de vida** (item 4): todo path com escopo ganha `sig` (assinatura dos itens de origem em `tpCalc`/`tplApply`); `tpPathParts` (CAM_ENGINE, filtro-só-filtra §7 do contract) corta **NADA** se a assinatura mudou — deletar/redimensionar/split da peça de origem nunca mais retarget silencioso (fecha o risco #2 do STATUS pela metade boa). Árvore mostra **STALE** âmbar + "Remove stale" (`tpClearStale`); `loadFastCnc` agora SEMPRE zera `camPaths` antes de restaurar os do arquivo (arquivo sem cam = árvore limpa).
+
+### Testado (a) — browser + goldens
+hide Marine Ply 12mm → some do picker, £120 intacto, persiste no reload, item em uso continua selecionável ✓ · profile `MyTest` sobrevive reload ✓ · fab: order✓ quote✗ volta✓ · flushback+template → del(0) → **7 STALE, 0 moves na chapa** (nada corta a peça errada), banner na árvore ✓ · `loadFastCnc({blocks:[]})` → árvore vazia ✓ · panels £810 → banner no Quote ✓ → clear → 0 rooms/`[]`/panels.total 0 ✓ · New Project limpa job (items/rooms/cam/services), Doors/order, número novo, MANTÉM hidden+profiles ✓ · **goldens byte-idênticos: QUOTE_standard + NC ll + DXF 18mm** ✓ · `tools/check.mjs` ok (engines executados) ✓ · console limpo ✓.
+
 ## 2026-07-07 (n) — Fases 3+4: contracts em docs/ + engines testáveis em node (6 comentários no app, zero comportamento)
 
 Sistema de handoff completo pra qualquer modelo + preparação modular.
