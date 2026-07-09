@@ -1134,7 +1134,7 @@
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -4668,7 +4668,10 @@
       // corner/column INTERNAL allowance = frame + PANEL thickness. For a drawn (plan) room the panel
       // thickness comes from plan.panelLayer.thickness; otherwise it falls back to the material thickness —
       // so for every non-plan room cornerTh === th and pnSideMM is byte-identical to before (goldens safe).
-      cornerTh:(room.plan&&room.plan.panelLayer&&+room.plan.panelLayer.thickness>0)?+room.plan.panelLayer.thickness:pnThick(room.mat)
+      cornerTh:(room.plan&&room.plan.panelLayer&&+room.plan.panelLayer.thickness>0)?+room.plan.panelLayer.thickness:pnThick(room.mat),
+      // opt-in (default OFF → byte-identical): harmonise the shaker cell WIDTH across every horizontal wall in
+      // the room so corner-adjacent shakers on different walls look consistent (item 5).
+      cornerMatch:!!room.cornerMatch
     };
   }
   function pnSideMM(rule,D){return rule==='joint'?D.frame/2:(rule==='door'?D.doorAllow:((rule==='corner'||rule==='column')?D.frame+(D.cornerTh!=null?D.cornerTh:D.th):D.frame));}
@@ -4740,8 +4743,8 @@
   // shaker grid across a whole run: uniform target width; the cells touching a wall seam are EXACTLY equal
   // (confirmed rule: last shaker of one wall = first shaker of the next); remainders spread over the other
   // cells of each section. Every boundary between cells is a full frame; seams land dead-centre on a frame.
-  function pnRunGrid(run,D,countOv){
-    const f=D.frame,lm=pnSideMM(run.lr,D),rm=pnSideMM(run.rr,D);
+  function pnRunGrid(run,D,countOv,endW){
+    const f=D.frame,lm=pnSideMM(run.lr,D),rm=pnSideMM(run.rr,D);endW=+endW>0?+endW:0;   // endW>0 (opt-in) pins the run's CORNER cells to a shared width (item 5)
     const inner=Math.max(0,run.len-lm-rm);
     const capMax=(D.sheetPref==='8x4'?PN_CAP['8x4']:PN_CAP['10x4'])-f;
     const mkCells=(count)=>{
@@ -4749,23 +4752,41 @@
       const secs=[];let a=lm;
       (run.seams||[]).forEach(s=>{secs.push({a,b:s-f/2});a=s+f/2;});
       secs.push({a,b:run.len-rm});
-      const cells=[];
+      const cells=[];const lastSec=secs.length-1;
       for(let si=0;si<secs.length;si++){
         const sec=secs[si],L=sec.b-sec.a;if(L<=1)continue;
         const seamL=si>0,seamR=si<secs.length-1,nSeam=(seamL?1:0)+(seamR?1:0);
         const k0=Math.max(1,Math.round((L+f)/(w0+f)));
         let widths=null;
-        for(const kk of [k0,k0+1,Math.max(1,k0-1),k0+2]){
-          if(kk<Math.max(1,nSeam))continue;
-          if(kk===nSeam&&nSeam===2){widths=[(L-f)/2,(L-f)/2];break;}
-          if(kk===1){if(nSeam<=1){widths=[L];break;}continue;}
-          const rest=L-nSeam*w0-f*(kk-1),flexN=kk-nSeam,fw=rest/flexN;
-          if(fw>=Math.max(60,PN_SHK.min*0.6)&&fw<=PN_SHK.max*1.3){
-            widths=[];for(let i2=0;i2<kk;i2++)widths.push(((i2===0&&seamL)||(i2===kk-1&&seamR))?w0:fw);
-            break;
+        if(endW>0){
+          // opt-in cornerMatch: pin the run's absolute END cells (the corner-adjacent shakers) to endW so the
+          // last shaker on one wall equals the first on the adjacent wall across an L/U corner; seam cells stay
+          // w0; the middle cells flex to absorb the remainder. Falls back to flat if no in-range flex exists.
+          const pinW=i2k=>{const [i2,kk]=i2k;
+            if(si===0&&i2===0)return endW; if(si===lastSec&&i2===kk-1)return endW;
+            if(i2===0&&seamL)return w0; if(i2===kk-1&&seamR)return w0; return null;};
+          for(const kk of [k0,k0+1,Math.max(1,k0-1),k0+2,Math.max(1,k0-2)]){
+            if(kk<Math.max(1,nSeam))continue;
+            const pins=[];let pinSum=0,pinN=0;for(let i2=0;i2<kk;i2++){const p=pinW([i2,kk]);pins.push(p);if(p!=null){pinSum+=p;pinN++;}}
+            const flexN=kk-pinN,rest=L-pinSum-f*(kk-1);
+            if(flexN<=0){if(Math.abs(rest)<1.5){widths=pins.map(p=>p);break;}continue;}
+            const fw=rest/flexN;
+            if(fw>=Math.max(60,PN_SHK.min*0.6)&&fw<=PN_SHK.max*1.3){widths=pins.map(p=>p==null?fw:p);break;}
           }
+          if(!widths)widths=[L];
+        } else {
+          for(const kk of [k0,k0+1,Math.max(1,k0-1),k0+2]){
+            if(kk<Math.max(1,nSeam))continue;
+            if(kk===nSeam&&nSeam===2){widths=[(L-f)/2,(L-f)/2];break;}
+            if(kk===1){if(nSeam<=1){widths=[L];break;}continue;}
+            const rest=L-nSeam*w0-f*(kk-1),flexN=kk-nSeam,fw=rest/flexN;
+            if(fw>=Math.max(60,PN_SHK.min*0.6)&&fw<=PN_SHK.max*1.3){
+              widths=[];for(let i2=0;i2<kk;i2++)widths.push(((i2===0&&seamL)||(i2===kk-1&&seamR))?w0:fw);
+              break;
+            }
+          }
+          if(!widths)widths=[L];
         }
-        if(!widths)widths=[L];
         let x=sec.a;widths.forEach(wd=>{cells.push({x0:x,x1:x+wd});x+=wd+f;});
       }
       return cells.length?{cells,w0}:null;
@@ -4877,7 +4898,11 @@
     (wall.openings||[]).forEach(o=>{
       const r=pnOpRect(o,wall),b0=+o.bottom||0,top=b0+(+o.h||0);
       if(o.type==='window'){
-        if(b0>60&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,Math.min(b0,bandH),D,{isLower:true,sill:D.sillH}));
+        // A lower panel under the window is created ONLY when the window sill sits INSIDE the panel band
+        // (60 < bottom < bandH). If the window is at/above the band top (bottom >= bandH) the band is left whole
+        // and NO lower panel is made — otherwise a full-height lower panel would overlap the un-notched band
+        // (pnApplyNotches skips the notch when t<=bottom). This was the "panels on top of panels" bug (item 6).
+        if(b0>60&&b0<bandH-1&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,b0,D,{isLower:true,sill:D.sillH}));
         return;
       }
       if((o.topPanel||'yes')==='no'||top>=bandH-40)return;
@@ -4985,9 +5010,13 @@
     const basePieces=pieces.slice();
     // horizontal band: runs → grids → stretches → candidate splits → room-level pick
     const runs=pnRoomRuns(room,D);
+    // Cross-corner shaker match (item 5, opt-in — default off = byte-identical): pin every run's CORNER-adjacent
+    // shaker to one shared width (the room target), so the last shaker on one wall == the first on the adjacent
+    // wall even across an L/U corner (which are separate runs, not a chained seam). The middle shakers flex.
+    const endW=D.cornerMatch?D.target:0;
     runs.forEach(run=>{
       let ov=0;run.segs.forEach(g=>{const w=walls[g.wi];if(w&&+w.shakerCount>0)ov=+w.shakerCount;});
-      run.grid=pnRunGrid(run,D,ov);
+      run.grid=pnRunGrid(run,D,ov,endW);
     });
     const stretches=[];
     runs.forEach(run=>{
@@ -5117,9 +5146,16 @@
       // per-end through/butt override (editable): only overrides an actual corner, never a free end
       if(cA!=='free'&&(e.endA==='through'||e.endA==='butt'))cA=e.endA;
       if(cB!=='free'&&(e.endB==='through'||e.endB==='butt'))cB=e.endB;
-      const shortenL=cA==='butt'?pt:0, shortenR=cB==='butt'?pt:0;
+      // CONFIRMED corner rule (2026-07-10): the BUTT side keeps the NORMAL frame and just loses `pt` of panel
+      // (the physical corner GAP the through panel passes into); the THROUGH side carries the frame+panel
+      // allowance (frame+pt) so its wider stile covers that return. The wall stays full measured length; only the
+      // BUTT panel is physically shortened. (This is the REVERSE of the pre-2026-07-10 engine — see ROADMAP.)
+      const shortenL=cA==='butt'?pt:0, shortenR=cB==='butt'?pt:0;   // physical shortening / corner GAP is on the BUTT side
       const wmm=Math.max(1,measured-shortenL-shortenR);
-      const sideL=cA==='butt'?'corner':'normal', sideR=cB==='butt'?'corner':'normal';
+      const sideL=cA==='through'?'corner':'normal', sideR=cB==='through'?'corner':'normal';   // THROUGH end = frame+pt allowance
+      const endInfo=(cond,shorten)=>({cond:cond,shorten:shorten,
+        gap:cond==='butt'?pt:0,                              // BUTT: visible corner gap = panel thickness
+        allowance:cond==='through'?allowance:frame});        // THROUGH: frame+pt · BUTT/free: normal frame
       const w={id:id,w:wmm,h:Math.round(+e.height>0?+e.height:defH),
         dir:prev.dir||'h',sideL:sideL,sideR:sideR,
         shakerCount:+prev.shakerCount||0,vRows:+prev.vRows||2,vCols:+prev.vCols||0,
@@ -5127,8 +5163,7 @@
         openings:(prev.openings||[]).filter(o=>String(o.id).indexOf('plan_')!==0),   // keep inspector openings
         measured:measured,
         cornerInfo:{pt:pt,frame:frame,allowance:allowance,winding:winding,cornerMode:cornerMode,
-          l:{cond:cA,shorten:shortenL,allowance:cA==='butt'?allowance:0},
-          r:{cond:cB,shorten:shortenR,allowance:cB==='butt'?allowance:0}},
+          l:endInfo(cA,shortenL),r:endInfo(cB,shortenR)},
         _edge:e.id};
       if(e.noPanel)w.noPanel=true;   // panel OFF is stored on the plan EDGE (item 6) → survives save + granular undo
       if(prev.panelNotes)w.panelNotes=prev.panelNotes;
@@ -5158,7 +5193,10 @@
   function pnNewRoom(n){return {id:'pr'+(++pnUid)+'_'+Date.now(),name:'Room '+n,mat:'MDF 18mm',frame:80,target:350,doorAllow:175,
     skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',matCost:null,cncCost:330,lines:pnDefaultLines(),walls:[pnNewWall()]};}
   function pnNewOpening(type,wall){
-    const d=type==='door'?{w:900,h:2100,bottom:0}:(type==='window'?{w:1200,h:1100,bottom:900}:{w:2000,h:2000,bottom:0});
+    // window default sits AT the panel-band top (item 6): a new window starts above the panels so its default
+    // placement never cuts the band / creates overlapping panels. The user can lower it afterwards.
+    const room=pnRoomObj(),ph=room?pnRoomDefs(room).hPanelH:1030;
+    const d=type==='door'?{w:900,h:2100,bottom:0}:(type==='window'?{w:1200,h:1100,bottom:ph}:{w:2000,h:2000,bottom:0});
     return {id:'po'+(++pnUid)+'_'+Date.now(),type,name:type==='door'?'Door':(type==='window'?'Window':'Object'),
       w:d.w,h:d.h,x:Math.max(0,Math.round(((+wall.w||0)-d.w)/2)),from:'L',bottom:d.bottom,topPanel:'yes'};
   }
@@ -5322,6 +5360,60 @@
     const room=panelRooms[ri];if(!room)return;
     const nm='PANELS_'+String(room.name||'room').replace(/[^A-Za-z0-9_-]+/g,'_')+'_';
     pnDownloadFiles(pnBuildDxfByThickness(ri),nm);
+  }
+  // ---- WALL LAYOUT DXF (item 7) — a SEPARATE, non-cutting export: the room drawn the way you see it in Front
+  // view, walls stacked in app order (Wall 1 on top), each wall's full measured outline with its panels inside,
+  // the corner gaps shown, and labels (Wall N / Wall NA…). This is for checking/explaining a job — NOT for CNC.
+  // It does not touch the Sheet/nesting DXF (pnDxfForThickness) at all.
+  function pnWallLayoutDxf(onlyRoomIdx){
+    const layers=new Set(['WALL','OUT','text','INSIDE']);
+    let body='',yTop=0;
+    panelRooms.forEach((room,ri)=>{
+      if(onlyRoomIdx!=null&&ri!==onlyRoomIdx)return;
+      let L;try{L=pnRoom(room);}catch(e){return;}
+      body+=dxfText('text',0,yTop,55,'ROOM: '+(room.name||('Room '+(ri+1))),false);
+      yTop-=150;
+      room.walls.forEach((wall,wi)=>{
+        const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
+        const W=Math.max(1,+wall.w||0),H=Math.max(1,+wall.h||0),measured=Math.max(W,(+wall.measured||W));
+        const yBase=yTop-H;
+        body+=dxfText('text',0,yTop+30,60,'Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'   '+Math.round(measured)+' x '+Math.round(H),false);
+        body+=dxfRect('WALL',0,yBase,measured,H);   // wall stays FULL measured length
+        if(!wall.noPanel){
+          if(clL>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',0,yBase,clL,H);}      // butt corner gap
+          if(clR>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',measured-clR,yBase,clR,H);}
+          L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                         // panels inset by the left gap
+            const px=clL+p.x0,pw=p.x1-p.x0,py=yBase+p.y0,ph=p.y1-p.y0;
+            body+=dxfRect('OUT',px,py,pw,ph);
+            (p.cells||[]).forEach(c=>{if(c.w>2&&c.h>2){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',clL+p.x0+c.x,yBase+p.y0+c.y,c.w,c.h);}});
+            (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',clL+p.x0+n.x,yBase+p.y0+n.y,n.w,n.h);});
+            const fs=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
+            body+=dxfText('text',px+18,py+ph-fs-16,fs,'Wall '+(wi+1)+(p.letter||''),false);
+            body+=dxfText('text',px+18,py+16,Math.max(16,fs*0.7),Math.round(p.w)+' x '+Math.round(p.h),false);
+          });
+          (wall.openings||[]).forEach(o=>{const r=pnOpRect(o,wall),b0=+o.bottom||0,oh=+o.h||0,ow=r.x1-r.x0;if(ow<=1||oh<=1)return;
+            body+=dxfRect('INSIDE',clL+r.x0,yBase+b0,ow,oh);
+            body+=dxfText('text',clL+r.x0+18,yBase+b0+oh-50,40,String(o.name||o.type),false);});
+        }
+        yTop=yBase-420;   // next wall below, with a gap
+      });
+      yTop-=350;   // room gap
+    });
+    if(!body)body=dxfText('text',0,0,50,'No walls to export — create a room with walls first.',false);
+    const layerArr=Array.from(layers);
+    let s='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n';
+    s+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n'+layerArr.length+'\n';
+    layerArr.forEach(l=>{s+='0\nLAYER\n2\n'+l+'\n70\n0\n62\n'+(DXF_LAYERS[l]||7)+'\n6\nCONTINUOUS\n';});
+    s+='0\nENDTAB\n0\nENDSEC\n';
+    s+='0\nSECTION\n2\nENTITIES\n'+body+'0\nENDSEC\n0\nEOF\n';
+    return s;
+  }
+  function pnDownloadWallLayoutDxf(onlyRoomIdx){
+    if(!panelRooms.length){alert('No panels to export — create a room with walls first.');return;}
+    const dxf=pnWallLayoutDxf(onlyRoomIdx);
+    const nm='WALL_LAYOUT'+(onlyRoomIdx!=null&&panelRooms[onlyRoomIdx]?('_'+String(panelRooms[onlyRoomIdx].name||'room').replace(/[^A-Za-z0-9_-]+/g,'_')):'');
+    const blob=new Blob([dxf],{type:'application/dxf'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nm+'.dxf';document.body.appendChild(a);a.click();a.remove();
   }
   // legacy import: old production panelling quotes (.fastcnc blocks with calcMode 'panel') → panelRooms
   function pnImportLegacy(doc){
@@ -5986,7 +6078,8 @@
     if(pnPlanSel&&pnPlanSel.kind==='edge')e=pnPlanEdgeById(plan,pnPlanSel.id);
     else if(pnPlanSel&&pnPlanSel.kind==='op'){const cur=pnPlanOpObj();if(cur)e=pnPlanEdgeById(plan,cur.edgeId);}
     if(!e)return;pnPlanSnapshot();
-    const F=pnPlanEdgeFrame(plan,e),def=type==='door'?{w:900,h:2100,b:0}:(type==='window'?{w:1200,h:1100,b:900}:{w:600,h:600,b:0});
+    const ph=pnRoomDefs(room).hPanelH;   // window default bottom = panel-band top (item 6) → never cuts the band
+    const F=pnPlanEdgeFrame(plan,e),def=type==='door'?{w:900,h:2100,b:0}:(type==='window'?{w:1200,h:1100,b:ph}:{w:600,h:600,b:0});
     const off=Math.max(0,Math.round(F.L/2-def.w/2)),id='o'+(++pnUid);
     const rec={id,edgeId:e.id,type,name:type.charAt(0).toUpperCase()+type.slice(1),offset:off,width:def.w,height:def.h,bottom:def.b};
     if(type==='object'){plan.objects=plan.objects||[];plan.objects.push(rec);}else{plan.openings=plan.openings||[];plan.openings.push(rec);}
@@ -6018,8 +6111,8 @@
         const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);
         const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
         const condTxt=side=>{if(!ci)return '';const c=ci[side],nm=side==='l'?'Start':'End';
-          if(c.cond==='butt')return nm+' — Butt corner: panel stops short −'+Math.round(c.shorten)+'mm (clearance) and takes the corner allowance '+Math.round(c.allowance)+'mm (frame + panel)';
-          if(c.cond==='through')return nm+' — Through corner: panel runs full length, normal frame';return nm+' — free end';};
+          if(c.cond==='butt')return nm+' — Butt corner: NORMAL frame '+Math.round(c.allowance)+'mm, panel shortened '+Math.round(c.shorten)+'mm (corner gap '+Math.round(c.gap)+'mm for the through panel)';
+          if(c.cond==='through')return nm+' — Through corner: full length, frame + panel = '+Math.round(c.allowance)+'mm allowance';return nm+' — free end';};
         const endCtl=(side,which)=>{if(!ci||ci[side].cond==='free')return '';const cur=(e[which==='a'?'endA':'endB'])||'auto';
           return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+' corner</label>'+pnSegHtml([['auto','Auto'],['through','Through'],['butt','Butt']],cur,'pnPlanSetEnd(\''+which+'\',\'%V\')')+'</div>';};
         const cornerBlock=ci?('<div class="pn-hint" style="margin-top:6px;line-height:1.5">measured '+Math.round(cw.measured||F.L)+'mm → <b>panel '+Math.round(cw.w)+'mm</b> (panel '+Math.round(ci.pt)+'mm · frame '+Math.round(ci.frame)+') · gap = corner clearance<br>'+esc(condTxt('l'))+'<br>'+esc(condTxt('r'))+'</div>'+endCtl('l','a')+endCtl('r','b')):'';
@@ -6063,11 +6156,13 @@
       '<div class="pn-row"><label>Material</label><select onchange="pnSet(\'room\',\'mat\',this.value)">'+matOptionsHtml(room.mat)+'</select></div>'
       +pnRowN('Frame (mm)','room','frame',room.frame)
       +pnRowN('Shaker target','room','target',room.target)
+      +'<div class="pn-row"><label>Match corner shakers</label>'+pnSegHtml([['no','Off'],['yes','On']],room.cornerMatch?'yes':'no','pnSet(\'room\',\'cornerMatch\',\'%V\'===\'yes\')')+'</div>'
       +pnRowN('Door allowance','room','doorAllow',room.doorAllow)
       +pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
       +pnRowN('Vertical panel H','room','vPanelH',room.vPanelH)
       +'<div class="pn-row"><label>Skirting</label>'+pnSegHtml([['yes','Yes'],['no','No']],room.skirtOn!==false?'yes':'no','pnSet(\'room\',\'skirtOn\',\'%V\'===\'yes\')')+'</div>'
-      +pnRowN('Skirting height','room','skirtH',room.skirtH));
+      +pnRowN('Skirting height','room','skirtH',room.skirtH)
+      +'<div class="pn-hint">Match corner shakers: harmonise shaker widths across all walls so corner-adjacent shakers look consistent (L/U corners too).</div>');
     body+=SEC('',
       '<div class="pn-row"><button class="pn-mini" onclick="pnSetView(\'wall\')" style="font-weight:800">Front view (elevation) →</button></div>'
       +'<div class="pn-hint">Same walls — the Front view shows the wall elevation with per-panel shaker editing and export.</div>');
@@ -6286,6 +6381,7 @@
         +'<div class="pn-row"><label>Material</label><select onchange="pnSet(\'room\',\'mat\',this.value)">'+matOptionsHtml(room.mat)+'</select></div>'
         +pnRowN('Frame (mm)','room','frame',room.frame)
         +pnRowN('Shaker target','room','target',room.target)
+        +'<div class="pn-row"><label>Match corner shakers</label>'+pnSegHtml([['no','Off'],['yes','On']],room.cornerMatch?'yes':'no','pnSet(\'room\',\'cornerMatch\',\'%V\'===\'yes\')')+'</div>'
         +pnRowN('Door allowance','room','doorAllow',room.doorAllow))
       +SEC('Heights',
         pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
@@ -6345,10 +6441,12 @@
         +'<button class="pn-mini '+(pnPlanTool==='draw'?'on':'')+'" onclick="pnPlanSetTool(\'draw\')" title="Click-drag-release to draw a wall ('+PN_WALL_T+'mm); continue from an endpoint to chain">✏ Draw</button>'
         +'<button class="pn-mini '+(pnPlanTool==='select'?'on':'')+'" onclick="pnPlanSetTool(\'select\')" title="Click a wall/opening to edit it, or drag a corner to move it">◉ Select</button>'
         +'<button class="pn-mini" onclick="pnZoom(0.8)" title="Zoom in">+</button><button class="pn-mini" onclick="pnZoom(1.25)" title="Zoom out">−</button><button class="pn-mini" onclick="pnFit()" title="Fit">⤢</button>'
+        +'<button class="pn-mini" onclick="pnDownloadWallLayoutDxf()" title="Wall Layout DXF — walls in order with panels inside (visual layout, not for cutting)">⬇ Wall DXF</button>'
         +'<button class="pn-mini" onclick="pnSetView(\'wall\')" title="Front view — the wall elevation / panel editor. The drawn walls are real Panels walls">✓ Front view</button>'
         +'</div>'
       :'<div class="pn-views">'
-      +'<button class="pn-mini" onclick="pnDownloadDxf()" title="Export panels DXF (one file per thickness, same layers as Doors)" style="font-weight:800">⬇ DXF</button>'
+      +'<button class="pn-mini" onclick="pnDownloadDxf()" title="Sheet DXF — pieces nested on sheets for CNC cutting (one file per thickness, same layers as Doors)" style="font-weight:800">⬇ Sheet DXF</button>'
+      +'<button class="pn-mini" onclick="pnDownloadWallLayoutDxf()" title="Wall Layout DXF — the room drawn as you see it in Front view: walls in order, panels inside each wall, corner gaps + labels. For checking/explaining a job, not for cutting.">⬇ Wall DXF</button>'
       +'<button class="pn-mini" onclick="pnOpenBuilder()" title="Top view — the 2D top-down room builder (draw walls visually)">▦ Top view</button>'
       +'<button class="pn-mini" onclick="pnSet(\'wall\',\'dir\',(pnWallObj()&&pnWallObj().dir===\'v\')?\'h\':\'v\')" title="Rotate the selected wall\'s panelling: Horizontal ⇄ Vertical (layout, nesting, quote and DXF all follow)">⇄ '+((pnWallObj()&&pnWallObj().dir==='v')?'Vertical':'Horizontal')+'</button>'
       +'<button class="pn-mini" onclick="pnClearAllRooms(false)" title="Delete ALL rooms (asks first) — stops old panels riding along in a Doors-only quote" style="color:#dc2626">🗑 Clear all</button>'
@@ -6374,7 +6472,7 @@
         +'<span style="flex:1"></span>'
         +'<span class="sub">Prices are in the Quote tab</span></div>';
     }catch(e){status='';}
-    const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Export ONLY this room — panels numbered in the visual order shown here">⬇ Export '+esc(room.name||'room')+' DXF</button></div>':'';
+    const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Sheet DXF for ONLY this room — panels numbered in the visual order shown here">⬇ '+esc(room.name||'room')+' Sheet DXF</button> <button class="pn-mini" onclick="pnDownloadWallLayoutDxf('+pnSel.room+')" title="Wall Layout DXF for ONLY this room — walls in order with panels inside (visual, not for cutting)">⬇ '+esc(room.name||'room')+' Wall DXF</button></div>':'';
     root.innerHTML=roomTabs+wallTabs
       +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+roomBtn+warnsH+status+'</div>'
       +'<aside class="pn-insp">'+(pnView==='plan'?pnPlanInspectorHtml(room,L):pnInspectorHtml(room,L))+'</aside></div>';

@@ -93,7 +93,7 @@ if (html) {
   must(html.includes("cncRate=(room.cncCost!=null&&room.cncCost!=='')?+room.cncCost:330"), 'panels CNC default £330/sheet missing');
   if (pnSrc) {
     try {
-      const api = new Function(pnSrc + ';return {pnLayoutRoom:pnLayoutRoom,PN_CAP:PN_CAP,PN_CROSS:PN_CROSS,pnPlanCompile:pnPlanCompile,pnPlanLen:pnPlanLen,PN_WALL_T:PN_WALL_T,PN_PANEL_T:PN_PANEL_T};')();
+      const api = new Function(pnSrc + ';return {pnLayoutRoom:pnLayoutRoom,PN_CAP:PN_CAP,PN_CROSS:PN_CROSS,pnPlanCompile:pnPlanCompile,pnPlanLen:pnPlanLen,PN_WALL_T:PN_WALL_T,PN_PANEL_T:PN_PANEL_T,pnRoomDefs:pnRoomDefs};')();
       const wall = o => Object.assign({ w: 2600, h: 3200, dir: 'h', sideL: 'normal', sideR: 'normal', shakerCount: 0, vRows: 2, vCols: 0, openings: [], panelOv: {} }, o);
       const room = (walls, o) => Object.assign({ name: '', mat: 'MDF 18mm', frame: 80, target: 350, doorAllow: 175, skirtOn: true, skirtH: 225, sillH: 22, hPanelH: 1030, vPanelH: 3000, sheetPref: 'auto', walls }, o || {});
       const near = (a, b, t) => Math.abs(a - b) <= (t == null ? 0.5 : t);
@@ -221,24 +221,39 @@ if (html) {
         const wOp = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: pOp })[0];
         must(wOp.openings.length === 1 && wOp.openings[0].type === 'door' && wOp.openings[0].w === 900 && wOp.openings[0].x === 800, 'plan opening compiles into wall.openings');
       }
-      { // Phase 2 corner maths — thickness-driven physical shortening + frame+panel allowance (NOT hard-coded 22)
+      { // CONFIRMED corner rule (2026-07-10): THROUGH side = frame+pt allowance; BUTT side = normal frame + pt gap.
+        // Wall stays full measured length; only the BUTT panel is physically shortened by pt.
         const U = pt => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt, side: 'front' },
           nodes: [{ id: 'A', x: 0, y: 3000 }, { id: 'B', x: 0, y: 0 }, { id: 'C', x: 2000, y: 0 }, { id: 'D', x: 2000, y: 3000 }],
           edges: [{ id: 'L', a: 'A', b: 'B' }, { id: 'M', a: 'B', b: 'C' }, { id: 'R', a: 'C', b: 'D' }] } });   // U: sides 3000, base 2000
         const u22 = api.pnPlanCompile(U(22)), base22 = u22.find(w => w.id === 'pe_M');
         must(base22.w === 1956, `U base with 22mm panels must be 2000-22-22=1956 (got ${base22.w})`);
-        must(base22.sideL === 'corner' && base22.sideR === 'corner', 'U base both ends butt → corner side rule');
-        must(base22.cornerInfo.allowance === 102 && base22.cornerInfo.l.shorten === 22, 'U base allowance 80+22=102, shorten 22');
-        must(u22.find(w => w.id === 'pe_L').w === 3000 && u22.find(w => w.id === 'pe_L').sideL === 'normal', 'U side wall passes through — full length, normal end');
-        const u18 = api.pnPlanCompile(U(18)), base18 = u18.find(w => w.id === 'pe_M');
-        must(base18.w === 1964, `U base with 18mm panels must be 2000-18-18=1964 (got ${base18.w})`);
-        must(base18.cornerInfo.allowance === 98, 'U base allowance with 18mm must be 80+18=98 (thickness-driven, not 102)');
+        must(base22.sideL === 'normal' && base22.sideR === 'normal', 'U base BUTTS both ends → NORMAL frame (butt keeps normal frame)');
+        must(base22.cornerInfo.l.shorten === 22 && base22.cornerInfo.l.gap === 22 && base22.cornerInfo.l.allowance === 80,
+          `U base butt end: shorten 22 + gap 22 + normal frame 80 (got shorten ${base22.cornerInfo.l.shorten}, gap ${base22.cornerInfo.l.gap}, allowance ${base22.cornerInfo.l.allowance})`);
+        const sideL = u22.find(w => w.id === 'pe_L');   // side wall passes THROUGH at B (the base butts into it)
+        must(sideL.w === 3000 && sideL.sideL === 'normal' && sideL.sideR === 'corner', 'U side wall: full length, free end normal, THROUGH end = corner (frame+pt)');
+        must(sideL.cornerInfo.r.cond === 'through' && sideL.cornerInfo.r.allowance === 102 && sideL.cornerInfo.r.gap === 0,
+          `U side THROUGH end allowance 80+22=102, no gap (got ${sideL.cornerInfo.r.allowance})`);
+        const u18 = api.pnPlanCompile(U(18)), side18 = u18.find(w => w.id === 'pe_L');
+        must(side18.cornerInfo.r.allowance === 98, 'U side THROUGH allowance with 18mm must be 80+18=98 (thickness-driven, not 102)');
         // L: shorter wall butts once
         const Lp = pt => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt },
           nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }], edges: [{ id: 'e1', a: 'a', b: 'b' }, { id: 'e2', a: 'b', b: 'c' }] } });
         const l22 = api.pnPlanCompile(Lp(22));
-        must(l22.find(w => w.id === 'pe_e1').w === 4000, 'L through wall keeps full length');
-        must(l22.find(w => w.id === 'pe_e2').w === 2978 && l22.find(w => w.id === 'pe_e2').cornerInfo.l.shorten === 22, 'L butting wall 3000-22=2978');
+        must(l22.find(w => w.id === 'pe_e1').w === 4000 && l22.find(w => w.id === 'pe_e1').sideR === 'corner', 'L through wall: full length + through end corner');
+        must(l22.find(w => w.id === 'pe_e2').w === 2978 && l22.find(w => w.id === 'pe_e2').cornerInfo.l.shorten === 22 && l22.find(w => w.id === 'pe_e2').sideL === 'normal', 'L butting wall 3000-22=2978, normal frame');
+        { // user's worked example (item 2): Wall1 2000, Wall2 1000 (shorter → butts BOTH ends), Wall3 2000
+          const ex = pt => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt },
+            nodes: [{ id: 'n1', x: 2000, y: 0 }, { id: 'n2', x: 0, y: 0 }, { id: 'n3', x: 0, y: 1000 }, { id: 'n4', x: 2000, y: 1000 }],
+            edges: [{ id: 'w1', a: 'n1', b: 'n2' }, { id: 'w2', a: 'n2', b: 'n3' }, { id: 'w3', a: 'n3', b: 'n4' }] } });
+          const c22 = api.pnPlanCompile(ex(22)), w2 = c22.find(w => w.id === 'pe_w2');
+          must(w2.measured === 1000 && w2.w === 956, `example Wall 2: measured 1000, panel 1000-22-22=956 (got measured ${w2.measured}, w ${w2.w})`);
+          must(w2.sideL === 'normal' && w2.sideR === 'normal', 'example Wall 2 keeps the NORMAL 80mm frame both ends');
+          must(w2.cornerInfo.l.gap === 22 && w2.cornerInfo.r.gap === 22, 'example Wall 2 has a 22mm gap at each end');
+          const w1 = c22.find(w => w.id === 'pe_w1');   // through wall gets frame+pt on its through end
+          must(w1.measured === 2000 && w1.w === 2000 && (w1.sideR === 'corner' || w1.sideL === 'corner'), 'example through wall stays 2000 + has a frame+pt (corner) end');
+        }
         // corner allowance in the actual engine uses panel thickness for a plan room; compile→walls then lay out
         const uc = U(18); uc.walls = api.pnPlanCompile(uc);
         const dPlan = api.pnLayoutRoom(uc);   // must run without throwing and produce pieces from the compiled walls
@@ -246,6 +261,29 @@ if (html) {
         // the shortened base width must flow all the way to the physical pieces (compile → engine)
         const baseW = dPlan.pieces.filter(p => p.wi === 1 && !p.isCap).reduce((s, p) => s + (p.x1 - p.x0), 0);
         must(Math.abs(baseW - 1964) < 1.5, `U base pieces must span the shortened 1964mm through the engine (got ${Math.round(baseW)})`);
+      }
+      { // cross-corner shaker MATCH (item 5, opt-in): OFF = natural per-wall widths; ON pins each wall's corner
+        // shakers to the shared target so an L corner's two panels meet with equal-width shakers.
+        const Lroom = match => { const r = { mat: 'MDF 18mm', frame: 80, target: 350, cornerMatch: match, walls: [], plan: {
+          nodes: [{ id: 'n1', x: 3200, y: 0 }, { id: 'n2', x: 0, y: 0 }, { id: 'n3', x: 0, y: 1500 }], edges: [{ id: 'w1', a: 'n1', b: 'n2' }, { id: 'w2', a: 'n2', b: 'n3' }] } };
+          r.walls = api.pnPlanCompile(r); return api.pnLayoutRoom(r); };
+        const cw = (lay, wi, side) => { const cs = []; lay.pieces.filter(p => p.wi === wi && !p.isCap && !p.isLower).forEach(p => (p.cells || []).forEach(c => cs.push({ x: p.x0 + c.x, w: Math.round(c.w) }))); cs.sort((a, b) => a.x - b.x); return side === 'first' ? cs[0].w : cs[cs.length - 1].w; };
+        const off = Lroom(false);
+        must(cw(off, 0, 'first') === 363 && cw(off, 1, 'first') === 386, `cornerMatch OFF: natural widths 363 / 386 (got ${cw(off, 0, 'first')} / ${cw(off, 1, 'first')})`);
+        const on = Lroom(true);
+        must(cw(on, 0, 'first') === 350 && cw(on, 0, 'last') === 350 && cw(on, 1, 'first') === 350 && cw(on, 1, 'last') === 350, 'cornerMatch ON: every corner shaker == target 350 (matched across the L)');
+      }
+      { // window overlap fix (item 6): sill AT/above the band → NO lower panel (no "panels on top of panels");
+        // sill INSIDE the band → one lower panel + the band notched to the floor, with no solid overlap.
+        const wroom = bottom => api.pnLayoutRoom(room([wall({ w: 3000, openings: [{ id: 'ow', type: 'window', name: 'W', w: 1200, h: 1100, x: 900, from: 'L', bottom, topPanel: 'yes' }] })]));
+        const bandH = api.pnRoomDefs(room([wall({})])).hPanelH;
+        must(wroom(bandH).pieces.filter(p => p.isLower).length === 0, 'window sill AT the band top makes NO lower panel (was the overlap bug)');
+        must(wroom(bandH + 500).pieces.filter(p => p.isLower).length === 0, 'window ABOVE the band makes NO lower panel');
+        const within = wroom(400);
+        must(within.pieces.filter(p => p.isLower).length === 1, 'window sill INSIDE the band makes exactly one lower panel');
+        const solidOverlap = ps => { const cov = (p, ix0, ix1, iy0, iy1) => (p.notches || []).some(n => (p.x0 + n.x) <= ix0 + 1 && (p.x0 + n.x + n.w) >= ix1 - 1 && (p.y0 + n.y) <= iy0 + 1 && (p.y0 + n.y + n.h) >= iy1 - 1);
+          for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) { const a = ps[i], b = ps[j], ix0 = Math.max(a.x0, b.x0), ix1 = Math.min(a.x1, b.x1), iy0 = Math.max(a.y0, b.y0), iy1 = Math.min(a.y1, b.y1); if (ix1 - ix0 > 1 && iy1 - iy0 > 1 && !cov(a, ix0, ix1, iy0, iy1) && !cov(b, ix0, ix1, iy0, iy1)) return true; } return false; };
+        must(!solidOverlap(within.pieces) && !solidOverlap(wroom(bandH).pieces) && !solidOverlap(wroom(0).pieces), 'no solid panel overlap for window at floor / inside band / at band top');
       }
       { // Panel ON/OFF per wall (edge.noPanel) — the wall stays, but produces NO pieces (excluded from quote/DXF/nesting)
         const twoWall = () => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: {

@@ -9,16 +9,19 @@ The exported DXFs feed the **VCarve gadgets** (in the `CNC App` repo: "Fast CNC 
 ## Files
 
 - **Doors** (`buildDxfByThickness` → `dxfForThickness`): **one file per thickness** — `ORDER_<th>.dxf`. Back-face parts appear as extra mirrored sheets (`mirrorBackPart`); with `backMode:'custom'` the back sheet draws the back's OWN offset lines.
-- **Panels** (`pnBuildDxfByThickness` → `pnDxfForThickness`): `PANELS_<th>.dxf`, all rooms together, same layer discipline; pieces named `«Room» Wall <n><letter>` in VISUAL order, `PART_NUMBER` follows the visual sequence (`vn`).
-- Document layout: portrait, sheets stacked with a 250 gap; sheet outline + caption on `SHEET`; nesting margins/gaps (7mm) inherited from the app.
+- **Panels — Sheet DXF** (`pnBuildDxfByThickness` → `pnDxfForThickness`, button "⬇ Sheet DXF"): `PANELS_<th>.dxf`, all rooms together, pieces nested on sheets FOR CUTTING; named `«Room» Wall <n><letter>` in VISUAL order, `PART_NUMBER` follows the visual sequence (`vn`).
+- **Panels — Wall Layout DXF** (`pnWallLayoutDxf`, button "⬇ Wall DXF", 2026-07-10): a SEPARATE **non-cutting** export — one `WALL_LAYOUT[_<room>].dxf`, walls stacked in **app order** (Wall 1 on top), each drawn at its **full measured outline** (`WALL`) with its panels inside (`OUT`), shaker cells (`OFFSET_A`), openings/notches (`INSIDE`), the butt **corner gaps** (`WALL_GAP`), and labels (`text`: "Wall N", "Wall N<letter>", sizes). **No `SHEET`/`PART_NUMBER`.** For checking/explaining a job, never for the machine. Do NOT merge with the Sheet DXF. Golden: `GOLDEN_WALL_LAYOUT.dxf`.
+- Document layout (Sheet DXF): portrait, sheets stacked with a 250 gap; sheet outline + caption on `SHEET`; nesting margins/gaps (7mm) inherited from the app.
 
 ## Layer table (`DXF_LAYERS` — name: AutoCAD colour index)
 
 | Layer | Colour | Meaning |
 |---|---|---|
 | `0`, `text` | 7 | defaults / free text |
-| `SHEET` | 7 | sheet outline + caption ("SHEET n …") |
-| `PART_NUMBER` | 7 | part number text (reserved corner) + size/name label |
+| `SHEET` | 7 | sheet outline + caption ("SHEET n …") — Sheet DXF only |
+| `PART_NUMBER` | 7 | part number text (reserved corner) + size/name label — Sheet DXF only |
+| `WALL` | 8 | Wall Layout DXF only — the wall's full measured outline |
+| `WALL_GAP` | 1 | Wall Layout DXF only — the butt corner gap (panel stops short) |
 | `OUT` | 150 | part outer contour (through cut) |
 | `IN` / `INSIDE` | 5 | through inner cuts (trad cavity / glass opening / panels window) |
 | `OFFSET_A`…`OFFSET_G` | 30/1/5/210/94/30/32 | the 7 production offset lines (A = Frame). Active line replaces the base: with NO active line the cavity itself goes out on `OFFSET_A` (Doors and Panels both) |
