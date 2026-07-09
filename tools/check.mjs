@@ -186,6 +186,14 @@ if (html) {
         const noZoneGeom = JSON.stringify(plain.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         const stillPlain = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 5000, vZones: [] })])).pieces.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         must(noZoneGeom === stillPlain, 'empty vZones array must equal no-zone geometry (byte-identical safety)');
+        // window (2026-07-08 fix): band notched DOWN TO THE FLOOR at the window column so it never overlaps the
+        // separate lower panel (was: only the window rect, so the band covered 0..bottom = the overlap bug).
+        const wr = api.pnLayoutRoom(room([wall({ w: 3000, openings: [{ id: 'ow', type: 'window', name: 'W', w: 1200, h: 1100, x: 1200, from: 'L', bottom: 900, topPanel: 'yes' }] })]));
+        const lower = wr.pieces.find(p => p.isLower), bandp = wr.pieces.find(p => p.wi === 0 && !p.isLower && !p.isCap);
+        must(!!lower && !!bandp, 'window must create a lower panel + a band');
+        const wnotch = (bandp.notches || []).find(n => n.w > 1);
+        must(!!wnotch && wnotch.y <= 0.5, 'window notch must reach the floor (y≈0) so the band does not overlap the lower panel');
+        must(!!lower && (lower.y1 <= wnotch.y + wnotch.h + 0.5), 'lower panel must sit within the band notch (no double coverage)');
       }
       { // 2D room builder: compilePlan (2026-07-08) — plan is the source, walls derived; safe + preserving
         must(typeof api.pnPlanCompile === 'function', 'pnPlanCompile must be exported from PN_ENGINE');

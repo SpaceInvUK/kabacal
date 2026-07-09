@@ -4898,9 +4898,12 @@
     (wall.openings||[]).forEach(o=>{
       if(o.type!=='window')return;
       const r=pnOpRect(o,wall),b0=+o.bottom||0,t=Math.min(b0+(+o.h||0),bandH);if(t<=b0)return;
+      const lower=b0>60;   // a separate lower panel was created under the window (pnOpeningPieces)
       pieces.forEach(p=>{
         if(p.wi!==wi||p.isCap||p.isLower)return;
-        const ix0=Math.max(p.x0,r.x0),ix1=Math.min(p.x1,r.x1),iy0=Math.max(p.y0,b0),iy1=Math.min(p.y1,t);
+        // notch the band down to the FLOOR when a lower panel exists, so the band never overlaps that lower
+        // panel (was: only the window rect → band still covered 0..b0 = the overlap the user saw).
+        const ix0=Math.max(p.x0,r.x0),ix1=Math.min(p.x1,r.x1),iy0=Math.max(p.y0,lower?0:b0),iy1=Math.min(p.y1,t);
         if(ix1-ix0>1&&iy1-iy0>1)(p.notches=p.notches||[]).push({x:ix0-p.x0,y:iy0-p.y0,w:ix1-ix0,h:iy1-iy0});
       });
     });
@@ -5481,16 +5484,24 @@
   function pnSegHtml(opts,cur,fn){return '<div class="pn-seg">'+opts.map(o=>'<span class="'+(o[0]===cur?'on':'')+'" onclick="'+fn.replace('%V',o[0])+'">'+o[1]+'</span>').join('')+'</div>';}
   function pnWallSvg(room,L,wi){
     const wall=room.walls[wi];if(!wall)return '<div class="pn-hint">No wall.</div>';
-    const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),D=L.D,f=D.frame;
-    const pad=34,T=26,vbW=940,sc=(vbW-2*pad)/W,hpx=H*sc,vbH=T+hpx+52;
-    const X=x=>pad+x*sc, Y=y=>T+(H-y)*sc;
+    // corner clearance: the WALL keeps its full measured length; the panel run (width W) is inset by the
+    // shortening at each butt end. Non-plan walls have no cornerInfo → clL=clR=0, measured=W → unchanged.
+    const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
+    const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),measured=Math.max(W,(+wall.measured||W)),D=L.D,f=D.frame;
+    const pad=34,T=26,vbW=940,sc=(vbW-2*pad)/measured,hpx=H*sc,vbH=T+hpx+52;
+    const X=x=>pad+(x+clL)*sc, Y=y=>T+(H-y)*sc;   // panels drawn inset by clL inside the full measured wall
     const GEO={vx:[],vy:[],pts:[]};
     const snapRect=(x0,y0,x1,y1)=>{const A=X(x0),B=X(x1),C=Y(y1),E=Y(y0);GEO.vx.push(A,B);GEO.vy.push(C,E);GEO.pts.push({x:A,y:C},{x:B,y:C},{x:A,y:E},{x:B,y:E});};
     let s='<svg viewBox="0 0 '+vbW+' '+Math.round(vbH)+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0" id="pnSvg">';
-    s+='<rect class="pnbg" x="'+X(0)+'" y="'+Y(H)+'" width="'+(W*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
+    const wx0=pad,wx1=pad+measured*sc;
+    s+='<rect class="pnbg" x="'+wx0+'" y="'+Y(H)+'" width="'+(measured*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
     snapRect(0,0,W,H);
-    s+='<line x1="'+(X(0)-12)+'" y1="'+Y(0)+'" x2="'+(X(W)+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
-    s+='<text x="'+(X(W)+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(X(W)+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
+    s+='<line x1="'+(wx0-12)+'" y1="'+Y(0)+'" x2="'+(wx1+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
+    s+='<text x="'+(wx1+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(wx1+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
+    // corner-clearance strips (wall full length; panel recessed) — dashed, labelled, subtle
+    const clStrip=(sx,w,mm)=>{if(mm<=0.5||w<=0)return;s+='<rect x="'+sx+'" y="'+Y(H)+'" width="'+w+'" height="'+hpx+'" fill="rgba(225,29,72,0.10)" stroke="#e11d48" stroke-width="0.7" stroke-dasharray="4 3"/><text x="'+(sx+w/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="9" fill="#e11d48">clr '+Math.round(mm)+'</text>';};
+    clStrip(wx0,clL*sc,clL);clStrip(X(W),clR*sc,clR);
+    s+='<text x="'+((wx0+wx1)/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(measured)+' mm'+((clL||clR)?' · panel '+Math.round(W)+' mm':'')+'</text>';
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
@@ -5498,12 +5509,11 @@
       const px=X(p.x0),pw=(p.x1-p.x0)*sc,py=Y(p.y1),ph=(p.y1-p.y0)*sc;
       snapRect(p.x0,p.y0,p.x1,p.y1);
       s+='<g class="pnk" data-pid="'+p.pid+'" data-wi="'+wi+'" style="cursor:pointer">';
-      s+='<rect x="'+(px+4)+'" y="'+(py+4)+'" width="'+pw+'" height="'+ph+'" fill="rgba(15,23,42,0.18)"/>';
-      s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.10':'0.16')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
-      if(p.sides.l.rule==='joint')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.55)"/>';
-      if(p.sides.r.rule==='joint')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.55)"/>';
-      if(p.sides.l.rule==='corner'||p.sides.l.rule==='column')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(120,113,108,.4)"/>';
-      if(p.sides.r.rule==='corner'||p.sides.r.rule==='column')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(120,113,108,.4)"/>';
+      s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.08':'0.14')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
+      if(p.sides.l.rule==='joint')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
+      if(p.sides.r.rule==='joint')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
+      if(p.sides.l.rule==='corner'||p.sides.l.rule==='column')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(100,116,139,.22)"/>';
+      if(p.sides.r.rule==='corner'||p.sides.r.rule==='column')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(100,116,139,.22)"/>';
       (p.cells||[]).forEach(c=>{
         const cx=X(p.x0+c.x),cy=Y(p.y0+c.y+c.h),cw=c.w*sc,chh=c.h*sc;
         snapRect(p.x0+c.x,p.y0+c.y,p.x0+c.x+c.w,p.y0+c.y+c.h);
@@ -5742,18 +5752,24 @@
       const sel=pnPlanSel&&pnPlanSel.kind==='edge'&&pnPlanSel.id===e.id;
       const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
       const clL=ci?(+ci.l.shorten||0):0, clR=ci?(+ci.r.shorten||0):0;   // corner clearance at each end (mm)
-      // WALL body — extrudes OUTWARD from the inside-face reference line (the node line). The inside face is
-      // the reference: the panel is fitted on the interior; the wall thickness goes outward only (item 8).
-      s+='<polygon points="'+poly([off(0,0),off(L,0),off(L,-sInt*T),off(0,-sInt*T)])+'" fill="#9aa3af" fill-opacity="0.5" stroke="'+(sel?'#2563eb':'var(--ink)')+'" stroke-width="'+(sel?1.8:0.9)+'" '+ns+' class="pnpe" data-eid="'+e.id+'"/>';
+      // WALL body — extrudes OUTWARD from the inside-face reference line (item 8). At a CONNECTED end (shared
+      // node) the body extends by T past the node so the exterior corner closes cleanly (item 9) instead of
+      // leaving an open/overlapping outside corner. The inside face (reference) stays exactly 0..L.
+      const shA=(plan.edges||[]).some(x=>x!==e&&(x.a===e.a||x.b===e.a));
+      const shB=(plan.edges||[]).some(x=>x!==e&&(x.a===e.b||x.b===e.b));
+      const wu0=shA?-T:0,wu1=shB?L+T:L;
+      s+='<polygon points="'+poly([off(wu0,0),off(wu1,0),off(wu1,-sInt*T),off(wu0,-sInt*T)])+'" fill="#9aa3af" fill-opacity="0.5" stroke="'+(sel?'#2563eb':'var(--ink)')+'" stroke-width="'+(sel?1.8:0.9)+'" '+ns+' class="pnpe" data-eid="'+e.id+'"/>';
       s+='<line x1="'+off(0,0).x.toFixed(1)+'" y1="'+off(0,0).y.toFixed(1)+'" x2="'+off(L,0).x.toFixed(1)+'" y2="'+off(L,0).y.toFixed(1)+'" stroke="var(--ink)" stroke-width="0.7" '+ns+' opacity="0.55"/>';
-      // PANEL — solid teal band on the INSIDE face, inset by the corner clearance at butting ends so the gap
-      // is visible while the WALL stays full length (item 6). Bold outline + light centre line = clearly a
-      // separate fitted layer, not a wall shadow.
-      const pu0=clL,pu1=L-clR;
-      if(pu1-pu0>1){
-        s+='<polygon points="'+poly([off(pu0,0),off(pu1,0),off(pu1,sInt*pt),off(pu0,sInt*pt)])+'" fill="#14b8a6" fill-opacity="0.92" stroke="#0f766e" stroke-width="1.8" '+ns+'/>';
-        s+='<line x1="'+off(pu0,sInt*pt/2).x.toFixed(1)+'" y1="'+off(pu0,sInt*pt/2).y.toFixed(1)+'" x2="'+off(pu1,sInt*pt/2).x.toFixed(1)+'" y2="'+off(pu1,sInt*pt/2).y.toFixed(1)+'" stroke="#ecfeff" stroke-width="0.7" stroke-opacity="0.85" '+ns+'/>';
-      }
+      // PANEL — solid teal band on the INSIDE face, inset by the corner clearance at butting ends (item 6) AND
+      // BROKEN around doors/objects so the panel line stops at the opening (item 5). Windows stay a cutout.
+      const gaps=(plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id&&o.type!=='window')
+        .map(o=>{const g0=Math.max(0,Math.min(L,+o.offset||0));return [g0,g0+Math.min(+o.width||0,L-g0)];}).sort((a,b)=>a[0]-b[0]);
+      let segStart=clL;const segs=[];
+      gaps.forEach(g=>{const gs=Math.max(clL,Math.min(L-clR,g[0])),ge=Math.max(clL,Math.min(L-clR,g[1]));if(gs>segStart+1)segs.push([segStart,gs]);segStart=Math.max(segStart,ge);});
+      if(L-clR>segStart+1)segs.push([segStart,L-clR]);
+      segs.forEach(sg=>{if(sg[1]-sg[0]<1)return;
+        s+='<polygon points="'+poly([off(sg[0],0),off(sg[1],0),off(sg[1],sInt*pt),off(sg[0],sInt*pt)])+'" fill="#14b8a6" fill-opacity="0.92" stroke="#0f766e" stroke-width="1.8" '+ns+'/>';
+        s+='<line x1="'+off(sg[0],sInt*pt/2).x.toFixed(1)+'" y1="'+off(sg[0],sInt*pt/2).y.toFixed(1)+'" x2="'+off(sg[1],sInt*pt/2).x.toFixed(1)+'" y2="'+off(sg[1],sInt*pt/2).y.toFixed(1)+'" stroke="#ecfeff" stroke-width="0.7" stroke-opacity="0.85" '+ns+'/>';});
       // corner-clearance markers — a small tick + "clr N" where the panel stops short of the full-length wall
       const clr=(u,mm)=>{if(mm<=0.5)return;const g0=off(u,sInt*(pt+fs*0.7));s+='<line x1="'+off(u,-sInt*6).x.toFixed(1)+'" y1="'+off(u,-sInt*6).y.toFixed(1)+'" x2="'+off(u,sInt*(pt+6)).x.toFixed(1)+'" y2="'+off(u,sInt*(pt+6)).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.6)+'" fill="#e11d48">clr '+Math.round(mm)+'</text>';};
       clr(clL/2,clL);clr(L-clR/2,clR);
@@ -5781,16 +5797,16 @@
         s+='<text x="'+lc.x.toFixed(1)+'" y="'+lc.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.82)+'" fill="'+col+'" '+(opsel?'font-weight="700"':'')+'>'+esc((o.name||o.type))+' '+Math.round(+o.width||0)+'×'+Math.round(+o.height||0)+'</text>';
         s+='</g>';
       });
-      // endpoints — small neutral dot + a small open/closed lock glyph beside it (click toggles; drag moves)
-      [[A,e.a],[B,e.b]].forEach(pair=>{const nd=pair[0],locked=!!nd.lock,r=Math.round(fs*0.34);
-        s+='<circle cx="'+nd.x+'" cy="'+nd.y+'" r="'+r+'" fill="var(--card)" stroke="#2563eb" stroke-width="1.1" '+ns+' class="pnpn" data-nid="'+pair[1]+'" style="cursor:pointer"><title>click to '+(locked?'unlock':'lock')+' · drag to move</title></circle>';
-        const lg=off((nd===A)?0:L,-sInt*(T+fs*0.85));
-        s+='<text x="'+lg.x.toFixed(1)+'" y="'+lg.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.8)+'" '+(locked?'':'opacity="0.45"')+' style="pointer-events:none">'+(locked?'🔒':'🔓')+'</text>';});
       // full measured length (exterior) + wall name (interior)
       const dm=off(L/2,-sInt*(T+fs*1.5)),nm=off(L/2,sInt*(pt+fs*1.7));
       s+='<text x="'+dm.x.toFixed(1)+'" y="'+dm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" fill="var(--muted)">'+Math.round(L)+' mm</text>';
       s+='<text x="'+nm.x.toFixed(1)+'" y="'+nm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+(sel?'#2563eb':'var(--ink)')+'">Wall '+(i+1)+'</text>';
     });
+    // endpoints drawn ONCE per UNIQUE node (a shared corner = one dot + one lock, not two). Dot is very
+    // transparent so it never hides the through/butt panel relationship; small padlock sits up-right of it.
+    (plan.nodes||[]).forEach(nd=>{if(!(plan.edges||[]).some(x=>x.a===nd.id||x.b===nd.id))return;const locked=!!nd.lock,r=Math.round(fs*0.3);
+      s+='<circle cx="'+nd.x+'" cy="'+nd.y+'" r="'+r+'" fill="var(--card)" fill-opacity="0.18" stroke="#2563eb" stroke-width="1" stroke-opacity="0.6" '+ns+' class="pnpn" data-nid="'+nd.id+'" style="cursor:pointer"><title>click to '+(locked?'unlock':'lock')+' · drag to move</title></circle>';
+      s+='<text x="'+(nd.x+r*1.7).toFixed(1)+'" y="'+(nd.y-r*1.1).toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.8)+'" '+(locked?'':'opacity="0.4"')+' style="pointer-events:none">'+(locked?'🔒':'🔓')+'</text>';});
     s+='<g id="pnPlanGhost"></g>';
     s+='</svg>';
     return s;
@@ -5966,7 +5982,11 @@
   function pnMeasureToggle(){pnMeasureOn=!pnMeasureOn;pnMeasA=null;if(!pnMeasureOn)pnMeasFix=null;renderPanels();}
   function pnSnap(svg,ev){
     const vb=String(svg.getAttribute('viewBox')).split(' ').map(Number),r=svg.getBoundingClientRect();
-    const px=vb[0]+(ev.clientX-r.left)/r.width*vb[2],py=vb[1]+(ev.clientY-r.top)/r.height*vb[3];
+    // EXACT screen→SVG via the live CTM inverse — the wall SVG is letterboxed (preserveAspectRatio="meet"),
+    // so manual rect math drifts/offsets; the CTM accounts for the fit + centring so the cursor tracks 1:1.
+    let px,py;const m=svg.getScreenCTM&&svg.getScreenCTM();
+    if(m){const q=svg.createSVGPoint();q.x=ev.clientX;q.y=ev.clientY;const t=q.matrixTransform(m.inverse());px=t.x;py=t.y;}
+    else{px=vb[0]+(ev.clientX-r.left)/r.width*vb[2];py=vb[1]+(ev.clientY-r.top)/r.height*vb[3];}
     const R=12*(vb[2]/Math.max(1,r.width));
     let x=px,y=py,snapped=false;
     if(pnSnapGeo){
@@ -6175,11 +6195,11 @@
         +'<button class="pn-mini '+(pnPlanTool==='select'?'on':'')+'" onclick="pnPlanSetTool(\'select\')" title="Drag a corner to move it, or click a wall to edit / add openings">◉ Select</button>'
         +'<button class="pn-mini '+(pnPlanTool==='pan'?'on':'')+'" onclick="pnPlanSetTool(\'pan\')" title="Drag to pan (wheel always zooms)">✋ Pan</button>'
         +'<button class="pn-mini" onclick="pnZoom(0.8)" title="Zoom in">+</button><button class="pn-mini" onclick="pnZoom(1.25)" title="Zoom out">−</button><button class="pn-mini" onclick="pnFit()" title="Fit">⤢</button>'
-        +'<button class="pn-mini" onclick="pnSetView(\'wall\')" title="Back to the panel editor — the drawn walls are real Panels walls">✓ Panels</button>'
+        +'<button class="pn-mini" onclick="pnSetView(\'wall\')" title="Front view — the wall elevation / panel editor. The drawn walls are real Panels walls">✓ Front view</button>'
         +'</div>'
       :'<div class="pn-views">'
       +'<button class="pn-mini" onclick="pnDownloadDxf()" title="Export panels DXF (one file per thickness, same layers as Doors)" style="font-weight:800">⬇ DXF</button>'
-      +'<button class="pn-mini" onclick="pnOpenBuilder()" title="Open the 2D top-down room builder for this room (draw walls visually)">▦ 2D Builder</button>'
+      +'<button class="pn-mini" onclick="pnOpenBuilder()" title="Top view — the 2D top-down room builder (draw walls visually)">▦ Top view</button>'
       +'<button class="pn-mini" onclick="pnSet(\'wall\',\'dir\',(pnWallObj()&&pnWallObj().dir===\'v\')?\'h\':\'v\')" title="Rotate the selected wall\'s panelling: Horizontal ⇄ Vertical (layout, nesting, quote and DXF all follow)">⇄ '+((pnWallObj()&&pnWallObj().dir==='v')?'Vertical':'Horizontal')+'</button>'
       +'<button class="pn-mini" onclick="pnClearAllRooms(false)" title="Delete ALL rooms (asks first) — stops old panels riding along in a Doors-only quote" style="color:#dc2626">🗑 Clear all</button>'
       +'<button class="pn-mini '+(pnView==='wall'?'on':'')+'" onclick="pnSetView(\'wall\')">'+(pnSel.kind==='room'?'Room':'Wall')+'</button>'

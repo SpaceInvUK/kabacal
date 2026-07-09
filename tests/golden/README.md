@@ -40,7 +40,7 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 **Panels** — 2 rooms, chained walls, openings:
 | File | What |
 |---|---|
-| `GOLDEN_PANELS_18mm.dxf` (10036) | 40/40 joint seam, matching shakers, door + window openings (window = INSIDE cut + sill), vertical columns, visual-order PART_NUMBERs |
+| `GOLDEN_PANELS_18mm.dxf` (10038) | 40/40 joint seam, matching shakers, door + window openings (window = INSIDE cut to the FLOOR at its column so the band never overlaps the lower panel — regenerated 2026-07-08), vertical columns, visual-order PART_NUMBERs |
 | `QUOTE_mixed.json` (2774) | Rich doors + panels rooms combined (panels £2390 / 6 sheets, total £3665) |
 
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.

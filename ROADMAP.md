@@ -2,6 +2,26 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-08 (i) — Correções pós-teste: janela sobreposta, Measure, locks duplicados, quebra de porta, clearance no front, join externo
+
+Bugs achados no teste. Zona guardada: **engine (janela)** muda saída → `GOLDEN_PANELS_18mm.dxf` regenerado (10036→10038, motivo abaixo); os outros 7 goldens byte-idênticos. Resto = rendering/interação (top/front view).
+
+- **Janela sobrepondo painéis (engine)**: quando há painel inferior (window bottom>60), o notch do band agora vai até o CHÃO na coluna da janela (antes só o retângulo da janela → o band cobria 0..bottom por cima do painel inferior = a sobreposição). Corrige a bagunça de painéis empilhados. **Único golden afetado**: GOLDEN_PANELS (a receita tem uma janela) — regenerado + verificado byte-a-byte; QUOTE_mixed inalterado (mesma contagem de chapas/peças).
+- **Largura de painel vertical**: já clampava em 1200 (zona vertical) — verificado (2218→1200, sobra refila; parede mantém medida). Travado por teste no check.mjs.
+- **Measure seguia o mouse errado**: `pnSnap` usava rect manual, mas o SVG do front view é letterboxed (preserveAspectRatio="meet") → offset/lag. Agora usa `getScreenCTM().inverse()` (exato com zoom/pan).
+- **Locks duplicados no canto**: os endpoints eram desenhados por aresta → 2 no nó compartilhado. Agora desenhados UMA vez por nó único (1 cadeado por canto).
+- **Endpoint dot muito forte**: agora bem transparente (fill-opacity 0.18); cadeado pequeno ao lado; clique alterna, arrastar move.
+- **Porta quebra a linha do painel (top view)**: a faixa de painel teal é segmentada em volta de portas/objetos (janela continua como recorte).
+- **Parede cheia + clearance no front view (item 7)**: o front view desenha a parede no comprimento MEDIDO e recua o painel pela clearance, com faixa "clr N" (não parece parede menor).
+- **Cores do front view (item 8)**: removida a sombra 2.5D pesada (a "sopa de retângulos"); faixa de canto suavizada (slate 0.22).
+- **Join externo fechado (item 9)**: a parede se estende T no canto conectado → cantos externos fecham (sem retângulos abertos).
+- **Through/butt no top view (item 10)**: painel through vai até o canto; butt recua (clearance visível); dot transparente não esconde mais.
+- **Labels de vista (item 11)**: "▦ Top view" e "✓ Front view".
+
+### Testado (i)
+
+`node tools/check.mjs` ok (+ testes novos: clamp vertical 1200, janela notch até o chão sem overlap) ✓ · **7 goldens byte-idênticos; GOLDEN_PANELS regenerado (10038) e verificado byte-a-byte vs saída ao vivo; QUOTE_mixed inalterado** ✓ · janela: notch y0=0 h1030, lower top 900 dentro do notch → sem overlap ✓ · locks: 4 glifos = 4 nós (dedup) ✓ · porta: 4 segmentos teal (M dividido) ✓ · front view: "wall 2000 mm" + "panel 1956 mm" + 2 faixas clr, sem sombra pesada ✓ · vertical clamp 2218→1200 ✓ · console limpo ✓ · Doors + sala manual intactos.
+
 ## 2026-07-08 (h) — Construtor 2D: usabilidade + visual de canto (só rendering/interação; geometria compilada intacta)
 
 Ajustes do teste do Ednei. Zona guardada: só rendering do plan + interação do builder + `PN_WALL_T` (visual). Geometria compilada, DXF, quote, nesting **não mudam** para salas sem `plan`; through/butt default `auto` mantém a inferência. **8 goldens byte-idênticos.**

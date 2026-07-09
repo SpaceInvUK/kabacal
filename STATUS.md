@@ -13,6 +13,7 @@ Last update: 2026-07-07 · repo at `e4f1b05` + Phase-1 docs commit.
 
 ## In flight
 
+- Nothing mid-work. Post-test bugfix round shipped 2026-07-08 (ROADMAP *i*): window-overlap fix (band notches to floor when a lower panel exists — regenerated GOLDEN_PANELS_18mm.dxf 10038, other 7 goldens + QUOTE_mixed identical), Measure CTM-exact, deduped/transparent corner locks, door breaks the top-view panel band, front view shows full measured length + clearance + calmer colours, closed exterior joins, Top/Front view labels. Phase 3 (columns/returns, multi-hop squaring, 2.5D) still open.
 - Nothing mid-work. 2D builder usability pass shipped 2026-07-08 (ROADMAP *h*): 100mm default wall, inside-face reference, visible "corner clearance" gap (wall full length, panel inset), click-to-toggle lock, calmer keep-90° (drag moves only grabbed node; length-edit one-hop excludes anchor — fixed a self-cancelling bug), non-trapping node drag, editable through/butt per corner, wall-band draw preview. All plan-view/interaction only — 8 goldens byte-identical. Phase 3 (full columns/returns, multi-hop constraint solve, optional 2.5D) not started. Active sessions: claim `.session.lock`.
 
 ## Resolved
