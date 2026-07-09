@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (m) — Top view: labels legíveis em cantos com muitas paredes curtas
+
+Só **rendering do top view** (`pnPlanSvg`) — sem engine/DXF/quote. GOLDEN_PANELS + GOLDEN_WALL_LAYOUT byte-idênticos; check.mjs verde.
+
+- **Font por parede**: nome + medida + label de abertura agora escalam ao COMPRIMENTO da própria parede (`wfs = max(fs·0.2, min(fs, L·0.17))`) em vez de um tamanho global gigante. Paredes normais/longas ficam iguais (100% do fs); paredes curtas/em cluster ganham labels pequenos que cabem. Offsets também reduzidos.
+- **Tags de canto (through / butt −N) só na parede SELECIONADA** — antes eram 2 por canto em todas as paredes e empilhavam-se. Sem seleção o desenho fica limpo; seleciona uma parede para ler os cantos (o inspector também lista). O gap do butt continua visível na própria geometria.
+- **Nós (bola + cadeado) escalam ao menor comprimento de parede que toca o nó** — clusters densos ganham marcadores pequenos, paredes longas mantêm o tamanho normal.
+
+Testado (m): staircase de 9 paredes (216–2320mm) → sobreposições de labels 10+ → **1** (só a parede de 216mm); sala normal 4200×3000 → labels a 100% (inalterada); selecionar parede curta mostra 2 tags legíveis; GOLDEN_PANELS/WALL_LAYOUT byte-idênticos; check.mjs verde; console limpo.
+
 ## 2026-07-10 (l) — Regra de canto confirmada, janela, shaker no canto (L/U), Wall Layout DXF
 
 Zona guardada: **engine de corners + janela + shaker grid + DXF**. Corner rule só afeta salas de PLANO (não-plano + 8 goldens de chapa byte-idênticos, 7 comparados no browser). Janela: fix real + novo default; golden `GOLDEN_PANELS` mantém-se byte-idêntico (recipe fixa `ow.bottom=900`). cornerMatch default OFF = byte-idêntico. Novo golden `GOLDEN_WALL_LAYOUT.dxf` (3501). check.mjs: novos testes (corner rule U+L+exemplo 2000/1000/2000 a 22 e 18; cornerMatch OFF/ON; janela sem overlap).

@@ -5898,6 +5898,9 @@
       const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
       const clL=ci?(+ci.l.shorten||0):0, clR=ci?(+ci.r.shorten||0):0;   // corner clearance at each end (mm)
       const noPanel=!!(cw&&cw.noPanel);   // panel OFF (item 6): draw the wall body only, no teal band / clearance
+      // per-wall label font: scale to the wall's OWN length so short / clustered walls get small labels that fit
+      // instead of the giant global size — fixes the corner-cluster label pile-up. Long walls keep the full size.
+      const wfs=Math.max(Math.round(fs*0.2),Math.min(fs,Math.round(L*0.17)));
       // WALL body — the inside face is the reference (nodes at u=0..L, v=0); it extrudes OUTWARD by T. At a
       // shared corner the OUTER corner is MITRED to the neighbour's outer face, so the join reads continuous at
       // any angle (items 9/10) — 90° stays square, irregular angles no longer look like stacked rectangles.
@@ -5916,15 +5919,18 @@
       if(!noPanel)segs.forEach(sg=>{if(sg[1]-sg[0]<1)return;
         s+='<polygon points="'+poly([off(sg[0],0),off(sg[1],0),off(sg[1],sInt*pt),off(sg[0],sInt*pt)])+'" fill="#14b8a6" fill-opacity="0.92" stroke="#0f766e" stroke-width="1.8" '+ns+'/>';
         s+='<line x1="'+off(sg[0],sInt*pt/2).x.toFixed(1)+'" y1="'+off(sg[0],sInt*pt/2).y.toFixed(1)+'" x2="'+off(sg[1],sInt*pt/2).x.toFixed(1)+'" y2="'+off(sg[1],sInt*pt/2).y.toFixed(1)+'" stroke="#ecfeff" stroke-width="0.7" stroke-opacity="0.85" '+ns+'/>';});
-      // name each corner condition on the drawing (item 2/5): a BUTT corner stops short (−Nmm clearance, red);
-      // a THROUGH corner runs full length (teal). The clearance tick is kept small — just around the panel depth,
-      // not a big warning mark (item 9). Free ends / no-panel walls get no tag.
-      const condL=ci?ci.l.cond:'', condR=ci?ci.r.cond:'';
-      const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+fs*0.6));
-        if(cond==='butt'){s+='<line x1="'+off(u,0).x.toFixed(1)+'" y1="'+off(u,0).y.toFixed(1)+'" x2="'+off(u,sInt*pt).x.toFixed(1)+'" y2="'+off(u,sInt*pt).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1.4" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.55)+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
-        else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.52)+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
-      if(!noPanel){cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
-        cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);}
+      // Corner condition tags (through / butt −N) are shown ONLY for the SELECTED wall, so a cluster of short
+      // walls no longer piles two tags per corner on top of each other. Select a wall to read its corners (the
+      // inspector lists them too). The butt corner gap is still visible in the geometry itself. Scaled to length.
+      if(sel&&!noPanel){
+        const condL=ci?ci.l.cond:'', condR=ci?ci.r.cond:'';
+        const ctf=Math.max(Math.round(fs*0.34),Math.round(wfs*0.9));
+        const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+ctf*1.1));
+          if(cond==='butt'){s+='<line x1="'+off(u,0).x.toFixed(1)+'" y1="'+off(u,0).y.toFixed(1)+'" x2="'+off(u,sInt*pt).x.toFixed(1)+'" y2="'+off(u,sInt*pt).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1.4" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
+          else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
+        cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
+        cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);
+      }
       // openings/objects — draggable group; interior side is +sInt, wall band is 0..-sInt*T
       (plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id).forEach(o=>{
         const u0=Math.max(0,Math.min(L,+o.offset||0)),wd=Math.min(+o.width||0,L-u0),u1=u0+wd;if(wd<=0)return;
@@ -5945,20 +5951,27 @@
           s+='<polygon points="'+poly([off(u0,0),off(u1,0),off(u1,sInt*dep),off(u0,sInt*dep)])+'" fill="'+col+'" fill-opacity="0.14" stroke="'+col+'" stroke-width="0.8" stroke-dasharray="45 30" '+ns+'/>';
         }
         if(opsel)s+='<polygon points="'+poly([off(u0,sInt*3),off(u1,sInt*3),off(u1,-sInt*(T+3)),off(u0,-sInt*(T+3))])+'" fill="none" stroke="'+col+'" stroke-width="2.2" '+ns+'/>';
-        const lc=off((u0+u1)/2,sInt*(pt+fs*1.05));
-        s+='<text x="'+lc.x.toFixed(1)+'" y="'+lc.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.82)+'" fill="'+col+'" '+(opsel?'font-weight="700"':'')+'>'+esc((o.name||o.type))+' '+Math.round(+o.width||0)+'×'+Math.round(+o.height||0)+'</text>';
+        const ofs=Math.max(Math.round(fs*0.34),Math.min(Math.round(fs*0.82),Math.round(wd*0.28)));   // opening label scales to the opening width
+        const lc=off((u0+u1)/2,sInt*(pt+ofs*1.15));
+        s+='<text x="'+lc.x.toFixed(1)+'" y="'+lc.y.toFixed(1)+'" text-anchor="middle" font-size="'+ofs+'" fill="'+col+'" '+(opsel?'font-weight="700"':'')+'>'+esc((o.name||o.type))+' '+Math.round(+o.width||0)+'×'+Math.round(+o.height||0)+'</text>';
         s+='</g>';
       });
-      // full measured length (exterior) + wall name (interior)
-      const dm=off(L/2,-sInt*(T+fs*1.5)),nm=off(L/2,sInt*(pt+fs*1.7));
-      s+='<text x="'+dm.x.toFixed(1)+'" y="'+dm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" fill="var(--muted)">'+Math.round(L)+' mm</text>';
-      s+='<text x="'+nm.x.toFixed(1)+'" y="'+nm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+(sel?'#2563eb':'var(--ink)')+'">Wall '+(i+1)+(noPanel?' · no panel':'')+'</text>';
+      // full measured length (exterior) + wall name (interior) — both scaled to the wall length (wfs) with small
+      // offsets so short/clustered walls don't throw giant labels across their neighbours.
+      const dm=off(L/2,-sInt*(T+wfs*1.0)),nm=off(L/2,sInt*(pt+wfs*1.2));
+      s+='<text x="'+dm.x.toFixed(1)+'" y="'+dm.y.toFixed(1)+'" text-anchor="middle" font-size="'+wfs+'" fill="var(--muted)">'+Math.round(L)+'</text>';
+      s+='<text x="'+nm.x.toFixed(1)+'" y="'+nm.y.toFixed(1)+'" text-anchor="middle" font-size="'+wfs+'" font-weight="700" fill="'+(sel?'#2563eb':'var(--ink)')+'">Wall '+(i+1)+(noPanel?' ·np':'')+'</text>';
     });
-    // endpoints drawn ONCE per UNIQUE node (a shared corner = one dot + one lock, not two). Dot is very
-    // transparent so it never hides the through/butt panel relationship; small padlock sits up-right of it.
-    (plan.nodes||[]).forEach(nd=>{if(!(plan.edges||[]).some(x=>x.a===nd.id||x.b===nd.id))return;const locked=!!nd.lock,r=Math.round(fs*0.3);
+    // endpoints drawn ONCE per UNIQUE node (a shared corner = one dot + one lock, not two). Dot + padlock are
+    // SIZED to the shortest wall touching that node, so a dense cluster of short walls gets small markers that
+    // don't swamp the corner (long walls keep the normal size). Dot stays transparent; unlocked padlock faint.
+    const nodeMinL={};
+    (plan.edges||[]).forEach(x=>{const a=pnPlanNode(plan,x.a),b=pnPlanNode(plan,x.b);if(!a||!b)return;const L2=Math.hypot(b.x-a.x,b.y-a.y);
+      nodeMinL[x.a]=Math.min(nodeMinL[x.a]==null?1e9:nodeMinL[x.a],L2);nodeMinL[x.b]=Math.min(nodeMinL[x.b]==null?1e9:nodeMinL[x.b],L2);});
+    (plan.nodes||[]).forEach(nd=>{if(!(plan.edges||[]).some(x=>x.a===nd.id||x.b===nd.id))return;const locked=!!nd.lock;
+      const mL=nodeMinL[nd.id]||1e9,r=Math.max(Math.round(fs*0.12),Math.round(Math.min(fs*0.3,mL*0.13))),gf=Math.max(Math.round(fs*0.3),Math.round(Math.min(fs*0.8,mL*0.3)));
       s+='<circle cx="'+nd.x+'" cy="'+nd.y+'" r="'+r+'" fill="var(--card)" fill-opacity="0.18" stroke="#2563eb" stroke-width="1" stroke-opacity="0.6" '+ns+' class="pnpn" data-nid="'+nd.id+'" style="cursor:pointer"><title>click to '+(locked?'unlock':'lock')+' · drag to move</title></circle>';
-      s+='<text x="'+(nd.x+r*1.7).toFixed(1)+'" y="'+(nd.y-r*1.1).toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.8)+'" '+(locked?'':'opacity="0.4"')+' style="pointer-events:none">'+(locked?'🔒':'🔓')+'</text>';});
+      s+='<text x="'+(nd.x+r*1.7).toFixed(1)+'" y="'+(nd.y-r*1.1).toFixed(1)+'" text-anchor="middle" font-size="'+gf+'" '+(locked?'':'opacity="0.35"')+' style="pointer-events:none">'+(locked?'🔒':'🔓')+'</text>';});
     s+='<g id="pnPlanGhost"></g>';
     s+='</svg>';
     return s;
