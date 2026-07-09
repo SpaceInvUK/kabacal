@@ -5496,11 +5496,20 @@
     const wx0=pad,wx1=pad+measured*sc;
     s+='<rect class="pnbg" x="'+wx0+'" y="'+Y(H)+'" width="'+(measured*sc)+'" height="'+hpx+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="1"/>';
     snapRect(0,0,W,H);
+    // measure snaps to the FULL WALL extremities too — not just the inset panel — so you can measure the whole
+    // wall AND the shortened panel length at a corner (item 5). Panel corners come from snapRect(0,0,W,H).
+    GEO.vx.push(wx0,wx1);GEO.pts.push({x:wx0,y:Y(0)},{x:wx1,y:Y(0)},{x:wx0,y:Y(H)},{x:wx1,y:Y(H)});
     s+='<line x1="'+(wx0-12)+'" y1="'+Y(0)+'" x2="'+(wx1+12)+'" y2="'+Y(0)+'" stroke="var(--muted)" stroke-width="1.4"/>';
     s+='<text x="'+(wx1+14)+'" y="'+Y(H/2)+'" text-anchor="middle" font-size="11" fill="var(--muted)" transform="rotate(-90 '+(wx1+14)+' '+Y(H/2)+')">'+Math.round(H)+' mm</text>';
-    // corner-clearance strips (wall full length; panel recessed) — dashed, labelled, subtle
-    const clStrip=(sx,w,mm)=>{if(mm<=0.5||w<=0)return;s+='<rect x="'+sx+'" y="'+Y(H)+'" width="'+w+'" height="'+hpx+'" fill="rgba(225,29,72,0.10)" stroke="#e11d48" stroke-width="0.7" stroke-dasharray="4 3"/><text x="'+(sx+w/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="9" fill="#e11d48">clr '+Math.round(mm)+'</text>';};
-    clStrip(wx0,clL*sc,clL);clStrip(X(W),clR*sc,clR);
+    // corner clearance (item 1): a SUBTLE marker only near the base — NOT a tall red band up the whole wall.
+    // A short dashed line at the panel edge + a thin tie across the gap + a "butt −N" label (item 2 naming)
+    // says "this panel stops short here" without dominating the elevation.
+    const clStrip=(sx,w,mm,edgeX)=>{if(mm<=0.5||w<=0)return;
+      const y0=Y(0),hMark=Math.min(hpx,Math.max(64,hpx*0.2)),yTop=y0-hMark,ym=y0-hMark*0.5;
+      s+='<line x1="'+edgeX+'" y1="'+y0+'" x2="'+edgeX+'" y2="'+yTop+'" stroke="#e11d48" stroke-width="0.9" stroke-opacity="0.6" stroke-dasharray="4 3"/>';
+      s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#e11d48" stroke-width="0.8" stroke-opacity="0.55"/>';
+      s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#e11d48" fill-opacity="0.9">butt −'+Math.round(mm)+'</text>';};
+    clStrip(wx0,clL*sc,clL,X(0));clStrip(X(W),clR*sc,clR,X(W));
     s+='<text x="'+((wx0+wx1)/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(measured)+' mm'+((clL||clR)?' · panel '+Math.round(W)+' mm':'')+'</text>';
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
@@ -5692,6 +5701,18 @@
   // ==== 2D ROOM BUILDER (Beta) — top-down SVG plan that compiles into walls ===
   // ============================================================================
   let pnPlanTool='draw', pnPlanDrag=null, pnPlanSel=null, pnPlanMsg='';   // pnPlanSel = {kind:'edge'|'op', id}
+  // granular builder undo (item 8): one snapshot per discrete action (draw wall, place opening, move, lock
+  // toggle, delete, field edit). Ctrl+Z in the Top view pops ONE — it never rolls back the whole project (the
+  // doors-scope undo is isolated from the builder). Stack holds deep-cloned {room, plan}, most-recent last.
+  let pnPlanHist=[];
+  function pnPlanSnapshot(){const room=pnRoomObj();if(!room||!room.plan)return;
+    try{pnPlanHist.push({room:pnSel.room,plan:JSON.parse(JSON.stringify(room.plan))});}catch(_){}
+    if(pnPlanHist.length>80)pnPlanHist.shift();}
+  function pnPlanUndo(){
+    if(!pnPlanHist.length){pnPlanMsg='Nothing left to undo in the builder.';renderPanels();return;}
+    const snap=pnPlanHist.pop(),room=panelRooms[snap.room];if(!room){renderPanels();return;}
+    room.plan=snap.plan;pnSel.room=snap.room;pnPlanSel=null;pnPlanMsg='';
+    room.walls=pnPlanCompile(room);pnSave();renderPanels();}
   function pnKeepSquare(room){return !(room&&room.plan)||room.plan.keepSquare!==false;}   // ON by default
   // move a node by (dx,dy). Locked node → no-op. keep-square ON → also translate the FAR ends of any incident
   // edges that were axis-aligned (one hop), so connected orthogonal neighbours stay parallel to themselves
@@ -5718,6 +5739,21 @@
     const C=pnPlanCentroid(plan),mx=(A.x+B.x)/2,my=(A.y+B.y)/2;
     const sInt=((C.x-mx)*nx+(C.y-my)*ny)>=0?1:-1;
     return {A,B,ux,uy,nx,ny,L,sInt,T:+e.wallThickness||PN_WALL_T};}
+  function pnPlanLineX(p1,d1,p2,d2){const den=d1.x*d2.y-d1.y*d2.x;if(Math.abs(den)<1e-6)return null;const t=((p2.x-p1.x)*d2.y-(p2.y-p1.y)*d2.x)/den;return {x:p1.x+d1.x*t,y:p1.y+d1.y*t};}
+  // exterior corner point of edge e at endpoint nodeId. A two-wall corner MITRES (intersection of the two
+  // outward faces) so joins read continuous at any angle (items 9/10); a free end or 3+ junction gets a square
+  // end at the node. Adjacent mitred walls share the node→miter edge exactly, so they tile with no overlap
+  // (no dark double-opacity patch) and no gap.
+  function pnPlanMiterOut(plan,nodeId,e,F){
+    const P=(e.a===nodeId)?F.A:F.B;
+    const sq={x:P.x+F.nx*(-F.sInt*F.T),y:P.y+F.ny*(-F.sInt*F.T)};
+    const inc=(plan.edges||[]).filter(x=>x!==e&&(x.a===nodeId||x.b===nodeId));
+    if(inc.length!==1)return sq;
+    const F2=pnPlanEdgeFrame(plan,inc[0]);if(!F2)return sq;
+    const p1={x:F.A.x+F.nx*(-F.sInt*F.T),y:F.A.y+F.ny*(-F.sInt*F.T)},d1={x:F.ux,y:F.uy};
+    const p2={x:F2.A.x+F2.nx*(-F2.sInt*F2.T),y:F2.A.y+F2.ny*(-F2.sInt*F2.T)},d2={x:F2.ux,y:F2.uy};
+    return pnPlanLineX(p1,d1,p2,d2)||sq;
+  }
   function pnPlanBounds(plan){
     const ns=plan.nodes||[];
     if(ns.length<2)return {x:-500,y:-3500,w:7000,h:5000};   // default drawing area (mm) for an empty plan
@@ -5752,14 +5788,14 @@
       const sel=pnPlanSel&&pnPlanSel.kind==='edge'&&pnPlanSel.id===e.id;
       const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
       const clL=ci?(+ci.l.shorten||0):0, clR=ci?(+ci.r.shorten||0):0;   // corner clearance at each end (mm)
-      // WALL body — extrudes OUTWARD from the inside-face reference line (item 8). At a CONNECTED end (shared
-      // node) the body extends by T past the node so the exterior corner closes cleanly (item 9) instead of
-      // leaving an open/overlapping outside corner. The inside face (reference) stays exactly 0..L.
-      const shA=(plan.edges||[]).some(x=>x!==e&&(x.a===e.a||x.b===e.a));
-      const shB=(plan.edges||[]).some(x=>x!==e&&(x.a===e.b||x.b===e.b));
-      const wu0=shA?-T:0,wu1=shB?L+T:L;
-      s+='<polygon points="'+poly([off(wu0,0),off(wu1,0),off(wu1,-sInt*T),off(wu0,-sInt*T)])+'" fill="#9aa3af" fill-opacity="0.5" stroke="'+(sel?'#2563eb':'var(--ink)')+'" stroke-width="'+(sel?1.8:0.9)+'" '+ns+' class="pnpe" data-eid="'+e.id+'"/>';
-      s+='<line x1="'+off(0,0).x.toFixed(1)+'" y1="'+off(0,0).y.toFixed(1)+'" x2="'+off(L,0).x.toFixed(1)+'" y2="'+off(L,0).y.toFixed(1)+'" stroke="var(--ink)" stroke-width="0.7" '+ns+' opacity="0.55"/>';
+      // WALL body — the inside face is the reference (nodes at u=0..L, v=0); it extrudes OUTWARD by T. At a
+      // shared corner the OUTER corner is MITRED to the neighbour's outer face, so the join reads continuous at
+      // any angle (items 9/10) — 90° stays square, irregular angles no longer look like stacked rectangles.
+      // Mitred neighbours tile exactly (no overlap → no dark corner patch, no gap). Wall is kept subtle so the
+      // teal panel layer stays the dominant element (item 10).
+      const outA=pnPlanMiterOut(plan,e.a,e,F),outB=pnPlanMiterOut(plan,e.b,e,F);
+      s+='<polygon points="'+poly([off(0,0),off(L,0),outB,outA])+'" fill="#9aa3af" fill-opacity="0.4" stroke="'+(sel?'#2563eb':'var(--ink)')+'" stroke-width="'+(sel?1.8:0.8)+'" stroke-opacity="'+(sel?1:0.7)+'" '+ns+' class="pnpe" data-eid="'+e.id+'"/>';
+      s+='<line x1="'+off(0,0).x.toFixed(1)+'" y1="'+off(0,0).y.toFixed(1)+'" x2="'+off(L,0).x.toFixed(1)+'" y2="'+off(L,0).y.toFixed(1)+'" stroke="var(--ink)" stroke-width="0.7" '+ns+' opacity="0.5"/>';
       // PANEL — solid teal band on the INSIDE face, inset by the corner clearance at butting ends (item 6) AND
       // BROKEN around doors/objects so the panel line stops at the opening (item 5). Windows stay a cutout.
       const gaps=(plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id&&o.type!=='window')
@@ -5770,9 +5806,14 @@
       segs.forEach(sg=>{if(sg[1]-sg[0]<1)return;
         s+='<polygon points="'+poly([off(sg[0],0),off(sg[1],0),off(sg[1],sInt*pt),off(sg[0],sInt*pt)])+'" fill="#14b8a6" fill-opacity="0.92" stroke="#0f766e" stroke-width="1.8" '+ns+'/>';
         s+='<line x1="'+off(sg[0],sInt*pt/2).x.toFixed(1)+'" y1="'+off(sg[0],sInt*pt/2).y.toFixed(1)+'" x2="'+off(sg[1],sInt*pt/2).x.toFixed(1)+'" y2="'+off(sg[1],sInt*pt/2).y.toFixed(1)+'" stroke="#ecfeff" stroke-width="0.7" stroke-opacity="0.85" '+ns+'/>';});
-      // corner-clearance markers — a small tick + "clr N" where the panel stops short of the full-length wall
-      const clr=(u,mm)=>{if(mm<=0.5)return;const g0=off(u,sInt*(pt+fs*0.7));s+='<line x1="'+off(u,-sInt*6).x.toFixed(1)+'" y1="'+off(u,-sInt*6).y.toFixed(1)+'" x2="'+off(u,sInt*(pt+6)).x.toFixed(1)+'" y2="'+off(u,sInt*(pt+6)).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.6)+'" fill="#e11d48">clr '+Math.round(mm)+'</text>';};
-      clr(clL/2,clL);clr(L-clR/2,clR);
+      // name each corner condition on the drawing (item 2): a BUTT corner stops short (−Nmm clearance, red);
+      // a THROUGH corner runs full length (teal). Free ends get no tag. Clearer than calling both "corner".
+      const condL=ci?ci.l.cond:'', condR=ci?ci.r.cond:'';
+      const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+fs*0.75));
+        if(cond==='butt'){s+='<line x1="'+off(u,-sInt*6).x.toFixed(1)+'" y1="'+off(u,-sInt*6).y.toFixed(1)+'" x2="'+off(u,sInt*(pt+6)).x.toFixed(1)+'" y2="'+off(u,sInt*(pt+6)).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.58)+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
+        else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.55)+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
+      cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
+      cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);
       // openings/objects — draggable group; interior side is +sInt, wall band is 0..-sInt*T
       (plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id).forEach(o=>{
         const u0=Math.max(0,Math.min(L,+o.offset||0)),wd=Math.min(+o.width||0,L-u0),u1=u0+wd;if(wd<=0)return;
@@ -5830,6 +5871,8 @@
     svg.style.cursor=pnPlanTool==='draw'?'crosshair':(pnPlanTool==='pan'?'grab':'default');
     svg.addEventListener('mousedown',e=>{
       const room=pnRoomObj();if(!room)return;const plan=pnPlanEnsure(room);
+      if(e.button===1){e.preventDefault();pnPan={svg,x:e.clientX,y:e.clientY,vb:pnVbOf(svg),moved:false};return;}   // middle button = pan, NEVER draw (item 6)
+      if(e.button!==0)return;   // right button: no draw/select
       if(pnPlanTool==='pan'){pnPan={svg,x:e.clientX,y:e.clientY,vb:pnVbOf(svg),moved:false};return;}
       const p=pnPlanPt(svg,e),thr=140/pnPlanPxPerMm(svg);
       if(pnPlanTool==='select'){
@@ -5857,6 +5900,7 @@
     } else if(pnPlanDrag.mode==='node'){
       const nd=pnPlanNode(plan,pnPlanDrag.nodeId);if(!nd)return;
       if(nd.lock){pnPlanDrag.moved=true;pnPlanMsg='That endpoint is locked 🔒 — click it (no drag) to unlock.';renderPanels();return;}   // locked can't move
+      if(!pnPlanDrag.snap){pnPlanSnapshot();pnPlanDrag.snap=true;}   // one undo step per move (item 8)
       let tx=pnR10(p.x),ty=pnR10(p.y);
       // move ONLY the grabbed node (keep-90 non-aggressive: no neighbour shift). Soft ORTHO-ALIGN to a
       // connected neighbour's axis when close so edges stay square; never snap ONTO another node (no trap).
@@ -5866,6 +5910,7 @@
     } else if(pnPlanDrag.mode==='op'){
       const o=(plan.openings||[]).concat(plan.objects||[]).find(x=>x.id===pnPlanDrag.oid);if(!o)return;
       const e2=pnPlanEdgeById(plan,o.edgeId),F=e2&&pnPlanEdgeFrame(plan,e2);if(!F)return;
+      if(!pnPlanDrag.snap){pnPlanSnapshot();pnPlanDrag.snap=true;}   // one undo step per move (item 8)
       const u=((p.x-F.A.x)*F.ux+(p.y-F.A.y)*F.uy);                  // project mouse onto the wall axis
       o.offset=Math.max(0,Math.min(F.L-(+o.width||0),pnR10(u-(+o.width||0)/2)));
       pnPlanDrag.moved=true;pnPlanApply();renderPanels();
@@ -5874,10 +5919,11 @@
   window.addEventListener('mouseup',e=>{
     if(!pnPlanDrag)return;const d=pnPlanDrag;pnPlanDrag=null;
     const room=pnRoomObj();if(!room){return;}const plan=pnPlanEnsure(room);
-    if(d.mode==='node'&&!d.moved){const nd=pnPlanNode(plan,d.nodeId);if(nd){nd.lock=!nd.lock;pnPlanMsg='';pnSave();renderPanels();}return;}   // click (no drag) toggles the lock
+    if(d.mode==='node'&&!d.moved){const nd=pnPlanNode(plan,d.nodeId);if(nd){pnPlanSnapshot();nd.lock=!nd.lock;pnPlanMsg='';pnSave();renderPanels();}return;}   // click (no drag) toggles the lock
     if(d.mode==='draw'&&d.ex!=null){
       const len=Math.hypot(d.ex-d.sx,d.ey-d.sy);
       if(len>=200){
+        pnPlanSnapshot();   // one undo step per wall created (item 8)
         const uid=()=>'n'+(++pnUid),eid='e'+(++pnUid);
         let aId=d.startNode;if(!aId){const n={id:uid(),x:d.sx,y:d.sy};plan.nodes.push(n);aId=n.id;}
         let bId=d.endNode;if(!bId){const n={id:uid(),x:d.ex,y:d.ey};plan.nodes.push(n);bId=n.id;}
@@ -5891,7 +5937,7 @@
   function pnAddDrawRoom(){const r=pnNewRoom(panelRooms.length+1);pnPlanEnsure(r);panelRooms.push(r);pnSel={room:panelRooms.length-1,wall:0,kind:'room',id:null};pnView='plan';pnVb=null;pnPlanSel=null;pnPlanTool='draw';pnRefresh();}
   function pnOpenBuilder(){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanApply();pnView='plan';pnVb=null;pnPlanSel=null;pnPlanTool='draw';renderPanels();}
   // plan-mode inspector
-  function pnPlanEdgeLen(field,val){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;
+  function pnPlanEdgeLen(field,val){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;pnPlanSnapshot();
     const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);if(!A||!B)return;
     if(field==='len'){
       const nl=Math.max(100,pnNum(val)),dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,keep=pnKeepSquare(room);
@@ -5903,14 +5949,14 @@
     else if(field==='thickness')e.wallThickness=Math.max(50,pnNum(val));
     else if(field==='height')e.height=Math.max(300,pnNum(val));
     pnPlanApply();renderPanels();}
-  function pnPlanLockNode(which){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;const nd=pnPlanNode(plan,which==='a'?e.a:e.b);if(!nd)return;nd.lock=!nd.lock;pnPlanMsg='';pnSave();renderPanels();}
-  function pnPlanToggleSquare(){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);room.plan.keepSquare=!(room.plan.keepSquare!==false);pnSave();renderPanels();}
-  function pnPlanSquareSet(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);room.plan.keepSquare=(v!=='off');pnSave();renderPanels();}
+  function pnPlanLockNode(which){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;const nd=pnPlanNode(plan,which==='a'?e.a:e.b);if(!nd)return;pnPlanSnapshot();nd.lock=!nd.lock;pnPlanMsg='';pnSave();renderPanels();}
+  function pnPlanToggleSquare(){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.keepSquare=!(room.plan.keepSquare!==false);pnSave();renderPanels();}
+  function pnPlanSquareSet(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.keepSquare=(v!=='off');pnSave();renderPanels();}
   // per-corner through/butt override (editable): 'auto' = inference (longer through), else force this end
-  function pnPlanSetEnd(which,val){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const e=pnPlanEdgeById(room.plan,pnPlanSel.id);if(!e)return;
+  function pnPlanSetEnd(which,val){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const e=pnPlanEdgeById(room.plan,pnPlanSel.id);if(!e)return;pnPlanSnapshot();
     const k=which==='a'?'endA':'endB';if(val==='auto')delete e[k];else e[k]=val;pnPlanApply();renderPanels();}
-  function pnPlanSetPanelT(val){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room).panelLayer.thickness=Math.max(1,pnNum(val));pnPlanApply();renderPanels();}   // recompile: panel thickness drives corner shortening + allowance
-  function pnPlanAddOpening(type){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;
+  function pnPlanSetPanelT(val){const room=pnRoomObj();if(!room)return;pnPlanSnapshot();pnPlanEnsure(room).panelLayer.thickness=Math.max(1,pnNum(val));pnPlanApply();renderPanels();}   // recompile: panel thickness drives corner shortening + allowance
+  function pnPlanAddOpening(type){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;pnPlanSnapshot();
     const F=pnPlanEdgeFrame(plan,e),def=type==='door'?{w:900,h:2100,b:0}:(type==='window'?{w:1200,h:1100,b:900}:{w:600,h:600,b:0});
     const off=Math.max(0,Math.round(F.L/2-def.w/2)),id='o'+(++pnUid);
     const rec={id,edgeId:e.id,type,name:type.charAt(0).toUpperCase()+type.slice(1),offset:off,width:def.w,height:def.h,bottom:def.b};
@@ -5918,11 +5964,11 @@
     pnPlanSel={kind:'op',id};pnPlanApply();renderPanels();}
   function pnPlanOpObj(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='op')return null;
     return (room.plan.openings||[]).concat(room.plan.objects||[]).find(o=>o.id===pnPlanSel.id)||null;}
-  function pnPlanSetOp(field,val){const o=pnPlanOpObj();if(!o)return;const num=['offset','width','height','bottom'];o[field]=num.indexOf(field)>=0?Math.max(0,pnNum(val)):val;pnPlanApply();renderPanels();}
-  function pnPlanDelOp(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='op')return;const id=pnPlanSel.id;
+  function pnPlanSetOp(field,val){const o=pnPlanOpObj();if(!o)return;pnPlanSnapshot();const num=['offset','width','height','bottom'];o[field]=num.indexOf(field)>=0?Math.max(0,pnNum(val)):val;pnPlanApply();renderPanels();}
+  function pnPlanDelOp(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='op')return;pnPlanSnapshot();const id=pnPlanSel.id;
     room.plan.openings=(room.plan.openings||[]).filter(o=>o.id!==id);room.plan.objects=(room.plan.objects||[]).filter(o=>o.id!==id);
     pnPlanSel=null;pnPlanApply();renderPanels();}
-  function pnPlanDelEdge(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,id=pnPlanSel.id,e=pnPlanEdgeById(plan,id);
+  function pnPlanDelEdge(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='edge')return;pnPlanSnapshot();const plan=room.plan,id=pnPlanSel.id,e=pnPlanEdgeById(plan,id);
     plan.edges=plan.edges.filter(x=>x.id!==id);
     if(e){[e.a,e.b].forEach(nid=>{if(!plan.edges.some(x=>x.a===nid||x.b===nid))plan.nodes=plan.nodes.filter(n=>n.id!==nid);});}
     (plan.openings||[]).slice().forEach(o=>{if(o.edgeId===id)plan.openings=plan.openings.filter(x=>x!==o);});
@@ -5934,7 +5980,7 @@
     let body=SEC('Tool',
       '<div class="pn-row"><label>Mode</label>'+pnSegHtml([['draw','Draw'],['select','Select'],['pan','Pan']],pnPlanTool,'pnPlanSetTool(\'%V\')')+'</div>'
       +'<div class="pn-row"><label>Keep 90° square</label>'+pnSegHtml([['on','On'],['off','Off']],pnKeepSquare(room)?'on':'off','pnPlanSquareSet(\'%V\')')+'</div>'
-      +'<div class="pn-hint">Draw: click-drag-release = a wall (150mm); chain from an endpoint. Select: drag a corner (or drag an opening along its wall). Keep 90° slides square neighbours with the corner. Wheel = zoom, Pan tool = drag.</div>'
+      +'<div class="pn-hint">Draw: click-drag-release = a wall ('+PN_WALL_T+'mm); chain from an endpoint. Select: drag a corner (or drag an opening along its wall); <b>Delete</b> removes the selected wall/opening (locked corners are protected). Keep 90° slides square neighbours with the corner. Wheel = zoom · <b>middle-mouse drag = pan</b> · <b>Ctrl+Z</b> undoes one action.</div>'
       +(pnPlanMsg?'<div class="pn-warn" style="margin-top:6px">'+esc(pnPlanMsg)+'</div>':''));
     if(pnPlanSel&&pnPlanSel.kind==='edge'){
       const e=pnPlanEdgeById(plan,pnPlanSel.id),F=e&&pnPlanEdgeFrame(plan,e);
@@ -5942,8 +5988,8 @@
         const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);
         const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
         const condTxt=side=>{if(!ci)return '';const c=ci[side],nm=side==='l'?'Start':'End';
-          if(c.cond==='butt')return nm+': butts into neighbour −'+Math.round(c.shorten)+'mm · corner allowance '+Math.round(c.allowance)+'mm';
-          if(c.cond==='through')return nm+': through corner (full length)';return nm+': free end';};
+          if(c.cond==='butt')return nm+' — Butt corner: panel stops short −'+Math.round(c.shorten)+'mm (clearance) and takes the corner allowance '+Math.round(c.allowance)+'mm (frame + panel)';
+          if(c.cond==='through')return nm+' — Through corner: panel runs full length, normal frame';return nm+' — free end';};
         const endCtl=(side,which)=>{if(!ci||ci[side].cond==='free')return '';const cur=(e[which==='a'?'endA':'endB'])||'auto';
           return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+' corner</label>'+pnSegHtml([['auto','Auto'],['through','Through'],['butt','Butt']],cur,'pnPlanSetEnd(\''+which+'\',\'%V\')')+'</div>';};
         const cornerBlock=ci?('<div class="pn-hint" style="margin-top:6px;line-height:1.5">measured '+Math.round(cw.measured||F.L)+'mm → <b>panel '+Math.round(cw.w)+'mm</b> (panel '+Math.round(ci.pt)+'mm · frame '+Math.round(ci.frame)+') · gap = corner clearance<br>'+esc(condTxt('l'))+'<br>'+esc(condTxt('r'))+'</div>'+endCtl('l','a')+endCtl('r','b')):'';
@@ -6013,10 +6059,15 @@
     let h='';
     const seg=(a,b,live)=>{
       const val=Math.round(pnMeasVal(a,b)*10)/10,mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      // the number sits OFF the measured line (item 4): offset along the perpendicular, biased upward so it
+      // never covers the exact line/points; for a vertical measure it steps to the side instead.
+      const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;let ox=-dy/len,oy=dx/len;
+      if(oy>0.01){ox=-ox;oy=-oy;}else if(Math.abs(oy)<=0.01&&ox<0){ox=-ox;}
+      const lx=mx+ox*16,ly=my+oy*16;
       h+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#e11d48" stroke-width="1"'+(live?' stroke-dasharray="4 3"':'')+'/>';
       h+='<circle cx="'+a.x+'" cy="'+a.y+'" r="2.6" fill="#e11d48"/><circle cx="'+b.x+'" cy="'+b.y+'" r="2.6" fill="#e11d48"/>';
-      h+='<rect x="'+(mx-25)+'" y="'+(my-10)+'" width="50" height="14" rx="3" fill="var(--card)" stroke="#e11d48" stroke-width="0.6"/>';
-      h+='<text x="'+mx+'" y="'+(my+1)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e11d48">'+val+'</text>';
+      h+='<rect x="'+(lx-25)+'" y="'+(ly-7)+'" width="50" height="14" rx="3" fill="var(--card)" stroke="#e11d48" stroke-width="0.6"/>';
+      h+='<text x="'+lx+'" y="'+(ly+3.5)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e11d48">'+val+'</text>';
     };
     if(pnMeasFix)seg(pnMeasFix.a,pnMeasFix.b,false);
     if(pnMeasA&&cur)seg(pnMeasA,cur,true);
@@ -6026,8 +6077,30 @@
     }
     g.innerHTML=h;
   }
+  const pnInEditable=t=>{const tag=t&&t.tagName;return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable);};
+  // granular builder undo (item 8): intercept Ctrl/Cmd+Z in the Top view in the CAPTURE phase so it runs before
+  // — and blocks — the doors-scope undo(), which would otherwise roll back the whole project in one hit. We also
+  // swallow redo combos in the builder so doors history can't fire here (the builder has no redo yet).
   window.addEventListener('keydown',e=>{
-    if(e.key==='Escape'&&pnMeasureOn){pnMeasureOn=false;pnMeasA=null;pnMeasFix=null;if(curView==='panels')renderPanels();}
+    if(!(curView==='panels'&&pnView==='plan'))return;
+    if(pnInEditable(e.target))return;
+    const z=(e.key==='z'||e.key==='Z'),y=(e.key==='y'||e.key==='Y'),mod=e.ctrlKey||e.metaKey;
+    if(mod&&(z||y)){e.preventDefault();e.stopImmediatePropagation();if(z&&!e.shiftKey)pnPlanUndo();}
+  },true);
+  window.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&pnMeasureOn){pnMeasureOn=false;pnMeasA=null;pnMeasFix=null;if(curView==='panels')renderPanels();return;}
+    // Delete the selected UNLOCKED builder item (item 7): Top view, wall/opening/object. A wall with a locked
+    // corner is protected — we show a message instead of deleting silently. Openings/objects have no lock.
+    if((e.key==='Delete'||e.key==='Backspace')&&curView==='panels'&&pnView==='plan'&&pnPlanSel&&!pnInEditable(e.target)){
+      e.preventDefault();
+      if(pnPlanSel.kind==='op'){pnPlanDelOp();return;}
+      if(pnPlanSel.kind==='edge'){
+        const room=pnRoomObj(),plan=room&&room.plan,ed=plan&&pnPlanEdgeById(plan,pnPlanSel.id);if(!ed)return;
+        const A=pnPlanNode(plan,ed.a),B=pnPlanNode(plan,ed.b);
+        if((A&&A.lock)||(B&&B.lock)){pnPlanMsg='This wall has a locked corner 🔒 — click the corner to unlock it before deleting.';renderPanels();return;}
+        pnPlanDelEdge();
+      }
+    }
   });
   function pnInspectorHtml(room,L){
     const wall=room.walls[pnSel.wall];

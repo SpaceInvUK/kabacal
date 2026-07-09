@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-09 (j) — Refinamento pós-teste do 2D Builder / Panels (11 itens)
+
+Zona guardada tocada: só **rendering do top view + front view + measure + interações do builder (undo/delete/pan)**. NÃO tocou engine/DXF/quote/NC → **goldens byte-idênticos** (7 comparados byte-a-byte no browser: 2 NC, GOLDEN_18mm.dxf, GOLDEN_PANELS_18mm.dxf, QUOTE_standard/rich/mixed — todos idênticos; os restantes saem dos mesmos writers já provados).
+
+- **Join externo em ângulos não-90° (top view)**: parede agora faz **miter** no canto (interseção das faces externas — `pnPlanMiterOut`). Vizinhos partilham exatamente a aresta nó→miter → sem sobreposição (fim das manchas escuras de opacidade dupla) e sem gap, em qualquer ângulo. Ponta livre / junção 3+ = ponta quadrada no nó. Parede mais suave para o painel teal dominar. Resolve itens 9 e 10 (parede contínua, não retângulos empilhados).
+- **Nomes de canto** (item 2): **Through corner** (tag "through" teal, corre completo) vs **Butt corner** (tag "butt −N" vermelho, para curto). No top view (tags no desenho) e no inspector. ⚠️ O utilizador descreveu a lógica ao contrário da regra confirmada/golden (through=frame+pt vs butt=normal) — **não invertido sem confirmar** (mudaria layout das células + GOLDEN_PANELS). A ver no relatório.
+- **Clearance subtil (front view)** (item 1): marca curta na base + label `butt −N`, já não uma faixa vermelha por toda a altura da parede.
+- **Consistência de shaker no canto** (item 3): o engine **já faz** — `pnRoomRuns` encadeia paredes horizontais ligadas por `joint` numa run só, e `pnRunGrid` força a célula do seam igual dos dois lados (último shaker de uma parede = primeiro da seguinte). Preservado. Não aplica através de canto `corner`/butt nem horizontal↔vertical (runs separadas) — coordenar isso = risco a contagens/goldens, adiado.
+- **Measure**: label **acima** da linha (offset perpendicular, item 4); snap às **extremidades da parede inteira** além das bordas do painel encurtado (item 5) — dá para medir parede toda E painel curto no canto.
+- **Botão do meio = pan**, nunca desenha (item 6); **Delete** apaga parede/abertura selecionada se não bloqueada, senão avisa (item 7); **Ctrl+Z granular** no builder (uma ação de cada vez, isolado do undo dos doors — não desfaz o projeto todo) (item 8).
+- **Porta/janela** (item 11): porta quebra o band do painel (2 segmentos), janela fica cutout limpo (1 band) — preservado com o refactor do miter.
+
+Testado (j): check.mjs verde · miter partilha ponto exato (2 paredes @ n2 → (4041,100) idêntico) · junção 3-edge cai para quadrado · top view sem "clr" antigo, com "through"×N e "butt −22"×2 · front view sem faixa vermelha full-height, com "butt −22" + snap wx0/wx1/borda-painel presentes · measure label 16px acima na horizontal / ao lado na vertical · undo granular (door→len→lock desfaz 1 a 1) · Delete: parede solta apaga, parede com canto bloqueado avisa, abertura apaga · MMB→pan/LMB→draw/RMB→nada · porta 2 segmentos / janela 1 · 7 goldens byte-idênticos · console sem erros · screenshot: sala retângulo fechado com cantos contínuos + porta a quebrar o band.
+
 ## 2026-07-08 (i) — Correções pós-teste: janela sobreposta, Measure, locks duplicados, quebra de porta, clearance no front, join externo
 
 Bugs achados no teste. Zona guardada: **engine (janela)** muda saída → `GOLDEN_PANELS_18mm.dxf` regenerado (10036→10038, motivo abaixo); os outros 7 goldens byte-idênticos. Resto = rendering/interação (top/front view).
