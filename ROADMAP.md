@@ -2,6 +2,23 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-09 (k) — 2D Builder: simplificar controlos, settings no Top view, painel on/off, winding
+
+Zona guardada: **engine (noPanel skip + winding)** — mas ambos default-off → produção inalterada; **7 goldens comparados byte-a-byte = idênticos** (2 NC, GOLDEN_18mm.dxf, GOLDEN_PANELS_18mm.dxf, QUOTE_standard/rich/mixed). Resto = UI/interação do builder. Testes novos no check.mjs (noPanel = 0 peças; winding auto=`tt,bb,tt,bb` idêntico + modo winding difere e é 1-through-1-butt por canto).
+
+- **Controlos simplificados (item 1)**: removidos os toggles visíveis **Mode**, **Keep 90°** e a ferramenta **Pan**. Ficam Draw/Select na toolbar; botão do meio = pan, roda = zoom, Delete apaga, Ctrl+Z desfaz. Keep-square fica ON automático (interno).
+- **Settings no Top view (item 2)**: o inspector do Top view mostra as mesmas regras do Front view via `pnWallPanelSections` — Painel on/off, Shakers (ou grelha vertical), lados da parede, rodapé, notas — + bloco **Room defaults** (material, frame, shaker target, door allowance, alturas de painel, rodapé). Já não é preciso ir ao Front view para configurar.
+- **Painel ON/OFF por parede (item 6)**: desligar tira o painel do quote/DXF/nesting mas mantém a parede no desenho. Flag em `edge.noPanel` (plan) → `wall.noPanel` no compile → capturado pelo undo granular + save/load. Top view mostra "· no panel". Default off → goldens idênticos.
+- **Sem preços nas vistas do builder (item 3)**: a barra de status mostra só sala · parede · nº de painéis. Totais só na aba **Quote** — clientes não veem £ interno a desenhar.
+- **Winding / direção de desenho (item 4)**: `pnPlanCompile` calcula o **winding** (shoelace da cadeia de edges) e guarda em `cornerInfo.winding`. `plan.cornerMode` = **auto** (default, parede maior passa = comportamento atual, byte-idêntico) | **winding** (opt-in: a parede que CHEGA passa, a que SAI encosta, invertido no anti-horário → returns/columns consistentes). Ordem/direção de desenho preservadas; override manual por canto continua a mandar. ⚠️ **A confirmar (Ednei)**: qual painel fica com o comprimento total no caso anti-horário (a descrição do item 4 é o inverso da regra confirmada de frame+pt) → por isso winding é opt-in, não default.
+- **Nomes de canto (item 5)**: **Through corner** vs **Butt corner** consistentes no Top view, Front view e inspector (mantido do round j).
+- **Hit targets (item 7)**: prioridade endpoint/lock → abertura → parede → vazio. Raio do endpoint agora ~24px de ecrã (era ~140px, roubava cliques de parede perto dos cantos); snap de desenho fica ~40px. Círculos dos nós continuam subtis.
+- **Adicionar várias aberturas (item 8)**: `pnPlanAddOpening` resolve a parede a partir do edge OU da abertura selecionada, e o inspector da abertura tem +Door/+Window/+Object → depois de mover uma porta dá para continuar a adicionar sem re-selecionar a parede.
+- **Clearance menos alto (item 9)**: marca do front view agora ~40–90px (≈12% da altura, junto à base), proporcional ao board, não uma barra alta; tick do top view cinge-se à profundidade do painel.
+- **Porta/janela (item 11)**: porta quebra o band (2 segmentos), janela fica cutout limpo (1 band) — preservado.
+
+Testado (k): check.mjs verde (+ testes noPanel/winding) · Top view sem Mode/Keep90, toolbar sem Pan · Top view mostra Panel on/off + Shakers + Wall sides + Skirting + Room defaults + Corner rule · status "Prices are in the Quote tab" (sem £) · painel OFF em e2 → 0 peças, total 6→5, `edge.noPanel` salvo, undo repõe 1 peça · winding: auto `tt,bb,tt,bb` / modo winding `tb,tb,tb,tb` (1-through-1-butt) · hit: clicar polígono da parede → seleciona edge, clicar no canto → agarra nó · add door→mover→add window→add door→add object todos funcionam (2 portas+1 janela+1 objeto) · porta 2 / janela 1 band · console limpo · 7 goldens byte-idênticos.
+
 ## 2026-07-09 (j) — Refinamento pós-teste do 2D Builder / Panels (11 itens)
 
 Zona guardada tocada: só **rendering do top view + front view + measure + interações do builder (undo/delete/pan)**. NÃO tocou engine/DXF/quote/NC → **goldens byte-idênticos** (7 comparados byte-a-byte no browser: 2 NC, GOLDEN_18mm.dxf, GOLDEN_PANELS_18mm.dxf, QUOTE_standard/rich/mixed — todos idênticos; os restantes saem dos mesmos writers já provados).

@@ -4718,7 +4718,7 @@
   function pnRoomRuns(room,D){
     const walls=room.walls||[];const runs=[];
     for(let wi=0;wi<walls.length;wi++){
-      const w=walls[wi];if((w.dir||'h')==='v')continue;
+      const w=walls[wi];if(w.noPanel)continue;if((w.dir||'h')==='v')continue;
       const spans=pnWallSpans(w,D);
       spans.forEach((sp,si)=>{
         const prev=runs[runs.length-1];
@@ -4976,10 +4976,12 @@
   function pnLayoutRoom(room,deps){
     deps=deps||pnDefaultDeps();
     const D=pnRoomDefs(room),walls=room.walls||[],warns=[],pieces=[];
+    // a wall with panels turned OFF (`noPanel`) keeps its place in the room but produces NO pieces → excluded
+    // from quote / DXF / nesting. Default undefined → every existing room + golden is unaffected.
     // combo-independent pieces first (vertical walls, embedded vertical zones, caps, window lower panels)
-    walls.forEach((w,wi)=>{if((w.dir||'h')==='v')pnLayoutVWall(w,wi,D,pieces,warns);});
-    walls.forEach((w,wi)=>pnZonePieces(w,wi,D,pieces,warns));
-    walls.forEach((w,wi)=>pnOpeningPieces(w,wi,D,pieces));
+    walls.forEach((w,wi)=>{if(w&&w.noPanel)return;if((w.dir||'h')==='v')pnLayoutVWall(w,wi,D,pieces,warns);});
+    walls.forEach((w,wi)=>{if(w&&w.noPanel)return;pnZonePieces(w,wi,D,pieces,warns);});
+    walls.forEach((w,wi)=>{if(w&&w.noPanel)return;pnOpeningPieces(w,wi,D,pieces);});
     const basePieces=pieces.slice();
     // horizontal band: runs → grids → stretches → candidate splits → room-level pick
     const runs=pnRoomRuns(room,D);
@@ -4998,7 +5000,7 @@
       }
     });
     pnChoose(stretches,D,walls,deps,basePieces).forEach(p=>pieces.push(p));
-    walls.forEach((w,wi)=>pnApplyNotches(w,wi,D,pieces));
+    walls.forEach((w,wi)=>{if(w&&w.noPanel)return;pnApplyNotches(w,wi,D,pieces);});
     // stable names per wall in VISUAL order (left→right, bottom→top): Wall 3A / 3B / 3C (+ room prefix).
     // p.vn = visual sequence number across the whole room — DXF part numbers follow it.
     pieces.sort((a,b)=>a.wi-b.wi||a.x0-b.x0||a.y0-b.y0);
@@ -5089,15 +5091,29 @@
       const put=nid=>{(atNode[nid]=atNode[nid]||[]).push({e:e,i:i});};
       put(e.a);put(e.b);
     });
+    // room WINDING (draw direction / hand): shoelace over the ordered edge chain, in SVG y-down coords so
+    // sum>0 = drawn CLOCKWISE on screen, <0 = anticlockwise. Preserved from edge order + each edge's a→b sense
+    // (item 4). Exposed so the corner rule CAN use drawing direction instead of only "longer wall through".
+    let shoe=0;(plan.edges||[]).forEach(e=>{const a=nById[e.a],b=nById[e.b];if(a&&b)shoe+=(a.x*b.y-b.x*a.y);});
+    const winding=shoe>1?'cw':(shoe<-1?'ccw':null);
+    const cornerMode=(plan.cornerMode==='winding')?'winding':'auto';   // 'auto' (default) = longer-through, byte-identical
     // does edge E (index i, length L) BUTT at node nid? yes if another edge there is longer, or equal-length but drawn earlier
     const buttsAt=(nid,i,L)=>{const list=atNode[nid]||[];if(list.length<2)return false;
       return list.some(o=>o.i!==i&&(eLen(o.e)>L||(eLen(o.e)===L&&o.i<i)));};
-    const cond=(nid,i,L)=>{const list=atNode[nid]||[];if(!list||list.length<2)return 'free';return buttsAt(nid,i,L)?'butt':'through';};
+    // corner condition at node nid for edge e (index i, length L). WINDING mode (opt-in): at a clean 2-wall
+    // corner the ARRIVING wall (node is its b/end) passes THROUGH and the LEAVING wall (node is its a/start)
+    // BUTTS — flipped for anticlockwise winding — so the lapping rotates consistently around the room (the
+    // return/column case). AUTO mode (default) keeps the longer-through rule → existing rooms + goldens unchanged.
+    const cond=(nid,i,L,e)=>{const list=atNode[nid]||[];if(!list||list.length<2)return 'free';
+      if(cornerMode==='winding'&&list.length===2&&e){const oth=list.find(o=>o.i!==i);
+        if(oth){const meArrive=(e.b===nid),othArrive=(oth.e.b===nid);
+          if(meArrive!==othArrive){let through=meArrive;if(winding==='ccw')through=!through;return through?'through':'butt';}}}
+      return buttsAt(nid,i,L)?'butt':'through';};
     const walls=[];
     (plan.edges||[]).forEach((e,i)=>{
       const a=nById[e.a],b=nById[e.b];if(!a||!b)return;
       const measured=Math.max(1,eLen(e)),id='pe_'+e.id,prev=prevById[id]||{};
-      let cA=cond(e.a,i,measured),cB=cond(e.b,i,measured);
+      let cA=cond(e.a,i,measured,e),cB=cond(e.b,i,measured,e);
       // per-end through/butt override (editable): only overrides an actual corner, never a free end
       if(cA!=='free'&&(e.endA==='through'||e.endA==='butt'))cA=e.endA;
       if(cB!=='free'&&(e.endB==='through'||e.endB==='butt'))cB=e.endB;
@@ -5110,10 +5126,11 @@
         panelOv:prev.panelOv||{},notes:prev.notes||[],
         openings:(prev.openings||[]).filter(o=>String(o.id).indexOf('plan_')!==0),   // keep inspector openings
         measured:measured,
-        cornerInfo:{pt:pt,frame:frame,allowance:allowance,
+        cornerInfo:{pt:pt,frame:frame,allowance:allowance,winding:winding,cornerMode:cornerMode,
           l:{cond:cA,shorten:shortenL,allowance:cA==='butt'?allowance:0},
           r:{cond:cB,shorten:shortenR,allowance:cB==='butt'?allowance:0}},
         _edge:e.id};
+      if(e.noPanel)w.noPanel=true;   // panel OFF is stored on the plan EDGE (item 6) → survives save + granular undo
       if(prev.panelNotes)w.panelNotes=prev.panelNotes;
       if(prev.skirt)w.skirt=prev.skirt;
       if(prev.vZones)w.vZones=prev.vZones;
@@ -5505,7 +5522,7 @@
     // A short dashed line at the panel edge + a thin tie across the gap + a "butt −N" label (item 2 naming)
     // says "this panel stops short here" without dominating the elevation.
     const clStrip=(sx,w,mm,edgeX)=>{if(mm<=0.5||w<=0)return;
-      const y0=Y(0),hMark=Math.min(hpx,Math.max(64,hpx*0.2)),yTop=y0-hMark,ym=y0-hMark*0.5;
+      const y0=Y(0),hMark=Math.max(40,Math.min(hpx*0.12,90)),yTop=y0-hMark,ym=y0-hMark*0.5;   // small, near the base — proportional to the board, never a tall warning bar (item 9)
       s+='<line x1="'+edgeX+'" y1="'+y0+'" x2="'+edgeX+'" y2="'+yTop+'" stroke="#e11d48" stroke-width="0.9" stroke-opacity="0.6" stroke-dasharray="4 3"/>';
       s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#e11d48" stroke-width="0.8" stroke-opacity="0.55"/>';
       s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#e11d48" fill-opacity="0.9">butt −'+Math.round(mm)+'</text>';};
@@ -5788,6 +5805,7 @@
       const sel=pnPlanSel&&pnPlanSel.kind==='edge'&&pnPlanSel.id===e.id;
       const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
       const clL=ci?(+ci.l.shorten||0):0, clR=ci?(+ci.r.shorten||0):0;   // corner clearance at each end (mm)
+      const noPanel=!!(cw&&cw.noPanel);   // panel OFF (item 6): draw the wall body only, no teal band / clearance
       // WALL body — the inside face is the reference (nodes at u=0..L, v=0); it extrudes OUTWARD by T. At a
       // shared corner the OUTER corner is MITRED to the neighbour's outer face, so the join reads continuous at
       // any angle (items 9/10) — 90° stays square, irregular angles no longer look like stacked rectangles.
@@ -5803,17 +5821,18 @@
       let segStart=clL;const segs=[];
       gaps.forEach(g=>{const gs=Math.max(clL,Math.min(L-clR,g[0])),ge=Math.max(clL,Math.min(L-clR,g[1]));if(gs>segStart+1)segs.push([segStart,gs]);segStart=Math.max(segStart,ge);});
       if(L-clR>segStart+1)segs.push([segStart,L-clR]);
-      segs.forEach(sg=>{if(sg[1]-sg[0]<1)return;
+      if(!noPanel)segs.forEach(sg=>{if(sg[1]-sg[0]<1)return;
         s+='<polygon points="'+poly([off(sg[0],0),off(sg[1],0),off(sg[1],sInt*pt),off(sg[0],sInt*pt)])+'" fill="#14b8a6" fill-opacity="0.92" stroke="#0f766e" stroke-width="1.8" '+ns+'/>';
         s+='<line x1="'+off(sg[0],sInt*pt/2).x.toFixed(1)+'" y1="'+off(sg[0],sInt*pt/2).y.toFixed(1)+'" x2="'+off(sg[1],sInt*pt/2).x.toFixed(1)+'" y2="'+off(sg[1],sInt*pt/2).y.toFixed(1)+'" stroke="#ecfeff" stroke-width="0.7" stroke-opacity="0.85" '+ns+'/>';});
-      // name each corner condition on the drawing (item 2): a BUTT corner stops short (−Nmm clearance, red);
-      // a THROUGH corner runs full length (teal). Free ends get no tag. Clearer than calling both "corner".
+      // name each corner condition on the drawing (item 2/5): a BUTT corner stops short (−Nmm clearance, red);
+      // a THROUGH corner runs full length (teal). The clearance tick is kept small — just around the panel depth,
+      // not a big warning mark (item 9). Free ends / no-panel walls get no tag.
       const condL=ci?ci.l.cond:'', condR=ci?ci.r.cond:'';
-      const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+fs*0.75));
-        if(cond==='butt'){s+='<line x1="'+off(u,-sInt*6).x.toFixed(1)+'" y1="'+off(u,-sInt*6).y.toFixed(1)+'" x2="'+off(u,sInt*(pt+6)).x.toFixed(1)+'" y2="'+off(u,sInt*(pt+6)).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.58)+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
-        else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.55)+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
-      cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
-      cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);
+      const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+fs*0.6));
+        if(cond==='butt'){s+='<line x1="'+off(u,0).x.toFixed(1)+'" y1="'+off(u,0).y.toFixed(1)+'" x2="'+off(u,sInt*pt).x.toFixed(1)+'" y2="'+off(u,sInt*pt).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1.4" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.55)+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
+        else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+Math.round(fs*0.52)+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
+      if(!noPanel){cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
+        cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);}
       // openings/objects — draggable group; interior side is +sInt, wall band is 0..-sInt*T
       (plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id).forEach(o=>{
         const u0=Math.max(0,Math.min(L,+o.offset||0)),wd=Math.min(+o.width||0,L-u0),u1=u0+wd;if(wd<=0)return;
@@ -5841,7 +5860,7 @@
       // full measured length (exterior) + wall name (interior)
       const dm=off(L/2,-sInt*(T+fs*1.5)),nm=off(L/2,sInt*(pt+fs*1.7));
       s+='<text x="'+dm.x.toFixed(1)+'" y="'+dm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" fill="var(--muted)">'+Math.round(L)+' mm</text>';
-      s+='<text x="'+nm.x.toFixed(1)+'" y="'+nm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+(sel?'#2563eb':'var(--ink)')+'">Wall '+(i+1)+'</text>';
+      s+='<text x="'+nm.x.toFixed(1)+'" y="'+nm.y.toFixed(1)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+(sel?'#2563eb':'var(--ink)')+'">Wall '+(i+1)+(noPanel?' · no panel':'')+'</text>';
     });
     // endpoints drawn ONCE per UNIQUE node (a shared corner = one dot + one lock, not two). Dot is very
     // transparent so it never hides the through/butt panel relationship; small padlock sits up-right of it.
@@ -5874,9 +5893,13 @@
       if(e.button===1){e.preventDefault();pnPan={svg,x:e.clientX,y:e.clientY,vb:pnVbOf(svg),moved:false};return;}   // middle button = pan, NEVER draw (item 6)
       if(e.button!==0)return;   // right button: no draw/select
       if(pnPlanTool==='pan'){pnPan={svg,x:e.clientX,y:e.clientY,vb:pnVbOf(svg),moved:false};return;}
-      const p=pnPlanPt(svg,e),thr=140/pnPlanPxPerMm(svg);
+      // hit targets in SCREEN pixels (item 7): a TIGHT endpoint radius so clicking a wall near a corner no longer
+      // grabs the corner; the lock/endpoint stays easy to hit. Draw snapping is looser so chaining is forgiving.
+      const pxmm=pnPlanPxPerMm(svg)||1, selThr=24/pxmm, drawThr=40/pxmm;
+      const p=pnPlanPt(svg,e);
       if(pnPlanTool==='select'){
-        const nd=pnPlanSnapNode(plan,p.x,p.y,thr);
+        // priority: 1. endpoint/lock  2. opening/object  3. wall  4. empty
+        const nd=pnPlanSnapNode(plan,p.x,p.y,selThr);
         if(nd){pnPlanDrag={mode:'node',nodeId:nd.id,moved:false};return;}   // click=toggle lock · drag=move (if unlocked)
         const og=e.target&&e.target.closest&&e.target.closest('.pnpo'),oid=og&&og.getAttribute('data-oid');
         if(oid){pnPlanSel={kind:'op',id:oid};pnPlanDrag={mode:'op',oid:oid};renderPanels();return;}
@@ -5885,7 +5908,7 @@
         pnPlanSel=null;pnPlanMsg='';renderPanels();return;
       }
       // draw: start from a snapped node or a fresh point
-      const snap=pnPlanSnapNode(plan,p.x,p.y,thr);
+      const snap=pnPlanSnapNode(plan,p.x,p.y,drawThr);
       pnPlanDrag={mode:'draw',startNode:snap?snap.id:null,sx:snap?snap.x:pnR10(p.x),sy:snap?snap.y:pnR10(p.y)};
     });
   }
@@ -5893,7 +5916,7 @@
     if(!pnPlanDrag)return;const svg=document.getElementById('pnPlanSvg');if(!svg)return;
     const room=pnRoomObj();if(!room)return;const plan=pnPlanEnsure(room);const p=pnPlanPt(svg,e);
     if(pnPlanDrag.mode==='draw'){
-      const snap=pnPlanSnapNode(plan,p.x,p.y,140/pnPlanPxPerMm(svg),pnPlanDrag.startNode);
+      const snap=pnPlanSnapNode(plan,p.x,p.y,40/(pnPlanPxPerMm(svg)||1),pnPlanDrag.startNode);
       const o=snap?{x:snap.x,y:snap.y}:pnPlanOrtho(pnPlanDrag.sx,pnPlanDrag.sy,p.x,p.y);
       pnPlanDrag.ex=o.x;pnPlanDrag.ey=o.y;pnPlanDrag.endNode=snap?snap.id:null;
       pnPlanGhost(svg,pnPlanDrag.sx,pnPlanDrag.sy,o.x,o.y);
@@ -5956,7 +5979,13 @@
   function pnPlanSetEnd(which,val){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const e=pnPlanEdgeById(room.plan,pnPlanSel.id);if(!e)return;pnPlanSnapshot();
     const k=which==='a'?'endA':'endB';if(val==='auto')delete e[k];else e[k]=val;pnPlanApply();renderPanels();}
   function pnPlanSetPanelT(val){const room=pnRoomObj();if(!room)return;pnPlanSnapshot();pnPlanEnsure(room).panelLayer.thickness=Math.max(1,pnNum(val));pnPlanApply();renderPanels();}   // recompile: panel thickness drives corner shortening + allowance
-  function pnPlanAddOpening(type){const room=pnRoomObj();if(!room||!pnPlanSel||pnPlanSel.kind!=='edge')return;const plan=room.plan,e=pnPlanEdgeById(plan,pnPlanSel.id);if(!e)return;pnPlanSnapshot();
+  // add an opening to the CURRENTLY-relevant wall — works whether a wall (edge) OR an existing opening is
+  // selected (item 8: after moving a door you can still add another door/window/object, no re-selecting the wall)
+  function pnPlanAddOpening(type){const room=pnRoomObj();if(!room||!room.plan)return;const plan=room.plan;
+    let e=null;
+    if(pnPlanSel&&pnPlanSel.kind==='edge')e=pnPlanEdgeById(plan,pnPlanSel.id);
+    else if(pnPlanSel&&pnPlanSel.kind==='op'){const cur=pnPlanOpObj();if(cur)e=pnPlanEdgeById(plan,cur.edgeId);}
+    if(!e)return;pnPlanSnapshot();
     const F=pnPlanEdgeFrame(plan,e),def=type==='door'?{w:900,h:2100,b:0}:(type==='window'?{w:1200,h:1100,b:900}:{w:600,h:600,b:0});
     const off=Math.max(0,Math.round(F.L/2-def.w/2)),id='o'+(++pnUid);
     const rec={id,edgeId:e.id,type,name:type.charAt(0).toUpperCase()+type.slice(1),offset:off,width:def.w,height:def.h,bottom:def.b};
@@ -5974,17 +6003,18 @@
     (plan.openings||[]).slice().forEach(o=>{if(o.edgeId===id)plan.openings=plan.openings.filter(x=>x!==o);});
     (plan.objects||[]).slice().forEach(o=>{if(o.edgeId===id)plan.objects=plan.objects.filter(x=>x!==o);});
     pnPlanSel=null;pnPlanApply();renderPanels();}
-  function pnPlanInspectorHtml(room){
+  function pnPlanInspectorHtml(room,L){
     const plan=pnPlanEnsure(room),SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
     let head='<div class="pn-ihead"><div><div class="t">'+esc(room.name||'Room')+' · 2D builder</div><div class="s">'+(plan.edges||[]).length+' wall'+((plan.edges||[]).length===1?'':'s')+' drawn · mm</div></div></div>';
-    let body=SEC('Tool',
-      '<div class="pn-row"><label>Mode</label>'+pnSegHtml([['draw','Draw'],['select','Select'],['pan','Pan']],pnPlanTool,'pnPlanSetTool(\'%V\')')+'</div>'
-      +'<div class="pn-row"><label>Keep 90° square</label>'+pnSegHtml([['on','On'],['off','Off']],pnKeepSquare(room)?'on':'off','pnPlanSquareSet(\'%V\')')+'</div>'
-      +'<div class="pn-hint">Draw: click-drag-release = a wall ('+PN_WALL_T+'mm); chain from an endpoint. Select: drag a corner (or drag an opening along its wall); <b>Delete</b> removes the selected wall/opening (locked corners are protected). Keep 90° slides square neighbours with the corner. Wheel = zoom · <b>middle-mouse drag = pan</b> · <b>Ctrl+Z</b> undoes one action.</div>'
+    // Tool section: no Mode / Keep-90 / Pan toggles (item 1) — Draw/Select live on the toolbar, middle-mouse
+    // pans, wheel zooms, Delete deletes, Ctrl+Z undoes. Keep-square stays ON automatically (internal).
+    let body=SEC('Builder',
+      '<div class="pn-hint"><b>Draw</b> = click-drag a wall ('+PN_WALL_T+'mm), chain from an endpoint. <b>Select</b> = click a wall/opening to edit it below, drag a corner to move it. <b>Middle-mouse drag</b> = pan · wheel = zoom · <b>Delete</b> = remove the selected unlocked item · <b>Ctrl+Z</b> = undo one action.</div>'
       +(pnPlanMsg?'<div class="pn-warn" style="margin-top:6px">'+esc(pnPlanMsg)+'</div>':''));
     if(pnPlanSel&&pnPlanSel.kind==='edge'){
       const e=pnPlanEdgeById(plan,pnPlanSel.id),F=e&&pnPlanEdgeFrame(plan,e);
       if(F){const idx=plan.edges.indexOf(e);
+        pnSel.wall=idx;   // point the shared panel-setting controls (below) at this wall
         const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);
         const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
         const condTxt=side=>{if(!ci)return '';const c=ci[side],nm=side==='l'?'Start':'End';
@@ -5993,13 +6023,15 @@
         const endCtl=(side,which)=>{if(!ci||ci[side].cond==='free')return '';const cur=(e[which==='a'?'endA':'endB'])||'auto';
           return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+' corner</label>'+pnSegHtml([['auto','Auto'],['through','Through'],['butt','Butt']],cur,'pnPlanSetEnd(\''+which+'\',\'%V\')')+'</div>';};
         const cornerBlock=ci?('<div class="pn-hint" style="margin-top:6px;line-height:1.5">measured '+Math.round(cw.measured||F.L)+'mm → <b>panel '+Math.round(cw.w)+'mm</b> (panel '+Math.round(ci.pt)+'mm · frame '+Math.round(ci.frame)+') · gap = corner clearance<br>'+esc(condTxt('l'))+'<br>'+esc(condTxt('r'))+'</div>'+endCtl('l','a')+endCtl('r','b')):'';
-        body+=SEC('Wall '+(idx+1),
+        body+=SEC('Wall '+(idx+1)+' — geometry',
           '<div class="pn-row"><label>Length (mm)</label><input type="number" min="100" value="'+Math.round(F.L)+'" onchange="pnPlanEdgeLen(\'len\',this.value)"></div>'
-          +'<div class="pn-row"><label>Thickness</label><input type="number" min="50" value="'+Math.round(e.wallThickness||PN_WALL_T)+'" onchange="pnPlanEdgeLen(\'thickness\',this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
+          +'<div class="pn-row"><label>Wall thickness</label><input type="number" min="50" value="'+Math.round(e.wallThickness||PN_WALL_T)+'" onchange="pnPlanEdgeLen(\'thickness\',this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
           +'<div class="pn-row"><label>Height</label><input type="number" min="300" value="'+Math.round(e.height||3200)+'" onchange="pnPlanEdgeLen(\'height\',this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
           +'<div class="pn-row"><label>Endpoint locks</label><span><button class="pn-mini" onclick="pnPlanLockNode(\'a\')">'+((A&&A.lock)?'🔒':'🔓')+' Start</button> <button class="pn-mini" onclick="pnPlanLockNode(\'b\')">'+((B&&B.lock)?'🔒':'🔓')+' End</button></span></div>'
-          +cornerBlock
-          +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>'
+          +cornerBlock);
+        body+=pnWallPanelSections(room,idx,L);   // shakers / sides / skirting / panel on-off — same as Front view (item 2)
+        body+=SEC('Openings on this wall',
+          '<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>'
           +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelEdge()" style="color:#dc2626">🗑 Delete wall</button></div>');
       }
     } else if(pnPlanSel&&pnPlanSel.kind==='op'){
@@ -6010,16 +6042,35 @@
         +'<div class="pn-row"><label>Height</label><input type="number" value="'+Math.round(o.height||0)+'" onchange="pnPlanSetOp(\'height\',this.value)"></div>'
         +'<div class="pn-row"><label>Offset from start</label><input type="number" value="'+Math.round(o.offset||0)+'" onchange="pnPlanSetOp(\'offset\',this.value)"></div>'
         +(o.type!=='door'?'<div class="pn-row"><label>Bottom</label><input type="number" value="'+Math.round(o.bottom||0)+'" onchange="pnPlanSetOp(\'bottom\',this.value)"></div>':'')
-        +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove</button></div>');
+        +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove this opening</button></div>'
+        +'<div class="pn-hint" style="margin-top:6px">Add another to the same wall:</div>'
+        +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>');
     } else {
-      body+=SEC('','<div class="pn-hint">Select a wall to edit its length or add a door / window / object.</div>');
+      body+=SEC('','<div class="pn-hint">Select a wall to edit its panels, shakers, sides, skirting and openings — or add a door / window / object.</div>');
     }
-    body+=SEC('Panel layer',
+    // Corner rule (item 4): winding/drawing-direction awareness. AUTO = longer wall through (default, current
+    // behaviour). Winding = the arriving wall goes through / the leaving wall butts, flipped for anticlockwise.
+    const anyCI=(room.walls||[]).map(w=>w.cornerInfo).find(Boolean);
+    const wnd=anyCI&&anyCI.winding, wLbl=wnd==='cw'?'clockwise':(wnd==='ccw'?'anticlockwise':'—');
+    body+=SEC('Corner rule',
+      '<div class="pn-row"><label>Through / butt</label>'+pnSegHtml([['auto','Auto (longer through)'],['winding','Winding']],plan.cornerMode==='winding'?'winding':'auto','pnPlanSetCornerMode(\'%V\')')+'</div>'
+      +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Auto</b>: the longer wall passes through, the shorter butts. <b>Winding</b>: uses the draw direction — the arriving wall passes through, the leaving wall butts (flips for anticlockwise) — for consistent returns/columns. Per-corner Auto/Through/Butt above always wins.</div>');
+    body+=SEC('Panel thickness',
       '<div class="pn-row"><label>Thickness</label><input type="number" min="1" value="'+Math.round((plan.panelLayer&&plan.panelLayer.thickness)||PN_PANEL_T)+'" onchange="pnPlanSetPanelT(this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
-      +'<div class="pn-hint">Shown in blue in front of each wall. Default 22mm (18/12/9 supported later).</div>');
+      +'<div class="pn-hint">Teal panel layer in front of each wall · drives the corner clearance/allowance.</div>');
+    // Room defaults reachable from Top view too (item 2): shaker target, panel heights, door allowance, material.
+    body+=SEC('Room defaults',
+      '<div class="pn-row"><label>Material</label><select onchange="pnSet(\'room\',\'mat\',this.value)">'+matOptionsHtml(room.mat)+'</select></div>'
+      +pnRowN('Frame (mm)','room','frame',room.frame)
+      +pnRowN('Shaker target','room','target',room.target)
+      +pnRowN('Door allowance','room','doorAllow',room.doorAllow)
+      +pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
+      +pnRowN('Vertical panel H','room','vPanelH',room.vPanelH)
+      +'<div class="pn-row"><label>Skirting</label>'+pnSegHtml([['yes','Yes'],['no','No']],room.skirtOn!==false?'yes':'no','pnSet(\'room\',\'skirtOn\',\'%V\'===\'yes\')')+'</div>'
+      +pnRowN('Skirting height','room','skirtH',room.skirtH));
     body+=SEC('',
-      '<div class="pn-row"><button class="pn-mini" onclick="pnSetView(\'wall\')" style="font-weight:800">✓ Done — edit panels</button></div>'
-      +'<div class="pn-hint">The drawn walls are now real Panels walls — switch to Wall/Sheets to set shakers, openings, skirting, pricing and export as usual.</div>');
+      '<div class="pn-row"><button class="pn-mini" onclick="pnSetView(\'wall\')" style="font-weight:800">Front view (elevation) →</button></div>'
+      +'<div class="pn-hint">Same walls — the Front view shows the wall elevation with per-panel shaker editing and export.</div>');
     return head+body;
   }
   // ---- discreet measure tool: click two points; snaps to wall/panel/cavity/offset-line/opening
@@ -6102,6 +6153,61 @@
       }
     }
   });
+  // Panel ON/OFF for a wall (item 6): keeps the wall in the drawing, removes its panel from quote/DXF/nesting.
+  // For a PLAN room the flag lives on the plan EDGE (so it is captured by the granular undo snapshot and by
+  // save/load); a non-plan room stores it straight on the wall.
+  function pnWallPanelOnOff(v){const room=pnRoomObj(),w=room&&room.walls[pnSel.wall];if(!w)return;const off=(v==='off');
+    if(room.plan){
+      const eid=String(w.id||'').replace(/^pe_/,''),e=pnPlanEdgeById(room.plan,eid);if(!e)return;if(!!e.noPanel===off)return;
+      if(pnView==='plan')pnPlanSnapshot();
+      if(off)e.noPanel=true;else delete e.noPanel;
+      room.walls=pnPlanCompile(room);
+    } else {
+      if(!!w.noPanel===off)return;
+      if(off)w.noPanel=true;else delete w.noPanel;
+    }
+    pnSave();renderPanels();}
+  function pnPlanSetCornerMode(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.cornerMode=(v==='winding')?'winding':'auto';pnPlanApply();renderPanels();}
+  // shared wall PANEL-RULE settings — rendered in BOTH the Front view inspector and the Top-view (2D builder)
+  // inspector (item 2) so you never need to switch views to change shakers/sides/skirting/panel-on-off. All the
+  // setters here act on pnSel.wall, so the caller sets pnSel.wall to this wall first.
+  function pnWallPanelSections(room,wi,L){
+    const wall=room.walls[wi];if(!wall)return '';
+    const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
+    let s=SEC('Panel layer',
+      '<div class="pn-row"><label>Panel on this wall</label>'+pnSegHtml([['on','On'],['off','Off']],wall.noPanel?'off':'on','pnWallPanelOnOff(\'%V\')')+'</div>'
+      +'<div class="pn-hint">'+(wall.noPanel?'Panel OFF — the wall stays in the drawing but is excluded from the quote, DXF and nesting.':'Turn Off to remove this wall\'s panel while keeping the wall.')+'</div>');
+    if(wall.noPanel)return s;
+    const isV=wall.dir==='v';
+    let autoCnt=0;if(L){const run=(L.runs||[]).find(r=>r.segs.some(g=>g.wi===wi));if(run&&run.grid)autoCnt=run.grid.count;}
+    if(!isV){
+      s+=SEC('Shakers (whole run)',
+        '<div class="pn-row"><label>Quantity</label><span class="pn-step"><button onclick="pnStepShaker(-1,'+autoCnt+')">−</button><b>'+(+wall.shakerCount>0?wall.shakerCount:autoCnt+' · auto')+'</b><button onclick="pnStepShaker(1,'+autoCnt+')">+</button></span></div>'
+        +(+wall.shakerCount>0?'<div class="pn-row"><button class="pn-mini" onclick="pnShakerAuto()">↺ Auto (target ≈ '+Math.round((L?L.D.target:350))+'mm)</button></div>':'<div class="pn-hint">auto targets ≈ '+Math.round((L?L.D.target:350))+'mm · whole run/chain</div>'));
+    } else {
+      s+=SEC('Vertical grid',
+        '<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vCols\',-1,0)">−</button><b>'+(+wall.vCols>0?wall.vCols:'auto')+'</b><button onclick="pnStep(\'wall\',\'vCols\',1,0)">+</button></span></div>'
+        +'<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vRows\',-1,1)">−</button><b>'+(Math.max(1,+wall.vRows||2))+'</b><button onclick="pnStep(\'wall\',\'vRows\',1,1)">+</button></span></div>'
+        +'<div class="pn-hint">columns ≤ '+PN_CROSS+'mm each · 0 = auto · bottom row lines up with the horizontal panel line</div>');
+    }
+    s+=SEC('Wall sides',
+      '<div class="pn-row"><label>Left</label>'+pnSideSel(wall.sideL,'pnSet(\'wall\',\'sideL\',this.value)')+'</div>'
+      +'<div class="pn-row"><label>Right</label>'+pnSideSel(wall.sideR,'pnSet(\'wall\',\'sideR\',this.value)')+'</div>'
+      +'<div class="pn-hint">Joint on both facing sides chains two walls into one shaker run (40/40 at the seam).</div>');
+    (function(){
+      const wsk=L?L.D.skirtFor(wi):{on:(room.skirtOn!==false),h:+(room.skirtH!=null?room.skirtH:225)||225,src:'room'};
+      const custom=!!(wall.skirt&&wall.skirt.mode==='custom');
+      let sk='<div class="pn-row"><label>Source</label>'+pnSegHtml([['default','Room default'],['custom','Custom']],custom?'custom':'default','pnWallSkirt(\'mode\',\'%V\')')+'</div>';
+      if(custom){
+        sk+='<div class="pn-row"><label>Enabled</label>'+pnSegHtml([['yes','On'],['no','Off']],wall.skirt.on!==false?'yes':'no','pnWallSkirt(\'on\',\'%V\'===\'yes\')')+'</div>'
+          +'<div class="pn-row"><label>Height (mm)</label><input type="number" min="0" value="'+Math.round(wall.skirt.h!=null?wall.skirt.h:(+room.skirtH||225))+'" onchange="pnWallSkirt(\'h\',this.value)"></div>';
+      }
+      sk+='<div class="pn-hint">now: '+(wsk.on?('skirting '+Math.round(wsk.h)+'mm'):'no skirting')+' · from '+(wsk.src==='wall'?'THIS wall':'room default')+'</div>';
+      s+=SEC('Skirting (this wall)',sk);
+    })();
+    s+=SEC('Wall notes',pnNotesUi(wall.notes,'pnNoteAdd','pnNoteSet','pnNoteDel'));
+    return s;
+  }
   function pnInspectorHtml(room,L){
     const wall=room.walls[pnSel.wall];
     const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
@@ -6160,38 +6266,10 @@
     }
     if(pnSel.kind==='wall'&&wall){
       head='<div class="t">Wall '+(pnSel.wall+1)+'</div><div class="s">'+esc(room.name||'')+' · '+(wall.dir==='v'?'vertical':'horizontal')+' panelling</div>';
-      const isV=wall.dir==='v';
-      let autoCnt=0;
-      if(L){const run=(L.runs||[]).find(r=>r.segs.some(g=>g.wi===pnSel.wall));if(run&&run.grid)autoCnt=run.grid.count;}
       body=SEC('Wall',
         pnRowN('Width','wall','w',wall.w)+pnRowN('Height','wall','h',wall.h)
         +'<div class="pn-row"><label>Direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],wall.dir||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>');
-      if(!isV){
-        body+=SEC('Shakers (whole run)',
-          '<div class="pn-row"><label>Quantity</label><span class="pn-step"><button onclick="pnStepShaker(-1,'+autoCnt+')">−</button><b>'+(+wall.shakerCount>0?wall.shakerCount:autoCnt+' · auto')+'</b><button onclick="pnStepShaker(1,'+autoCnt+')">+</button></span></div>'
-          +(+wall.shakerCount>0?'<div class="pn-row"><button class="pn-mini" onclick="pnShakerAuto()">↺ Auto (target ≈ '+Math.round((L?L.D.target:350))+'mm)</button></div>':'<div class="pn-hint">auto targets ≈ '+Math.round((L?L.D.target:350))+'mm · applies to the whole run/chain</div>'));
-      } else {
-        body+=SEC('Vertical grid',
-          '<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vCols\',-1,0)">−</button><b>'+(+wall.vCols>0?wall.vCols:'auto')+'</b><button onclick="pnStep(\'wall\',\'vCols\',1,0)">+</button></span></div>'
-          +'<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vRows\',-1,1)">−</button><b>'+(Math.max(1,+wall.vRows||2))+'</b><button onclick="pnStep(\'wall\',\'vRows\',1,1)">+</button></span></div>'
-          +'<div class="pn-hint">columns ≤ '+PN_CROSS+'mm each · 0 columns = auto · bottom row lines up with the horizontal panel line</div>');
-      }
-      body+=SEC('Wall sides',
-        '<div class="pn-row"><label>Left</label>'+pnSideSel(wall.sideL,'pnSet(\'wall\',\'sideL\',this.value)')+'</div>'
-        +'<div class="pn-row"><label>Right</label>'+pnSideSel(wall.sideR,'pnSet(\'wall\',\'sideR\',this.value)')+'</div>'
-        +'<div class="pn-hint">Joint on both facing sides of two walls chains them into one shaker run (40/40 at the seam).</div>');
-      (function(){
-        const wsk=L?L.D.skirtFor(pnSel.wall):{on:(room.skirtOn!==false),h:+(room.skirtH!=null?room.skirtH:225)||225,src:'room'};
-        const custom=!!(wall.skirt&&wall.skirt.mode==='custom');
-        let sk='<div class="pn-row"><label>Source</label>'+pnSegHtml([['default','Room default'],['custom','Custom']],custom?'custom':'default','pnWallSkirt(\'mode\',\'%V\')')+'</div>';
-        if(custom){
-          sk+='<div class="pn-row"><label>Enabled</label>'+pnSegHtml([['yes','On'],['no','Off']],wall.skirt.on!==false?'yes':'no','pnWallSkirt(\'on\',\'%V\'===\'yes\')')+'</div>'
-            +'<div class="pn-row"><label>Height (mm)</label><input type="number" min="0" value="'+Math.round(wall.skirt.h!=null?wall.skirt.h:(+room.skirtH||225))+'" onchange="pnWallSkirt(\'h\',this.value)"></div>';
-        }
-        sk+='<div class="pn-hint">now: '+(wsk.on?('skirting '+Math.round(wsk.h)+'mm'):'no skirting')+' · from '+(wsk.src==='wall'?'THIS wall':'room default')+' · shaker starts at skirting + frame. Per-panel skirting is planned.</div>';
-        body+=SEC('Skirting (this wall)',sk);
-      })();
-      body+=SEC('Wall notes',pnNotesUi(wall.notes,'pnNoteAdd','pnNoteSet','pnNoteDel'));
+      body+=pnWallPanelSections(room,pnSel.wall,L);   // shared shakers/sides/skirting/panel-on-off (also used in Top view)
       const opsL=(wall.openings||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
       body+=SEC('Openings',(opsL||'<div class="pn-hint">none</div>')
         +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">'
@@ -6264,9 +6342,8 @@
       +'<span class="pn-tab add" onclick="pnAddWall()">+ wall</span></div>';
     const views=(pnView==='plan')
       ?'<div class="pn-views">'
-        +'<button class="pn-mini '+(pnPlanTool==='draw'?'on':'')+'" onclick="pnPlanSetTool(\'draw\')" title="Click-drag-release to draw a wall (150mm); continue from an endpoint to chain">✏ Draw</button>'
-        +'<button class="pn-mini '+(pnPlanTool==='select'?'on':'')+'" onclick="pnPlanSetTool(\'select\')" title="Drag a corner to move it, or click a wall to edit / add openings">◉ Select</button>'
-        +'<button class="pn-mini '+(pnPlanTool==='pan'?'on':'')+'" onclick="pnPlanSetTool(\'pan\')" title="Drag to pan (wheel always zooms)">✋ Pan</button>'
+        +'<button class="pn-mini '+(pnPlanTool==='draw'?'on':'')+'" onclick="pnPlanSetTool(\'draw\')" title="Click-drag-release to draw a wall ('+PN_WALL_T+'mm); continue from an endpoint to chain">✏ Draw</button>'
+        +'<button class="pn-mini '+(pnPlanTool==='select'?'on':'')+'" onclick="pnPlanSetTool(\'select\')" title="Click a wall/opening to edit it, or drag a corner to move it">◉ Select</button>'
         +'<button class="pn-mini" onclick="pnZoom(0.8)" title="Zoom in">+</button><button class="pn-mini" onclick="pnZoom(1.25)" title="Zoom out">−</button><button class="pn-mini" onclick="pnFit()" title="Fit">⤢</button>'
         +'<button class="pn-mini" onclick="pnSetView(\'wall\')" title="Front view — the wall elevation / panel editor. The drawn walls are real Panels walls">✓ Front view</button>'
         +'</div>'
@@ -6288,20 +6365,19 @@
     else canvas=pnWallSvg(room,L,pnSel.wall);
     let warnsH='';
     if(L&&L.warns.length)warnsH='<div class="pn-warn">⚠ '+L.warns.map(esc).join('<br>⚠ ')+'</div>';
+    // NO prices in the builder/editing views (item 3) — totals live in the Quote view only, so clients never see
+    // internal £ while drawing. Status is just a non-price context line (room · wall · panel count).
     let status='';
     try{
-      const q=calcQuote();
       const pcs=L?L.pieces.length:0;
-      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panels</span>'
+      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span>'
         +'<span style="flex:1"></span>'
-        +'<span>Panels <b>'+money(q.panels?q.panels.total:0)+'</b></span><span>·</span>'
-        +'<span>Doors <b>'+money(q.bodyTot)+'</b></span><span>·</span>'
-        +'<span>Job <b>'+money(q.sub)+'</b> ex VAT</span></div>';
+        +'<span class="sub">Prices are in the Quote tab</span></div>';
     }catch(e){status='';}
     const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Export ONLY this room — panels numbered in the visual order shown here">⬇ Export '+esc(room.name||'room')+' DXF</button></div>':'';
     root.innerHTML=roomTabs+wallTabs
       +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+roomBtn+warnsH+status+'</div>'
-      +'<aside class="pn-insp">'+(pnView==='plan'?pnPlanInspectorHtml(room):pnInspectorHtml(room,L))+'</aside></div>';
+      +'<aside class="pn-insp">'+(pnView==='plan'?pnPlanInspectorHtml(room,L):pnInspectorHtml(room,L))+'</aside></div>';
     const svg=root.querySelector('.pn-canvas svg');
     if(pnView==='plan'){ if(svg)pnPlanWire(svg); return; }   // builder handles its own interactions
     root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});

@@ -247,6 +247,31 @@ if (html) {
         const baseW = dPlan.pieces.filter(p => p.wi === 1 && !p.isCap).reduce((s, p) => s + (p.x1 - p.x0), 0);
         must(Math.abs(baseW - 1964) < 1.5, `U base pieces must span the shortened 1964mm through the engine (got ${Math.round(baseW)})`);
       }
+      { // Panel ON/OFF per wall (edge.noPanel) — the wall stays, but produces NO pieces (excluded from quote/DXF/nesting)
+        const twoWall = () => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: {
+          nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }],
+          edges: [{ id: 'e1', a: 'a', b: 'b' }, { id: 'e2', a: 'b', b: 'c' }] } });
+        const rOn = twoWall(); rOn.walls = api.pnPlanCompile(rOn);
+        const pcOn = api.pnLayoutRoom(rOn).pieces.filter(p => p.wi === 0).length;
+        must(pcOn >= 1, 'wall 0 produces pieces when its panel is ON');
+        const rOff = twoWall(); rOff.plan.edges[0].noPanel = true; rOff.walls = api.pnPlanCompile(rOff);
+        must(rOff.walls[0].noPanel === true, 'edge.noPanel compiles to wall.noPanel');
+        const layOff = api.pnLayoutRoom(rOff);
+        must(layOff.pieces.filter(p => p.wi === 0).length === 0, 'a noPanel wall produces ZERO pieces');
+        must(layOff.pieces.filter(p => p.wi === 1).length >= 1, 'the OTHER wall is unaffected by a neighbour noPanel');
+      }
+      { // Corner winding (item 4): AUTO (default) = longer-through, byte-identical; WINDING = opt-in draw-direction rule
+        const rect = () => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: {
+          nodes: [{ id: 'n1', x: 0, y: 0 }, { id: 'n2', x: 4200, y: 0 }, { id: 'n3', x: 4200, y: 3000 }, { id: 'n4', x: 0, y: 3000 }],
+          edges: [{ id: 'e1', a: 'n1', b: 'n2' }, { id: 'e2', a: 'n2', b: 'n3' }, { id: 'e3', a: 'n3', b: 'n4' }, { id: 'e4', a: 'n4', b: 'n1' }] } });
+        const cc = ws => ws.map(w => w.cornerInfo.l.cond[0] + w.cornerInfo.r.cond[0]).join(',');
+        const rAuto = rect(); const wAuto = api.pnPlanCompile(rAuto);
+        must(cc(wAuto) === 'tt,bb,tt,bb', `AUTO winding default = longer-through (got ${cc(wAuto)})`);   // horizontals through, verticals butt
+        must(!!wAuto[0].cornerInfo.winding, 'winding is detected and recorded on cornerInfo');
+        const rW = rect(); rW.plan.cornerMode = 'winding'; const wW = api.pnPlanCompile(rW);
+        wW.forEach(w => must(w.cornerInfo.l.cond !== w.cornerInfo.r.cond, 'winding: each wall is one-through + one-butt (consistent lapping)'));
+        must(cc(wW) !== cc(wAuto), 'winding mode differs from auto (capability is wired, not hard-coded away)');
+      }
     } catch (e) { failures.push('panels engine runtime check failed: ' + (e && e.message || e)); }
   }
 
