@@ -2,6 +2,22 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (r) — Inspector dos Panels organizado em separadores (tabs)
+
+Só UI/rendering — o bloco `PN_ENGINE` NÃO foi tocado. Os 8 goldens de chapa + `GOLDEN_WALL_LAYOUT` byte-idênticos; `check.mjs` verde (sem alterar testes).
+
+- **6 separadores, IGUAIS no Front (elevação) e no Top (construtor 2D)**: **Room / Wall / Panel / Corners / Openings / Export**. Estado `pnTab`; `pnInspTabs(head, tabs)` desenha a barra + o separador ativo; só aparecem separadores com conteúdo. Selecionar parede/painel/abertura foca automaticamente o separador certo. **Nenhuma opção foi removida** — cada controlo da antiga lista longa está agora sob exatamente um separador.
+- **Room** = defaults do room (material, frame, alvo shaker, door allowance, alturas, rodapé/sill, chapas, preços, linhas de offset A–G, duplicar/apagar room). **Wall** = tamanho da parede + painel on/off + lados + rodapé desta parede + notas + apagar parede (+ ajuda do construtor + comprimento/espessura/altura/travas no Top). **Panel** = shakers do run / grelha vertical + override por-painel + notas do painel (quando um painel físico está selecionado). **Corners** = extremo **Auto/Through/Butt/Overlap** por lado + prioridade do gap (curta/longa/winding) + virar lado do painel + espessura do painel + match corner shakers. **Openings** = editor porta/janela/objeto + lista + adicionar. **Export** = Sheet DXF + Wall Layout DXF (todas as salas + só esta sala).
+- **Helpers partilhados**: `pnWallPanelSections` passa a devolver **partes nomeadas** `{onoff,panel,sides,skirt,notes}`; `pnCornerTabHtml(room,wi)` monta o separador Corners a partir de qualquer vista; `pnSetWallEnd(wi,which,val)` define `endA/endB` a partir do Front OU do Top (o Front não tem `pnPlanSel`, resolve a edge pelo id da parede). O controlo Overlap por-extremo agora também está acessível no Front, não só no Top.
+
+**Testado (browser, junction W:\…\Kabacal ↔ C:\…\Documents\CNC App, porta 8125):**
+- Reload sem erros de consola (antes e depois de mexer nos separadores).
+- Top view, sala em L (2 paredes): barra com os 6 separadores; Wall ativo por defeito.
+- Conteúdo por separador confirmado no DOM: Corners = "Wall 1 ends" (Start=Auto/Overlap num extremo livre, End=Auto/Through/Butt/Overlap num canto) + "Corner gap priority" + "Panel side" + "Panel thickness" + "Corner shakers"; Panel = "Shakers (whole run)"; Room = "Room defaults"; Openings = "Openings on this wall"; Export = "Export DXF"; Wall = Builder + geometria + Panel layer + Wall sides + Skirting + Wall notes + apagar.
+- Front view mostra os **mesmos 6 separadores**.
+- **Overlap end-to-end (no separador Corners)**: pt22, 1 extremo → measured 2000 / painel 2022 (+22); pt18, 1 extremo → 2018 (+18); pt18, 2 extremos → 2036 (+36 = 2×18); repor (auto) → 2000/2000. Texto do inspector: "measured 2000mm → panel 2022mm (panel 22mm · frame 80) … End — Overlap: panel EXTENDS +22mm past the wall end". Confirma: usa a espessura REAL (não 22 fixo) e a medida da parede fica SEPARADA do painel físico.
+- `node tools/check.mjs` → `kabacal check ok`.
+
 ## 2026-07-10 (q) — Opção manual "Overlap" no canto/extremo da parede
 
 Engine de canto (só salas de PLANO) + rendering. Default (sem overlap) → GOLDEN_PANELS byte-idêntico; check.mjs verde (+ teste overlap 22/18).
