@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (u) — Limpeza da UI dos Panels: labels legíveis + tabs no estilo Doors
+
+**Só UI/CSS/SVG.** Zonas tocadas: Panels UI (status line, `pnWallSvg` Front view, `pnPanoSvg` panorama, CSS `.pn-itabs`/`.pn-itab`). NÃO tocado: `pnWallLayoutDxf`, `pnDxfForThickness`, NC, quote, motor PN. **Goldens byte-idênticos** (browser: `GOLDEN_WALL_LAYOUT` 3428=3428 e `GOLDEN_PANELS_18mm` 10038=10038 comparados = iguais); `git status` só `index.html`; `check.mjs` verde. Sem `/pricing-impact` (nenhum output de quote muda).
+
+- **1. Removido "Prices are in the Quote tab"** da barra de estado do builder (`renderPanels`). Preços continuam escondidos das vistas de edição — só a mensagem saiu.
+- **2. Labels da panorâmica (`pnPanoSvg`) já não sobrepõem**: a 2ª linha por parede era `wall X · height 3200 · panel Y · click to open` (longa → colidia em paredes estreitas). Agora `wall X[ · panel Y]` — sem `height` (repetido em todas as paredes) nem `click to open` (ruído). "Wall N" continua a negrito por cima. Reproduzido no `James Test` / Ensuite 2 (6 paredes).
+- **3. Labels de baixo da Wall view (`pnWallSvg`) sem repetição**: era `wall X · panel Y` (topo) + `Panel width: Y` (baixo) + o número do segmento — o tamanho do painel aparecia 2–3×. Agora UMA linha limpa: **`Wall width: {medida}   ·   Panel width: {físico}`** (o "Wall width" a negrito/ink; só mostra "Panel width" quando difere por gap de canto/overlap). O número por-painel só aparece quando o run está realmente dividido (não repete o painel único).
+- **4. Dimensão da janela deixou de aparecer em baixo**: os bordos das aberturas já não entram na cadeia de cotas → o segmento `1200` da janela (Wall 4) desapareceu; a janela mantém o seu label `1200 × 1100` dentro dela.
+- **5. Letras dos painéis mais visíveis**: a letra (`Wall 1A`…) passa a `<tspan>` a **negrito 800 + cor ink** (Front view font 10→11; panorama 8.5→9), mantendo o tamanho a muted — legível sem dominar. (A letra no Wall Layout DXF não mudou → golden intacto.)
+- **6. Tabs dos Panels no estilo dos botões de edição dos Doors**: `.pn-itab` passou a botão preenchido (`var(--input)`), borda 1.5px, texto `var(--ink)` legível, cantos 8px, hover como o `.tp-op`; selecionado a azul claro; barra com fundo `var(--head)` e separadores `--line-strong`. Consistente com o accordion/`.tp-op` dos Doors, sem mudar o significado das tabs.
+
+**Testado (browser, `James Test` só leitura — ficheiro do Drive NÃO alterado):** status sem texto de preço; panorâmica Ensuite 2 sem `height`/`click to open` (linhas curtas, sem overlap); Wall 4 (janela) → sem `1200` em baixo, `Wall width: 1902 · Panel width: 1858`, letra `A` a peso 800/ink; Wall 2 (gap) → `Wall width: 1000 · Panel width: 978` (sem repetição); 6 tabs preenchidas/legíveis, ativa a azul; sem erros de consola; `node tools/check.mjs` → `kabacal check ok`; DXF goldens byte-idênticos.
+
 ## 2026-07-10 (t) — Wall Layout DXF com mais detalhe + panorâmica compacta + frame da porta na preview
 
 Três correções pedidas. **Zonas protegidas tocadas:** DXF export (`pnWallLayoutDxf` — golden `GOLDEN_WALL_LAYOUT`). NÃO tocado: `pnDxfForThickness`/`buildDxfByThickness` (Sheet DXF), NC, quote, motor PN. `check.mjs` verde. Prova de goldens: `GOLDEN_PANELS_18mm` byte-comparado no browser = **idêntico**; os restantes 7 sheet/NC/quote goldens inalterados (git); só `GOLDEN_WALL_LAYOUT` mudou (23 linhas, **todas numéricas** = posições da Wall 2 pela nova folga), regenerado no mesmo commit.

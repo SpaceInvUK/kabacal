@@ -380,9 +380,12 @@
   .pn-sec{border-top:1px solid var(--line);padding:9px 12px}
   .pn-sec .lab{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800;margin-bottom:7px}
   /* inspector sub-tabs (item 1): Room/Wall/Panel/Corners/Openings/Export — same organised structure in Front & Top view */
-  .pn-itabs{display:flex;gap:3px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:2}
-  .pn-itab{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:4px 9px;font-size:11px;font-weight:800;color:var(--muted);cursor:pointer;white-space:nowrap;letter-spacing:.02em}
+  /* styled like the Doors editing buttons (.tp-op / .acc header): filled, 1.5px border, readable ink text, clear blue selected */
+  .pn-itabs{display:flex;gap:5px;flex-wrap:wrap;padding:9px 11px;border-top:1px solid var(--line-strong);border-bottom:1px solid var(--line-strong);position:sticky;top:0;background:var(--head);z-index:2}
+  .pn-itab{border:1.5px solid var(--line);background:var(--input);border-radius:8px;padding:5px 11px;font-size:11.5px;font-weight:700;color:var(--ink);cursor:pointer;white-space:nowrap;letter-spacing:.01em;transition:background .12s,border-color .12s,color .12s}
+  .pn-itab:hover{border-color:#94a3b8;background:var(--head-open)}
   .pn-itab.on{background:#2563eb;border-color:#2563eb;color:#fff}
+  .pn-itab.on:hover{background:#2563eb;border-color:#2563eb}
   .pn-itab .cnt{opacity:.65;font-weight:700;margin-left:3px}
   .pn-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:7px;font-size:12px}
   .pn-row:last-child{margin-bottom:0}
@@ -5690,7 +5693,7 @@
       s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#7c3aed" stroke-width="0.8" stroke-opacity="0.55"/>';
       s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#7c3aed" fill-opacity="0.9">overlap +'+Math.round(-mm)+'</text>';};
     ovStrip(X(0),wx0-X(0),clL,wx0);ovStrip(wx1,X(W)-wx1,clR,wx1);
-    s+='<text x="'+((wx0+wx1)/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(measured)+' mm'+(Math.abs(measured-W)>0.5?' · panel '+Math.round(W)+' mm':'')+'</text>';
+    // (wall/panel width summary lives ONCE in the bottom dimension chain now — no duplicate floor label)
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
@@ -5717,7 +5720,7 @@
         snapRect(p.x0+n.x,p.y0+n.y,p.x0+n.x+n.w,p.y0+n.y+n.h);
         s+='<rect x="'+X(p.x0+n.x)+'" y="'+Y(p.y0+n.y+n.h)+'" width="'+(n.w*sc)+'" height="'+(n.h*sc)+'" fill="var(--bg)" stroke="#2563eb" stroke-width="0.6" stroke-dasharray="4 3"/>';
       });
-      s+='<text x="'+(px+pw/2)+'" y="'+(py+12)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(selp?'#2563eb':'var(--muted)')+'">'+(p.letter||'')+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
+      s+='<text x="'+(px+pw/2)+'" y="'+(py+13)+'" text-anchor="middle" font-size="11" fill="'+(selp?'#2563eb':'var(--muted)')+'"><tspan font-weight="800" fill="'+(selp?'#2563eb':'var(--ink)')+'">'+(p.letter||'')+'</tspan>'+(p.sheet==='10x4'?' ·10x4':'')+'</text>';
       // panel WIDTH lives in the bottom dimension chain now; keep only a subtle HEIGHT in the corner
       if(pw>40&&ph>26)s+='<text x="'+(px+5)+'" y="'+(py+ph-6)+'" font-size="8.5" fill="var(--muted)" fill-opacity="0.75">'+Math.round(p.h)+'h</text>';
       s+='</g>';
@@ -5767,20 +5770,22 @@
       s+='<line x1="'+X(0)+'" y1="'+Y(wSk.h)+'" x2="'+X(W)+'" y2="'+Y(wSk.h)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>';
       s+='<text x="'+(X(0)+4)+'" y="'+(Y(wSk.h)-3)+'" font-size="9.5" fill="var(--muted)">skirting '+Math.round(wSk.h)+(wSk.src==='wall'?' (wall)':'')+'</text>';
     }
-    // BOTTOM dimension chain: wall start → panel joints → opening edges → wall end (widths live here now)
+    // BOTTOM dimension chain: wall start → panel joints → wall end, then ONE clean Wall/Panel width summary.
+    // Window/opening edges are NOT added here (the window keeps its own label near it), and the per-panel width
+    // number is drawn only when the run is actually split — so nothing repeats the panel size.
     (function(){
       const bs=[0,W];
       pcs.forEach(p=>{bs.push(p.x0,p.x1);});
-      (wall.openings||[]).forEach(o=>{const r=pnOpRect(o,wall);bs.push(r.x0,r.x1);});
       const u=[];bs.sort((a,b)=>a-b).forEach(b=>{if(!u.length||b-u[u.length-1]>1)u.push(b);});
       const yL=T+hpx+14;
       s+='<line x1="'+X(0)+'" y1="'+yL+'" x2="'+X(W)+'" y2="'+yL+'" stroke="var(--muted)" stroke-width="0.7" stroke-opacity="0.8"/>';
       u.forEach(b=>{s+='<line x1="'+X(b)+'" y1="'+(yL-4)+'" x2="'+X(b)+'" y2="'+(yL+4)+'" stroke="var(--muted)" stroke-width="0.7"/>';});
-      for(let i=0;i<u.length-1;i++){
+      if(u.length>2)for(let i=0;i<u.length-1;i++){   // per-panel widths only when the run is split (else it just repeats the panel width)
         const a=u[i],b=u[i+1];if((b-a)*sc<26)continue;
         s+='<text x="'+X((a+b)/2)+'" y="'+(yL-6)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(b-a)+'</text>';
       }
-      s+='<text x="'+X(W/2)+'" y="'+(yL+24)+'" text-anchor="middle" font-size="11" fill="var(--muted)">Panel width: '+Math.round(W)+'mm</text>';
+      const dPanel=Math.abs(measured-W)>0.5;   // wall (measured) vs physical panel (W) differ = corner gap/overlap
+      s+='<text x="'+X(W/2)+'" y="'+(yL+24)+'" text-anchor="middle" font-size="11" fill="var(--muted)"><tspan fill="var(--ink)" font-weight="700">Wall width: '+Math.round(measured)+'</tspan>'+(dPanel?'   ·   Panel width: '+Math.round(W):'')+'</text>';
     })();
     s+='<g id="pnMeas" style="pointer-events:none"></g>';
     s+='</svg>';
@@ -5827,8 +5832,8 @@
         const ppx=x0+p.x0*sc,ppw=(p.x1-p.x0)*sc,ppy=floorY-p.y1*sc,pph=(p.y1-p.y0)*sc;
         s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
         (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3)s+='<rect x="'+(x0+(p.x0+c.x)*sc)+'" y="'+(floorY-(p.y0+c.y+c.h)*sc)+'" width="'+(c.w*sc)+'" height="'+(c.h*sc)+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';});
-        if(ppw>40&&pph>15)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="8.5" fill="var(--muted)" fill-opacity="0.9">'+(p.letter||'')+' · '+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
-        else if(ppw>16&&pph>11)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="8" fill="var(--muted)" fill-opacity="0.85">'+(p.letter||'')+'</text>';
+        if(ppw>40&&pph>15)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="9" fill="var(--muted)"><tspan font-weight="800" fill="var(--ink)">'+(p.letter||'')+'</tspan> · '+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
+        else if(ppw>16&&pph>11)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="9" font-weight="800" fill="var(--ink)">'+(p.letter||'')+'</text>';
       });
       (w.openings||[]).forEach(o=>{
         const r=pnOpRect(o,w),b0=+o.bottom||0,col=o.type==='door'?'#db2777':(o.type==='window'?'#0891b2':'#78716c');
@@ -5838,7 +5843,7 @@
       });
       s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+18)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(on?'#2563eb':'var(--ink)')+'">Wall '+(wi+1)+(w.dir==='v'?' · V':'')+'</text>';
       var wMe=(+w.measured>0?+w.measured:W);
-      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(wMe)+' · height '+Math.round(H)+(Math.abs(wMe-W)>0.5?' · panel '+Math.round(W):'')+' · click to open</text>';
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(wMe)+(Math.abs(wMe-W)>0.5?' · panel '+Math.round(W):'')+'</text>';
       s+='</g>';
       x+=wpx+gap*sc;
     });
@@ -6701,9 +6706,7 @@
     let status='';
     try{
       const pcs=L?L.pieces.length:0;
-      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span>'
-        +'<span style="flex:1"></span>'
-        +'<span class="sub">Prices are in the Quote tab</span></div>';
+      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span></div>';
     }catch(e){status='';}
     const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Sheet DXF for ONLY this room — panels numbered in the visual order shown here">⬇ '+esc(room.name||'room')+' Sheet DXF</button> <button class="pn-mini" onclick="pnDownloadWallLayoutDxf('+pnSel.room+')" title="Wall Layout DXF for ONLY this room — walls in order with panels inside (visual, not for cutting)">⬇ '+esc(room.name||'room')+' Wall DXF</button></div>':'';
     root.innerHTML=roomTabs+wallTabs
