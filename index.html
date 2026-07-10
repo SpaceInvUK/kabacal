@@ -5846,14 +5846,13 @@
   function pnPlanNode(plan,id){return (plan.nodes||[]).find(n=>n.id===id);}
   function pnPlanEdgeById(plan,id){return (plan.edges||[]).find(e=>e.id===id);}
   function pnPlanCentroid(plan){const ns=plan.nodes||[];if(!ns.length)return {x:0,y:0};let x=0,y=0;ns.forEach(n=>{x+=n.x;y+=n.y;});return {x:x/ns.length,y:y/ns.length};}
-  // ---- INTERIOR (room-inside) detection so panels always go inside the room regardless of draw direction ----
-  // (item 1). Ray-cast point-in-polygon; direction-agnostic so clockwise / anticlockwise / mixed draw all work.
-  function pnPointInPoly(poly,x,y){let inside=false;const n=poly.length;
-    for(let i=0,j=n-1;i<n;j=i++){const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
-      if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/((yj-yi)||1e-9)+xi))inside=!inside;}
-    return inside;}
-  // trace the walls into ONE ordered node sequence (a closed loop, or a single open chain that we implicitly
-  // close). Returns null for T/X junctions or disconnected graphs → caller falls back to the centroid heuristic.
+  // ---- INTERIOR (room-inside) detection so panels sit on ONE consistent face regardless of draw direction ----
+  // (item 1). Trace the walls into one ordered chain, then place every panel on the same rotational side of the
+  // traversal (using the chain's winding). This is direction-agnostic (CW / CCW / any start / reversed walls) AND
+  // — unlike a point-in-polygon test that self-intersects when an OPEN chain is implicitly closed — never lets
+  // adjacent panels flip in and out. For a closed simple room it equals the true interior; for an open run it
+  // gives a coherent single face (flip with "Flip panel side" if it's the wrong one).
+  // trace the walls into ONE ordered node sequence (closed loop or single open path). null = junction/disconnected.
   function pnPlanChain(plan){
     const adj={};(plan.edges||[]).forEach(e=>{(adj[e.a]=adj[e.a]||[]).push(e);(adj[e.b]=adj[e.b]||[]).push(e);});
     const nids=Object.keys(adj);if(nids.length<3)return null;
@@ -5874,13 +5873,17 @@
     if(pnIntCache.sig===sig)return pnIntCache.map;
     let map=null;const seq=pnPlanChain(plan);
     if(seq){const nById={};(plan.nodes||[]).forEach(n=>nById[n.id]=n);
-      const poly=seq.map(id=>nById[id]).filter(Boolean);
-      if(poly.length>=3){map={};
+      const poly=seq.map(id=>nById[id]).filter(Boolean),n=poly.length,pos={};seq.forEach((id,i)=>pos[id]=i);
+      if(n>=3){
+        let area2=0;for(let i=0;i<n;i++){const a=poly[i],b=poly[(i+1)%n];area2+=a.x*b.y-b.x*a.y;}   // shoelace (implicitly closed)
+        const w=area2>0?1:-1;map={};
         (plan.edges||[]).forEach(e=>{const A=nById[e.a],B=nById[e.b];if(!A||!B)return;
-          const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L;   // same normal convention as pnPlanEdgeFrame
-          const mx=(A.x+B.x)/2,my=(A.y+B.y)/2,eps=Math.max(5,Math.min(L*0.25,150));
-          const plus=pnPointInPoly(poly,mx+nx*eps,my+ny*eps),minus=pnPointInPoly(poly,mx-nx*eps,my-ny*eps);
-          map[e.id]=(plus&&!minus)?1:((minus&&!plus)?-1:0);});   // +nx points interior → sInt +1; 0 = ambiguous (fallback)
+          const ia=pos[e.a],ib=pos[e.b],fwd=((ia+1)%n===ib);       // does the chain traverse this edge a→b?
+          const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+          const tx=fwd?ux:-ux,ty=fwd?uy:-uy;                        // travel direction along the chain
+          const lx=-ty,ly=tx;                                       // left-of-travel normal
+          const dot=w*(lx*(-uy)+ly*(ux));                           // project the interior normal onto the edge normal (-uy,ux)
+          map[e.id]=dot>0?1:(dot<0?-1:0);});
       }}
     pnIntCache={sig,map};return map;}
   function pnPlanEdgeFrame(plan,e){const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);if(!A||!B)return null;
