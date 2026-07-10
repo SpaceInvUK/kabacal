@@ -5192,13 +5192,23 @@
   function pnNewWall(){return {id:'pw'+(++pnUid)+'_'+Date.now(),w:5200,h:3200,dir:'h',sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:[],panelOv:{}};}
   function pnNewRoom(n){return {id:'pr'+(++pnUid)+'_'+Date.now(),name:'Room '+n,mat:'MDF 18mm',frame:80,target:350,doorAllow:175,
     skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',matCost:null,cncCost:330,lines:pnDefaultLines(),walls:[pnNewWall()]};}
+  // default window X: after the (rightmost) door + a min gap; if it won't fit, before the (leftmost) door; else
+  // centred. Stays inside the wall. Doors/objects keep the centred default.
+  function pnAutoWindowX(wall,width,gap){
+    const W=+wall.w||0;if(W<=width+1)return 0;
+    const doors=(wall.openings||[]).filter(o=>o.type==='door').map(o=>pnOpRect(o,wall)).sort((a,b)=>a.x0-b.x0);
+    if(doors.length){const last=doors[doors.length-1];let x=last.x1+gap;if(x+width<=W)return Math.round(x);
+      const first=doors[0];x=first.x0-gap-width;if(x>=0)return Math.round(x);}
+    return Math.max(0,Math.round((W-width)/2));
+  }
   function pnNewOpening(type,wall){
     // window default sits AT the panel-band top (item 6): a new window starts above the panels so its default
     // placement never cuts the band / creates overlapping panels. The user can lower it afterwards.
-    const room=pnRoomObj(),ph=room?pnRoomDefs(room).hPanelH:1030;
+    const room=pnRoomObj(),ph=room?pnRoomDefs(room).hPanelH:1030,gap=room?pnRoomDefs(room).doorAllow:175;
     const d=type==='door'?{w:900,h:2100,bottom:0}:(type==='window'?{w:1200,h:1100,bottom:ph}:{w:2000,h:2000,bottom:0});
+    const x=type==='window'?pnAutoWindowX(wall,d.w,gap):Math.max(0,Math.round(((+wall.w||0)-d.w)/2));
     return {id:'po'+(++pnUid)+'_'+Date.now(),type,name:type==='door'?'Door':(type==='window'?'Window':'Object'),
-      w:d.w,h:d.h,x:Math.max(0,Math.round(((+wall.w||0)-d.w)/2)),from:'L',bottom:d.bottom,topPanel:'yes'};
+      w:d.w,h:d.h,x:x,from:'L',bottom:d.bottom,topPanel:'yes'};
   }
   function pnSave(){pnLayoutMemo.clear();try{localStorage.setItem('kab_panels',JSON.stringify({rooms:panelRooms}));}catch(e){}}
   function pnRoomObj(){return panelRooms[pnSel.room]||null;}
@@ -5582,11 +5592,14 @@
     if(field==='en')l.en=!l.en;else if(field==='rd')l.rd=!l.rd;else l.mm=Math.max(0,pnNum(val));
     pnRefresh();}
   function pnSetView(v){pnView=v;pnVb=null;renderPanels();}
-  function pnOpCollisions(wall){
+  // openings collide if their rects overlap OR sit within a FRAME of each other horizontally (there must be at
+  // least a frame of panel between two openings). `gap` = the frame margin (0 = plain rect overlap).
+  function pnOpCollisions(wall,gap){
+    gap=Math.max(0,+gap||0);
     const ids={};const ops=(wall.openings||[]).map(o=>({id:o.id,r:pnOpRect(o,wall),b0:+o.bottom||0,b1:(+o.bottom||0)+(+o.h||0)}));
     for(let i=0;i<ops.length;i++)for(let j=i+1;j<ops.length;j++){
       const a=ops[i],b=ops[j];
-      if(a.r.x0<b.r.x1+1&&a.r.x1>b.r.x0-1&&a.b0<b.b1+1&&a.b1>b.b0-1){ids[a.id]=1;ids[b.id]=1;}
+      if(a.r.x0<b.r.x1+gap&&a.r.x1>b.r.x0-gap&&a.b0<b.b1+1&&a.b1>b.b0-1){ids[a.id]=1;ids[b.id]=1;}
     }
     return ids;
   }
@@ -5668,7 +5681,7 @@
         }
       });
     });
-    const coll=pnOpCollisions(wall);
+    const coll=pnOpCollisions(wall,D.frame);
     (wall.openings||[]).forEach(o=>{
       const r=pnOpRect(o,wall),b0=+o.bottom||0,oh=+o.h||0;
       const ox=X(r.x0),ow=(r.x1-r.x0)*sc,oy=Y(b0+oh),ohh=oh*sc;
@@ -6138,7 +6151,10 @@
     if(!e)return;pnPlanSnapshot();
     const ph=pnRoomDefs(room).hPanelH;   // window default bottom = panel-band top (item 6) → never cuts the band
     const F=pnPlanEdgeFrame(plan,e),def=type==='door'?{w:900,h:2100,b:0}:(type==='window'?{w:1200,h:1100,b:ph}:{w:600,h:600,b:0});
-    const off=Math.max(0,Math.round(F.L/2-def.w/2)),id='o'+(++pnUid);
+    let off=Math.max(0,Math.round(F.L/2-def.w/2));const id='o'+(++pnUid);
+    if(type==='window'){const gap=pnRoomDefs(room).doorAllow;   // default window after the door + gap, else before, else centre
+      const doors=(plan.openings||[]).filter(o=>o.edgeId===e.id&&o.type==='door').map(o=>({x0:+o.offset||0,x1:(+o.offset||0)+(+o.width||0)})).sort((a,b)=>a.x0-b.x0);
+      if(doors.length){const last=doors[doors.length-1];let x=last.x1+gap;if(x+def.w<=F.L)off=Math.round(x);else{const first=doors[0];x=first.x0-gap-def.w;if(x>=0)off=Math.round(x);}}}
     const rec={id,edgeId:e.id,type,name:type.charAt(0).toUpperCase()+type.slice(1),offset:off,width:def.w,height:def.h,bottom:def.b};
     if(type==='object'){plan.objects=plan.objects||[];plan.objects.push(rec);}else{plan.openings=plan.openings||[];plan.openings.push(rec);}
     pnPlanSel={kind:'op',id};pnPlanApply();renderPanels();}
@@ -6383,7 +6399,7 @@
         if(o.type!=='window')b+='<div class="pn-row"><label>Top panel</label>'+pnSegHtml([['yes','Yes'],['no','No']],o.topPanel||'yes','pnSetOp(\'topPanel\',\'%V\')')+'</div>';
         b+='<div class="pn-row" style="margin-top:10px"><button class="pn-mini" onclick="pnDelOpening()" style="color:#dc2626">🗑 Remove '+o.type+'</button></div>';
         body=SEC(o.type.toUpperCase(),b);
-        if(pnOpCollisions(wall)[o.id])body+='<div class="pn-sec"><div class="pn-warn">⚠ This opening overlaps another one. Openings must not touch — move or resize it (nothing is moved automatically).</div></div>';
+        if(pnOpCollisions(wall,L?L.D.frame:80)[o.id])body+='<div class="pn-sec"><div class="pn-warn">⚠ This opening overlaps another one (or is within a frame of it). Openings need at least a frame of panel between them — move or resize it (nothing is moved automatically).</div></div>';
       }
     } else if(pnSel.kind==='piece'){
       const p=(L?L.pieces:[]).find(x=>x.pid===pnSel.id);

@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (o) — Spec de janelas: implementados os itens sem conflito (default + aviso)
+
+Análise do spec de janelas/objects/painéis-mistos do Ednei. Implementado só o que NÃO conflita com regras confirmadas/goldens (default de posição + aviso). Geometria/engine grande (degrau lateral da janela, degrau H/V, painéis acima/abaixo de Object, fusão de horizontais) fica para confirmação — perguntas enviadas no chat. GOLDEN_PANELS byte-idêntico, check.mjs verde.
+
+- **Auto-posição da janela nova**: fica depois da porta (+ `doorAllow` de folga); se não couber, antes da porta; senão centrada; sempre dentro da parede (`pnAutoWindowX` no front + lógica igual no plan). Só muda o DEFAULT de uma janela nova (o golden fixa `ow.x` → inalterado).
+- **Aviso de colisão com folga de frame**: `pnOpCollisions(wall,gap)` — duas aberturas a menos de um frame agora avisam (⚠), não só quando se sobrepõem. Só afeta o aviso, não a geometria.
+- **Confirmado já OK no engine atual** (sem mudança): painel único inteiro por baixo da janela baixa (não é dividido, mesmo largo); Bottom=0 → sem painel inferior; Bottom≥H painel → sem inferior; X limitado a [0, W−largura]; consistência preview=peças=nesting=DXF (fonte única `pieces`); vertical ≤1200 + auto-split; painel inferior/cap sempre horizontal.
+
 ## 2026-07-10 (n) — Painéis sempre dentro da sala, label parede≠painel, Wall Layout DXF horizontal
 
 Zona guardada: rendering do top view (`pnPlanEdgeFrame`), labels, Wall Layout DXF. Sheet DXF/quote/engine **inalterados** → GOLDEN_PANELS byte-idêntico, check.mjs verde. Só o `GOLDEN_WALL_LAYOUT.dxf` muda (de propósito, item 3): 3501→3428, regenerado.
