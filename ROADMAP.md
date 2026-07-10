@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (t) — Wall Layout DXF com mais detalhe + panorâmica compacta + frame da porta na preview
+
+Três correções pedidas. **Zonas protegidas tocadas:** DXF export (`pnWallLayoutDxf` — golden `GOLDEN_WALL_LAYOUT`). NÃO tocado: `pnDxfForThickness`/`buildDxfByThickness` (Sheet DXF), NC, quote, motor PN. `check.mjs` verde. Prova de goldens: `GOLDEN_PANELS_18mm` byte-comparado no browser = **idêntico**; os restantes 7 sheet/NC/quote goldens inalterados (git); só `GOLDEN_WALL_LAYOUT` mudou (23 linhas, **todas numéricas** = posições da Wall 2 pela nova folga), regenerado no mesmo commit.
+
+- **Bug 3 — frame da porta desaparecia com offsets diferentes por lado (só PREVIEW)**: `offsetPreview` só desenhava o retângulo exterior + as linhas de offset ativas — **nunca o próprio frame/cavidade**. Uma porta com frame por-lado (ex. Baixo 305) e sem linha de offset ativa aparecia como um retângulo liso. Reproduzido no caso exato (≈1900 alt, L70/R70/T70/B305): a matemática (`cavityOf`/`cavsFor`) estava correta (cavidade 460×1525) e o DXF já saía certo — era **só rendering**. Fix: a preview desenha SEMPRE a cavidade/frame (tinta no exterior + cavidade branca tracejada), consciente de lados diferentes (o rodapé de 305 mostra uma banda inferior mais funda). Sem alteração de output/preço/golden.
+- **Bug 1 — Wall Layout DXF demasiado simplificado**: já desenhava parede/painéis/labels/tamanhos/gaps de canto/cavidades shaker, mas **não as linhas de offset/pocket** adicionadas ao room. Agora, para cada cavidade, insere as linhas A–G ativas (`room.lines`, exatamente como o Sheet DXF `pnDxfForThickness`) → **offsets/pockets adicionados depois aparecem no Wall Layout DXF**. Verificado: com A+B ativas o DXF ganha camada `OFFSET_B` (31 grupos); sem offsets, cai para `OFFSET_A` (cavidade), como antes. Também: label **"overlap +N"** nos extremos com overlap; o Sheet DXF (corte) fica inalterado.
+- **Bug 2 — panorâmica com espaço a mais entre paredes**: DXF `GAP 250→110` e `ROOMGAP 700→300`; panorama visual (`pnPanoSvg`) `gap 420→160` (redução de ~62%, bem mais de metade). Ordem mantida (Wall 1, 2, 3…). Para os labels não colidirem com a folga apertada, a fonte do label da parede no DXF encolhe para caber na largura da parede (paredes largas continuam a 60).
+
+**Testado (browser, porta 8125):**
+- Bug 3: preview do caso exato (L70/R70/T70/B305, ≈1900) — antes: 1 retângulo (sem frame). Depois: exterior + cavidade tracejada com banda inferior mais funda (305) e laterais/topo 70. Par e ímpar dos lados desenham; a peça física/DXF não mudam.
+- Bug 1: room com `room.lines` A(0)+B(30) → `pnWallLayoutDxf` inclui `OFFSET_A`+`OFFSET_B`; sem linhas → só `OFFSET_A`.
+- Bug 2: `pnPanoSvg` gap=160 (era 420); Wall Layout DXF Wall 2 a x=2710..4310 (era 2850..4450). Sem sobreposição de paredes/labels.
+- `GOLDEN_WALL_LAYOUT` regenerado (3428 bytes, LF, sem CRLF) via recipe do README; diff = só posições. `GOLDEN_PANELS_18mm` idêntico. `node tools/check.mjs` → `kabacal check ok`. Sem impacto de preço (nenhum output de quote mudou).
+
 ## 2026-07-10 (s) — Bug do painel VERTICAL colado a uma porta (folga da porta ignorada)
 
 Ficheiro real do Drive **JamesTEST.fastcnc.json** ("James Test SNC"), sala **Ensuite 3 · Wall 2**. Engine (`pnZonePieces`, dentro do `PN_ENGINE`). Os 8 goldens de chapa + `GOLDEN_WALL_LAYOUT` **byte-idênticos** (nenhum golden tem zona colada a porta); `check.mjs` verde com novo teste. Sem impacto no preço (tamanho físico da peça inalterado → nesting idêntico).

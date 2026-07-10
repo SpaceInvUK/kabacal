@@ -1924,7 +1924,14 @@
     const sc=Math.min((VW-2*pad)/w,(VH-2*pad)/h);
     const bw=w*sc,bh=h*sc,x0=(VW-bw)/2,y0=(VH-bh)/2,f=resolveFrame(it);
     let s=`<svg viewBox="0 0 ${VW} ${VH}" style="width:100%;border:1px solid var(--line);border-radius:8px;background:#fff">`;
-    s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>`;
+    // outer part (tinted = the frame material) + the FRAME/cavity boundary, ALWAYS drawn so the per-side frame
+    // stays visible even with no offset line enabled. The cavity is uneven-aware (e.g. a 305 bottom rail shows a
+    // deeper bottom band). Previously only the offset lines were drawn, so a framed door with no offset line —
+    // or an uneven frame — looked like a plain rectangle (the "frame disappears" bug). Cut geometry is unchanged.
+    s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
+    const iw=(+it.w||0)-f.l-f.r, ih=(+it.h||0)-f.t-f.b;
+    if(iw>0&&ih>0){const cw=iw*sc,ch=ih*sc;
+      if(cw>1&&ch>1)s+=`<rect x="${(x0+f.l*sc).toFixed(1)}" y="${(y0+f.t*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>cavity ${Math.round(iw)}×${Math.round(ih)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;}
     enabledLines(it).forEach(l=>{
       const li=OFFLINES.findIndex(o=>o.L===l.L),lr=it.lines[li];
       const rx=x0+(f.l+lr.mm)*sc, ry=y0+(f.t+lr.mm)*sc, rw=bw-(f.l+f.r+2*lr.mm)*sc, rh=bh-(f.t+f.b+2*lr.mm)*sc;
@@ -5405,25 +5412,40 @@
     // PANORAMIC layout (item 3): walls placed LEFT→RIGHT in app order, each an elevation at y=0..H — like looking
     // along the walls in sequence. (Was stacked vertically.) Separate from the Sheet DXF (no SHEET/PART_NUMBER).
     const layers=new Set(['WALL','OUT','text','INSIDE']);
-    let body='',xCur=0;const GAP=250,ROOMGAP=700;
+    // COMPACT panoramic spacing (2026-07-10): gaps between walls/rooms cut by well over half so the layout reads
+    // at a glance (was GAP 250 / ROOMGAP 700).
+    let body='',xCur=0;const GAP=110,ROOMGAP=300;
     panelRooms.forEach((room,ri)=>{
       if(onlyRoomIdx!=null&&ri!==onlyRoomIdx)return;
       let L;try{L=pnRoom(room);}catch(e){return;}
+      // room offset/pocket lines (A–G) — same source the Sheet DXF uses, so pockets added to the room show here too
+      const rlines=(room.lines&&room.lines.length===7)?room.lines.map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en):[];
       let maxH=1;room.walls.forEach(w=>{maxH=Math.max(maxH,Math.max(1,+w.h||0));});
       const roomX0=xCur;
       room.walls.forEach((wall,wi)=>{
         const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
+        const ovL=ci?(+ci.l.extend||0):0,ovR=ci?(+ci.r.extend||0):0;   // OVERLAP: panel extends past the wall end
         const W=Math.max(1,+wall.w||0),H=Math.max(1,+wall.h||0),measured=(+wall.measured>0?+wall.measured:W);
         const x0=xCur;
-        body+=dxfText('text',x0,H+34,60,'Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'  wall '+Math.round(measured)+' x '+Math.round(H),false);
+        // wall label font shrinks to fit within the wall so a tight GAP never lets labels overlap the next wall
+        const wlab='Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'  wall '+Math.round(measured)+' x '+Math.round(H);
+        const wlf=Math.max(24,Math.min(60,measured/Math.max(8,wlab.length*0.62)));
+        body+=dxfText('text',x0,H+34,wlf,wlab,false);
         body+=dxfRect('WALL',x0,0,measured,H);   // wall = FULL measured length (not the shortened panel)
         if(!wall.noPanel){
           if(clL>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',x0,0,clL,H);}          // butt corner gap
           if(clR>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',x0+measured-clR,0,clR,H);}
-          L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                          // panels inset by the left gap
+          if(ovL>0.5){body+=dxfText('text',x0-ovL,H+34+wlf+6,Math.max(20,wlf*0.7),'overlap +'+Math.round(ovL),false);}
+          if(ovR>0.5){body+=dxfText('text',x0+measured,H+34+wlf+6,Math.max(20,wlf*0.7),'overlap +'+Math.round(ovR),false);}
+          L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                          // panels inset by the left gap (overlap extends the piece past the wall)
             const px=x0+clL+p.x0,pw=p.x1-p.x0,py=p.y0,ph=p.y1-p.y0;
             body+=dxfRect('OUT',px,py,pw,ph);
-            (p.cells||[]).forEach(c=>{if(c.w>2&&c.h>2){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',px+c.x,py+c.y,c.w,c.h);}});
+            // shaker cavities + the room's offset/pocket lines inset inside each one (mirrors the Sheet DXF detail)
+            (p.cells||[]).forEach(c=>{if(c.w<=2||c.h<=2)return;
+              if(!rlines.length){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',px+c.x,py+c.y,c.w,c.h);}
+              rlines.forEach(l=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw<=1||ih<=1)return;const lyr='OFFSET_'+l.L;layers.add(lyr);
+                if(l.rd)body+=dxfRoundRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih,2.5);else body+=dxfRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih);});
+            });
             (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
             const fz=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
             body+=dxfText('text',px+18,py+ph-fz-16,fz,'Wall '+(wi+1)+(p.letter||''),false);
@@ -5786,7 +5808,7 @@
   // panoramic room view: every wall side by side, click a wall to open it
   function pnPanoSvg(room,L){
     const walls=room.walls||[];if(!walls.length)return '<div class="pn-hint">No walls.</div>';
-    const gap=420;
+    const gap=160;   // compact panoramic spacing (2026-07-10): was 420 — cut well over half so walls read at a glance (each label stays centred within its own wall, so no overlap)
     let totW=0,maxH=0;walls.forEach(w=>{totW+=Math.max(200,+w.w||0);maxH=Math.max(maxH,+w.h||0);});
     totW+=gap*Math.max(0,walls.length-1);
     const vbW=1240,pad=40,labH=64;

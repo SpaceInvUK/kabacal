@@ -133,8 +133,10 @@ w2.w=1600; w2.h=3200; w2.sideL='joint'; w2.id='pw_wl2';
 const od = pnNewOpening('door', w1); od.x=800; od.id='po_wl1'; w1.openings=[od];
 r.walls=[w1,w2]; panelRooms.push(r); pnSave(); render();
 const wl = pnWallLayoutDxf();                 // -> GOLDEN_WALL_LAYOUT.dxf (3428 bytes, LF)
-// expect: HORIZONTAL — Wall 1 at x=0..2600, Wall 2 at x=2850..4450; labels "Wall 1  wall 2600 x 3200",
-// "Wall 2  wall 1600 x 3200"; panel labels "panel 800 x 1030" etc; layers WALL/OUT/OFFSET_A/INSIDE, NO SHEET
+// expect: HORIZONTAL — Wall 1 at x=0..2600, Wall 2 at x=2710..4310 (compact GAP=110, 2026-07-10); labels
+// "Wall 1  wall 2600 x 3200", "Wall 2  wall 1600 x 3200"; panel labels "panel 800 x 1030" etc; layers
+// WALL/OUT/OFFSET_A/INSIDE, NO SHEET. (This room has no room offset lines, so no OFFSET_B–G here — those only
+// appear when room.lines are enabled; the writer now insets them inside each cavity like the Sheet DXF.)
 ```
 
 ### Getting bytes out of the browser
