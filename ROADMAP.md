@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (q) — Opção manual "Overlap" no canto/extremo da parede
+
+Engine de canto (só salas de PLANO) + rendering. Default (sem overlap) → GOLDEN_PANELS byte-idêntico; check.mjs verde (+ teste overlap 22/18).
+
+- **Overlap = o painel ESTENDE-SE `pt` para além do fim da parede** (canto externo/return), o oposto do butt (que encurta). Novo valor no controlo por-extremo: **Start/End: Auto / Through / Butt / Overlap** (Overlap disponível também num extremo livre). `endInfo.extend=pt`, `shorten=-pt` → `wmm=measured+pt` por extremo. Usa a espessura REAL: 22 → +22 por lado (1000→1044); 18 → +18 (1000→1036). Comprimento medido da parede NÃO muda.
+- **Label parede ≠ painel** em todo o lado: tab, front view, panorama, inspector e Wall Layout DXF mostram a MEDIDA da parede (1000), e o painel físico (1044) aparece à parte. Marcador roxo "overlap +22" no Top view e no Front view; o painel desenha-se a passar para além do fim da parede.
+- Corrigido também o cálculo `measured` (era `Math.max(w,measured)` → mostrava o painel maior no overlap; agora prefere `wall.measured`). Regras: Butt encurta `pt` · Overlap estende `pt` · Through = frame+pt · Normal = frame normal.
+
 ## 2026-07-10 (p) — Comprimento digitado exato + prioridade do gap no canto (curta/longa)
 
 Rendering/edição do plan + inferência de canto (só salas de PLANO). GOLDEN_PANELS byte-idêntico; check.mjs verde (+ teste longgap).

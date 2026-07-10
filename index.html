@@ -5152,19 +5152,24 @@
       const a=nById[e.a],b=nById[e.b];if(!a||!b)return;
       const measured=Math.max(1,eLen(e)),id='pe_'+e.id,prev=prevById[id]||{};
       let cA=cond(e.a,i,measured,e),cB=cond(e.b,i,measured,e);
-      // per-end through/butt override (editable): only overrides an actual corner, never a free end
-      if(cA!=='free'&&(e.endA==='through'||e.endA==='butt'))cA=e.endA;
-      if(cB!=='free'&&(e.endB==='through'||e.endB==='butt'))cB=e.endB;
+      // per-end override (editable). 'overlap' (item: return/external corner) is allowed on ANY end incl. a free
+      // end; 'through'/'butt' only override an actual corner (they need a neighbour).
+      if(e.endA==='overlap')cA='overlap';else if(cA!=='free'&&(e.endA==='through'||e.endA==='butt'))cA=e.endA;
+      if(e.endB==='overlap')cB='overlap';else if(cB!=='free'&&(e.endB==='through'||e.endB==='butt'))cB=e.endB;
       // CONFIRMED corner rule (2026-07-10): the BUTT side keeps the NORMAL frame and just loses `pt` of panel
       // (the physical corner GAP the through panel passes into); the THROUGH side carries the frame+panel
       // allowance (frame+pt) so its wider stile covers that return. The wall stays full measured length; only the
       // BUTT panel is physically shortened. (This is the REVERSE of the pre-2026-07-10 engine — see ROADMAP.)
-      const shortenL=cA==='butt'?pt:0, shortenR=cB==='butt'?pt:0;   // physical shortening / corner GAP is on the BUTT side
-      const wmm=Math.max(1,measured-shortenL-shortenR);
+      // BUTT shortens the panel by pt (corner gap); OVERLAP extends it by pt (panel wraps past the wall end,
+      // e.g. an external/return corner); THROUGH/normal = unchanged. Wall measured length never changes.
+      const endDelta=c=>c==='butt'?pt:(c==='overlap'?-pt:0);   // −pt = physical shortening · +pt = physical extension
+      const shortenL=endDelta(cA), shortenR=endDelta(cB);
+      const wmm=Math.max(1,measured-shortenL-shortenR);        // overlap → measured + pt per end
       const sideL=cA==='through'?'corner':'normal', sideR=cB==='through'?'corner':'normal';   // THROUGH end = frame+pt allowance
       const endInfo=(cond,shorten)=>({cond:cond,shorten:shorten,
         gap:cond==='butt'?pt:0,                              // BUTT: visible corner gap = panel thickness
-        allowance:cond==='through'?allowance:frame});        // THROUGH: frame+pt · BUTT/free: normal frame
+        extend:cond==='overlap'?pt:0,                        // OVERLAP: panel extends past the wall end by pt
+        allowance:cond==='through'?allowance:frame});        // THROUGH: frame+pt · BUTT/overlap/free: normal frame
       const w={id:id,w:wmm,h:Math.round(+e.height>0?+e.height:defH),
         dir:prev.dir||'h',sideL:sideL,sideR:sideR,
         shakerCount:+prev.shakerCount||0,vRows:+prev.vRows||2,vCols:+prev.vCols||0,
@@ -5396,7 +5401,7 @@
       const roomX0=xCur;
       room.walls.forEach((wall,wi)=>{
         const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
-        const W=Math.max(1,+wall.w||0),H=Math.max(1,+wall.h||0),measured=Math.max(W,(+wall.measured||W));
+        const W=Math.max(1,+wall.w||0),H=Math.max(1,+wall.h||0),measured=(+wall.measured>0?+wall.measured:W);
         const x0=xCur;
         body+=dxfText('text',x0,H+34,60,'Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'  wall '+Math.round(measured)+' x '+Math.round(H),false);
         body+=dxfRect('WALL',x0,0,measured,H);   // wall = FULL measured length (not the shortened panel)
@@ -5621,7 +5626,7 @@
     // corner clearance: the WALL keeps its full measured length; the panel run (width W) is inset by the
     // shortening at each butt end. Non-plan walls have no cornerInfo → clL=clR=0, measured=W → unchanged.
     const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
-    const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),measured=Math.max(W,(+wall.measured||W)),D=L.D,f=D.frame;
+    const W=Math.max(100,+wall.w||0),H=Math.max(100,+wall.h||0),measured=Math.max(100,+wall.measured>0?+wall.measured:W),D=L.D,f=D.frame;
     const pad=34,T=26,vbW=940,sc=(vbW-2*pad)/measured,hpx=H*sc,vbH=T+hpx+52;
     const X=x=>pad+(x+clL)*sc, Y=y=>T+(H-y)*sc;   // panels drawn inset by clL inside the full measured wall
     const GEO={vx:[],vy:[],pts:[]};
@@ -5644,7 +5649,14 @@
       s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#e11d48" stroke-width="0.8" stroke-opacity="0.55"/>';
       s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#e11d48" fill-opacity="0.9">butt −'+Math.round(mm)+'</text>';};
     clStrip(wx0,clL*sc,clL,X(0));clStrip(X(W),clR*sc,clR,X(W));
-    s+='<text x="'+((wx0+wx1)/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(measured)+' mm'+((clL||clR)?' · panel '+Math.round(W)+' mm':'')+'</text>';
+    // OVERLAP marker (shorten < 0): the panel EXTENDS past the wall end by pt — purple, mirrors the butt marker.
+    const ovStrip=(sx,w,mm,edgeX)=>{if(mm>=-0.5||w<=0)return;
+      const y0=Y(0),hMark=Math.max(40,Math.min(hpx*0.12,90)),yTop=y0-hMark,ym=y0-hMark*0.5;
+      s+='<line x1="'+edgeX+'" y1="'+y0+'" x2="'+edgeX+'" y2="'+yTop+'" stroke="#7c3aed" stroke-width="0.9" stroke-opacity="0.6" stroke-dasharray="4 3"/>';
+      s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#7c3aed" stroke-width="0.8" stroke-opacity="0.55"/>';
+      s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#7c3aed" fill-opacity="0.9">overlap +'+Math.round(-mm)+'</text>';};
+    ovStrip(X(0),wx0-X(0),clL,wx0);ovStrip(wx1,X(W)-wx1,clR,wx1);
+    s+='<text x="'+((wx0+wx1)/2)+'" y="'+(Y(0)+13)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(measured)+' mm'+(Math.abs(measured-W)>0.5?' · panel '+Math.round(W)+' mm':'')+'</text>';
     const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
@@ -5791,7 +5803,8 @@
         if(oow>34&&ooh>13)s+='<text x="'+(oox+oow/2)+'" y="'+(ooy+ooh/2+3)+'" text-anchor="middle" font-size="8" fill="'+col+'">'+Math.round(+o.w||0)+' × '+Math.round(+o.h||0)+'</text>';
       });
       s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+18)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(on?'#2563eb':'var(--ink)')+'">Wall '+(wi+1)+(w.dir==='v'?' · V':'')+'</text>';
-      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(Math.max(W,+w.measured||0))+' · height '+Math.round(H)+(Math.max(W,+w.measured||0)>W+0.5?' · panel '+Math.round(W):'')+' · click to open</text>';
+      var wMe=(+w.measured>0?+w.measured:W);
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(wMe)+' · height '+Math.round(H)+(Math.abs(wMe-W)>0.5?' · panel '+Math.round(W):'')+' · click to open</text>';
       s+='</g>';
       x+=wpx+gap*sc;
     });
@@ -5994,7 +6007,8 @@
         const ctf=Math.max(Math.round(fs*0.34),Math.round(wfs*0.9));
         const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+ctf*1.1));
           if(cond==='butt'){s+='<line x1="'+off(u,0).x.toFixed(1)+'" y1="'+off(u,0).y.toFixed(1)+'" x2="'+off(u,sInt*pt).x.toFixed(1)+'" y2="'+off(u,sInt*pt).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1.4" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
-          else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#0f766e" fill-opacity="0.85">through</text>';}};
+          else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#0f766e" fill-opacity="0.85">through</text>';}
+          else if(cond==='overlap'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#7c3aed">overlap +'+Math.round(-mm)+'</text>';}};
         cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
         cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);
       }
@@ -6195,9 +6209,12 @@
         const cw=(room.walls||[]).find(w=>w.id==='pe_'+e.id),ci=cw&&cw.cornerInfo;
         const condTxt=side=>{if(!ci)return '';const c=ci[side],nm=side==='l'?'Start':'End';
           if(c.cond==='butt')return nm+' — Butt corner: NORMAL frame '+Math.round(c.allowance)+'mm, panel shortened '+Math.round(c.shorten)+'mm (corner gap '+Math.round(c.gap)+'mm for the through panel)';
-          if(c.cond==='through')return nm+' — Through corner: full length, frame + panel = '+Math.round(c.allowance)+'mm allowance';return nm+' — free end';};
-        const endCtl=(side,which)=>{if(!ci||ci[side].cond==='free')return '';const cur=(e[which==='a'?'endA':'endB'])||'auto';
-          return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+' corner</label>'+pnSegHtml([['auto','Auto'],['through','Through'],['butt','Butt']],cur,'pnPlanSetEnd(\''+which+'\',\'%V\')')+'</div>';};
+          if(c.cond==='through')return nm+' — Through corner: full length, frame + panel = '+Math.round(c.allowance)+'mm allowance';
+          if(c.cond==='overlap')return nm+' — Overlap: panel EXTENDS +'+Math.round(c.extend)+'mm past the wall end (return/external corner)';return nm+' — free end';};
+        // Overlap can go on any end (incl. a free end). Through/Butt only make sense on a real corner.
+        const endCtl=(side,which)=>{const cur=(e[which==='a'?'endA':'endB'])||'auto';const isCorner=ci&&ci[side].cond!=='free';
+          const opts=isCorner?[['auto','Auto'],['through','Through'],['butt','Butt'],['overlap','Overlap']]:[['auto','Auto'],['overlap','Overlap']];
+          return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+(isCorner?' corner':' end')+'</label>'+pnSegHtml(opts,cur,'pnPlanSetEnd(\''+which+'\',\'%V\')')+'</div>';};
         const cornerBlock=ci?('<div class="pn-hint" style="margin-top:6px;line-height:1.5">measured '+Math.round(cw.measured||F.L)+'mm → <b>panel '+Math.round(cw.w)+'mm</b> (panel '+Math.round(ci.pt)+'mm · frame '+Math.round(ci.frame)+') · gap = corner clearance<br>'+esc(condTxt('l'))+'<br>'+esc(condTxt('r'))+'</div>'+endCtl('l','a')+endCtl('r','b')):'';
         body+=SEC('Wall '+(idx+1)+' — geometry',
           '<div class="pn-row"><label>Length (mm)</label><input type="number" min="100" value="'+Math.round(F.L)+'" onchange="pnPlanEdgeLen(\'len\',this.value)"></div>'
@@ -6450,10 +6467,10 @@
     }
     if(pnSel.kind==='wall'&&wall){
       head='<div class="t">Wall '+(pnSel.wall+1)+'</div><div class="s">'+esc(room.name||'')+' · '+(wall.dir==='v'?'vertical':'horizontal')+' panelling</div>';
-      const wMeasured=Math.max(+wall.w||0,+wall.measured||0),hasGap=wMeasured>(+wall.w||0)+0.5;   // wall size vs shortened panel (item 2)
+      const wMeasured=(+wall.measured>0?+wall.measured:+wall.w||0),dPanel=Math.round((+wall.w||0)-wMeasured);   // wall size vs physical panel: <0 = butt gap, >0 = overlap (item 2)
       body=SEC('Wall',
         pnRowN('Width (wall)','wall','w',Math.round(wMeasured))
-        +(hasGap?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (corner gap '+Math.round(wMeasured-wall.w)+'mm)</div>':'')
+        +(dPanel<-0.5?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (corner gap '+(-dPanel)+'mm)</div>':(dPanel>0.5?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (overlap +'+dPanel+'mm)</div>':''))
         +pnRowN('Height','wall','h',wall.h)
         +'<div class="pn-row"><label>Direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],wall.dir||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>');
       body+=pnWallPanelSections(room,pnSel.wall,L);   // shared shakers/sides/skirting/panel-on-off (also used in Top view)
@@ -6526,7 +6543,7 @@
       +'<span class="pn-tab add" onclick="pnAddRoom()">+ room</span>'
       +'<span class="pn-tab add" onclick="pnAddDrawRoom()" title="Draw a room from above (2D top-down builder, Beta)">▦ draw</span></div>';
     const wallTabs='<div class="pn-tabs"><span class="lb">Walls</span>'
-      +room.walls.map((w,i)=>'<span class="pn-tab '+(i===pnSel.wall?'on':'')+'" onclick="pnSelWall('+i+')">Wall '+(i+1)+' · '+Math.round(Math.max(+w.w||0,+w.measured||0))+'×'+Math.round(w.h)+(w.dir==='v'?' · V':'')+'</span>').join('')
+      +room.walls.map((w,i)=>'<span class="pn-tab '+(i===pnSel.wall?'on':'')+'" onclick="pnSelWall('+i+')">Wall '+(i+1)+' · '+Math.round(+w.measured>0?+w.measured:+w.w||0)+'×'+Math.round(w.h)+(w.dir==='v'?' · V':'')+'</span>').join('')
       +'<span class="pn-tab add" onclick="pnAddWall()">+ wall</span></div>';
     const views=(pnView==='plan')
       ?'<div class="pn-views">'

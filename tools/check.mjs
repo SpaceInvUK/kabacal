@@ -259,6 +259,15 @@ if (html) {
           must(lw2.w === 1000 && lw2.cornerInfo.l.gap === 0 && lw2.cornerInfo.r.gap === 0, `longgap: short Wall 2 now passes THROUGH (no gap, w ${lw2.w})`);
           must(lw1.measured === 2000 && lw1.w === 1978 && (lw1.cornerInfo.l.gap === 22 || lw1.cornerInfo.r.gap === 22), `longgap: long Wall 1 now BUTTS (2000-22=1978, got ${lw1.w})`);
         }
+        { // OVERLAP (manual per-end): panel EXTENDS past the wall end by the actual panel thickness; measured stays.
+          const ovr = (pt, a, b) => { const r = { mat: 'MDF 18mm', frame: 80, walls: [], plan: { panelLayer: { thickness: pt },
+            nodes: [{ id: 'n1', x: 0, y: 0 }, { id: 'n2', x: 1000, y: 0 }], edges: [{ id: 'e1', a: 'n1', b: 'n2' }] } };
+            if (a) r.plan.edges[0].endA = a; if (b) r.plan.edges[0].endB = b; return api.pnPlanCompile(r)[0]; };
+          const one = ovr(22, 'overlap', null), both = ovr(22, 'overlap', 'overlap'), both18 = ovr(18, 'overlap', 'overlap');
+          must(one.measured === 1000 && one.w === 1022 && one.cornerInfo.l.extend === 22, `overlap one end: measured 1000, panel 1000+22=1022 (got ${one.w})`);
+          must(both.measured === 1000 && both.w === 1044, `overlap both ends (22): panel 1000+22+22=1044 (got ${both.w})`);
+          must(both18.measured === 1000 && both18.w === 1036 && both18.cornerInfo.l.extend === 18, `overlap both ends (18): panel 1000+18+18=1036, extend 18 (got ${both18.w})`);
+        }
         // corner allowance in the actual engine uses panel thickness for a plan room; compile→walls then lay out
         const uc = U(18); uc.walls = api.pnPlanCompile(uc);
         const dPlan = api.pnLayoutRoom(uc);   // must run without throwing and produce pieces from the compiled walls
