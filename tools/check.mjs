@@ -285,6 +285,16 @@ if (html) {
           for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) { const a = ps[i], b = ps[j], ix0 = Math.max(a.x0, b.x0), ix1 = Math.min(a.x1, b.x1), iy0 = Math.max(a.y0, b.y0), iy1 = Math.min(a.y1, b.y1); if (ix1 - ix0 > 1 && iy1 - iy0 > 1 && !cov(a, ix0, ix1, iy0, iy1) && !cov(b, ix0, ix1, iy0, iy1)) return true; } return false; };
         must(!solidOverlap(within.pieces) && !solidOverlap(wroom(bandH).pieces) && !solidOverlap(wroom(0).pieces), 'no solid panel overlap for window at floor / inside band / at band top');
       }
+      { // Object panels (2026-07-10): an ELEVATED object (bottom > 2*frame) gets a panel BELOW it + a cap ABOVE;
+        // on the floor → no below panel; a too-small gap under it → no useless strip.
+        const oroom = (bottom, h) => api.pnLayoutRoom(room([wall({ w: 4000, openings: [{ id: 'ob', type: 'object', name: 'TV', w: 1000, h, x: 1500, from: 'L', bottom, topPanel: 'yes' }] })]));
+        const f = api.pnRoomDefs(room([wall({})])).frame;
+        const el = oroom(400, 300);
+        must(el.pieces.filter(p => p.isLower).length === 1, 'elevated object (bottom>2*frame) makes ONE panel below it');
+        must(el.pieces.filter(p => p.isCap).length >= 1, 'object with its top inside the band gets a closing cap above');
+        must(oroom(0, 600).pieces.filter(p => p.isLower).length === 0, 'object on the floor makes NO panel below');
+        must(oroom(Math.round(f), 300).pieces.filter(p => p.isLower).length === 0, 'object with a gap < 2*frame below makes no useless strip');
+      }
       { // Panel ON/OFF per wall (edge.noPanel) — the wall stays, but produces NO pieces (excluded from quote/DXF/nesting)
         const twoWall = () => ({ mat: 'MDF 18mm', frame: 80, walls: [], plan: {
           nodes: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 4000, y: 0 }, { id: 'c', x: 4000, y: 3000 }],

@@ -4905,7 +4905,11 @@
         if(b0>60&&b0<bandH-1&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,b0,D,{isLower:true,sill:D.sillH}));
         return;
       }
-      if((o.topPanel||'yes')==='no'||top>=bandH-40)return;
+      // panel BELOW an ELEVATED object (Object Bottom > 2×frame): a full horizontal panel from floor to the
+      // object base, object width, joint sides — the band already splits at the object so this fills the void
+      // beneath it. Doors reach the floor (b0=0) so they never get one; too small a gap = no useless strip.
+      if(o.type==='object'&&b0>2*f&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,b0,D,{isLower:true}));
+      if((o.topPanel||'yes')==='no'||top>=bandH-40)return;   // above-object cap (closing panel) — reuses the cap logic below
       const cx0=Math.max(0,r.x0-f/2),cx1=Math.min(W,r.x1+f/2),capH=bandH-top,capW=cx1-cx0;
       if(capH>PN_CROSS&&capW>PN_CROSS){
         const n=Math.ceil(capW/PN_CROSS),cw=capW/n;
