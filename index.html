@@ -5366,38 +5366,41 @@
   // the corner gaps shown, and labels (Wall N / Wall NA…). This is for checking/explaining a job — NOT for CNC.
   // It does not touch the Sheet/nesting DXF (pnDxfForThickness) at all.
   function pnWallLayoutDxf(onlyRoomIdx){
+    // PANORAMIC layout (item 3): walls placed LEFT→RIGHT in app order, each an elevation at y=0..H — like looking
+    // along the walls in sequence. (Was stacked vertically.) Separate from the Sheet DXF (no SHEET/PART_NUMBER).
     const layers=new Set(['WALL','OUT','text','INSIDE']);
-    let body='',yTop=0;
+    let body='',xCur=0;const GAP=250,ROOMGAP=700;
     panelRooms.forEach((room,ri)=>{
       if(onlyRoomIdx!=null&&ri!==onlyRoomIdx)return;
       let L;try{L=pnRoom(room);}catch(e){return;}
-      body+=dxfText('text',0,yTop,55,'ROOM: '+(room.name||('Room '+(ri+1))),false);
-      yTop-=150;
+      let maxH=1;room.walls.forEach(w=>{maxH=Math.max(maxH,Math.max(1,+w.h||0));});
+      const roomX0=xCur;
       room.walls.forEach((wall,wi)=>{
         const ci=wall.cornerInfo,clL=ci?(+ci.l.shorten||0):0,clR=ci?(+ci.r.shorten||0):0;
         const W=Math.max(1,+wall.w||0),H=Math.max(1,+wall.h||0),measured=Math.max(W,(+wall.measured||W));
-        const yBase=yTop-H;
-        body+=dxfText('text',0,yTop+30,60,'Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'   '+Math.round(measured)+' x '+Math.round(H),false);
-        body+=dxfRect('WALL',0,yBase,measured,H);   // wall stays FULL measured length
+        const x0=xCur;
+        body+=dxfText('text',x0,H+34,60,'Wall '+(wi+1)+(wall.noPanel?' (no panel)':'')+'  wall '+Math.round(measured)+' x '+Math.round(H),false);
+        body+=dxfRect('WALL',x0,0,measured,H);   // wall = FULL measured length (not the shortened panel)
         if(!wall.noPanel){
-          if(clL>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',0,yBase,clL,H);}      // butt corner gap
-          if(clR>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',measured-clR,yBase,clR,H);}
-          L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                         // panels inset by the left gap
-            const px=clL+p.x0,pw=p.x1-p.x0,py=yBase+p.y0,ph=p.y1-p.y0;
+          if(clL>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',x0,0,clL,H);}          // butt corner gap
+          if(clR>0.5){layers.add('WALL_GAP');body+=dxfRect('WALL_GAP',x0+measured-clR,0,clR,H);}
+          L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                          // panels inset by the left gap
+            const px=x0+clL+p.x0,pw=p.x1-p.x0,py=p.y0,ph=p.y1-p.y0;
             body+=dxfRect('OUT',px,py,pw,ph);
-            (p.cells||[]).forEach(c=>{if(c.w>2&&c.h>2){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',clL+p.x0+c.x,yBase+p.y0+c.y,c.w,c.h);}});
-            (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',clL+p.x0+n.x,yBase+p.y0+n.y,n.w,n.h);});
-            const fs=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
-            body+=dxfText('text',px+18,py+ph-fs-16,fs,'Wall '+(wi+1)+(p.letter||''),false);
-            body+=dxfText('text',px+18,py+16,Math.max(16,fs*0.7),Math.round(p.w)+' x '+Math.round(p.h),false);
+            (p.cells||[]).forEach(c=>{if(c.w>2&&c.h>2){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',px+c.x,py+c.y,c.w,c.h);}});
+            (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
+            const fz=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
+            body+=dxfText('text',px+18,py+ph-fz-16,fz,'Wall '+(wi+1)+(p.letter||''),false);
+            body+=dxfText('text',px+18,py+16,Math.max(16,fz*0.7),'panel '+Math.round(p.w)+' x '+Math.round(p.h),false);   // PHYSICAL panel size
           });
           (wall.openings||[]).forEach(o=>{const r=pnOpRect(o,wall),b0=+o.bottom||0,oh=+o.h||0,ow=r.x1-r.x0;if(ow<=1||oh<=1)return;
-            body+=dxfRect('INSIDE',clL+r.x0,yBase+b0,ow,oh);
-            body+=dxfText('text',clL+r.x0+18,yBase+b0+oh-50,40,String(o.name||o.type),false);});
+            body+=dxfRect('INSIDE',x0+clL+r.x0,b0,ow,oh);
+            body+=dxfText('text',x0+clL+r.x0+18,b0+oh-50,40,String(o.name||o.type),false);});
         }
-        yTop=yBase-420;   // next wall below, with a gap
+        xCur=x0+measured+GAP;   // next wall to the RIGHT (panoramic)
       });
-      yTop-=350;   // room gap
+      body+=dxfText('text',roomX0,maxH+150,80,'ROOM: '+(room.name||('Room '+(ri+1))),false);
+      xCur+=ROOMGAP;   // gap before the next room
     });
     if(!body)body=dxfText('text',0,0,50,'No walls to export — create a room with walls first.',false);
     const layerArr=Array.from(layers);
@@ -5709,7 +5712,7 @@
         const a=u[i],b=u[i+1];if((b-a)*sc<26)continue;
         s+='<text x="'+X((a+b)/2)+'" y="'+(yL-6)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+Math.round(b-a)+'</text>';
       }
-      s+='<text x="'+X(W/2)+'" y="'+(yL+24)+'" text-anchor="middle" font-size="11" fill="var(--muted)">Wall width: '+Math.round(W)+'mm</text>';
+      s+='<text x="'+X(W/2)+'" y="'+(yL+24)+'" text-anchor="middle" font-size="11" fill="var(--muted)">Panel width: '+Math.round(W)+'mm</text>';
     })();
     s+='<g id="pnMeas" style="pointer-events:none"></g>';
     s+='</svg>';
@@ -5766,7 +5769,7 @@
         if(oow>34&&ooh>13)s+='<text x="'+(oox+oow/2)+'" y="'+(ooy+ooh/2+3)+'" text-anchor="middle" font-size="8" fill="'+col+'">'+Math.round(+o.w||0)+' × '+Math.round(+o.h||0)+'</text>';
       });
       s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+18)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(on?'#2563eb':'var(--ink)')+'">Wall '+(wi+1)+(w.dir==='v'?' · V':'')+'</text>';
-      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">width '+Math.round(W)+' · height '+Math.round(H)+' · click to open</text>';
+      s+='<text x="'+(x0+wpx/2)+'" y="'+(floorY+33)+'" text-anchor="middle" font-size="10" fill="var(--muted)">wall '+Math.round(Math.max(W,+w.measured||0))+' · height '+Math.round(H)+(Math.max(W,+w.measured||0)>W+0.5?' · panel '+Math.round(W):'')+' · click to open</text>';
       s+='</g>';
       x+=wpx+gap*sc;
     });
@@ -5843,10 +5846,49 @@
   function pnPlanNode(plan,id){return (plan.nodes||[]).find(n=>n.id===id);}
   function pnPlanEdgeById(plan,id){return (plan.edges||[]).find(e=>e.id===id);}
   function pnPlanCentroid(plan){const ns=plan.nodes||[];if(!ns.length)return {x:0,y:0};let x=0,y=0;ns.forEach(n=>{x+=n.x;y+=n.y;});return {x:x/ns.length,y:y/ns.length};}
+  // ---- INTERIOR (room-inside) detection so panels always go inside the room regardless of draw direction ----
+  // (item 1). Ray-cast point-in-polygon; direction-agnostic so clockwise / anticlockwise / mixed draw all work.
+  function pnPointInPoly(poly,x,y){let inside=false;const n=poly.length;
+    for(let i=0,j=n-1;i<n;j=i++){const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+      if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/((yj-yi)||1e-9)+xi))inside=!inside;}
+    return inside;}
+  // trace the walls into ONE ordered node sequence (a closed loop, or a single open chain that we implicitly
+  // close). Returns null for T/X junctions or disconnected graphs → caller falls back to the centroid heuristic.
+  function pnPlanChain(plan){
+    const adj={};(plan.edges||[]).forEach(e=>{(adj[e.a]=adj[e.a]||[]).push(e);(adj[e.b]=adj[e.b]||[]).push(e);});
+    const nids=Object.keys(adj);if(nids.length<3)return null;
+    if(nids.some(n=>adj[n].length>2))return null;                 // junction → give up (centroid fallback)
+    const ends=nids.filter(n=>adj[n].length===1);
+    if(ends.length!==0&&ends.length!==2)return null;              // not a single simple path/cycle
+    let cur=ends.length?ends[0]:nids[0],prev=null,seq=[cur],guard=0;
+    while(guard++<(plan.edges||[]).length+2){
+      const es=adj[cur],next=es.find(x=>x!==prev);if(!next)break;
+      const nn=(next.a===cur)?next.b:next.a;
+      if(nn===seq[0])break;                                        // closed the loop
+      if(seq.indexOf(nn)>=0)break;seq.push(nn);prev=next;cur=nn;
+    }
+    return seq.length>=3?seq:null;}
+  let pnIntCache={sig:'',map:null};
+  function pnPlanInteriorMap(plan){
+    const sig=(plan.edges||[]).map(e=>e.id+':'+e.a+'>'+e.b).join('|')+'#'+(plan.nodes||[]).map(n=>n.id+':'+n.x+','+n.y).join('|');
+    if(pnIntCache.sig===sig)return pnIntCache.map;
+    let map=null;const seq=pnPlanChain(plan);
+    if(seq){const nById={};(plan.nodes||[]).forEach(n=>nById[n.id]=n);
+      const poly=seq.map(id=>nById[id]).filter(Boolean);
+      if(poly.length>=3){map={};
+        (plan.edges||[]).forEach(e=>{const A=nById[e.a],B=nById[e.b];if(!A||!B)return;
+          const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L;   // same normal convention as pnPlanEdgeFrame
+          const mx=(A.x+B.x)/2,my=(A.y+B.y)/2,eps=Math.max(5,Math.min(L*0.25,150));
+          const plus=pnPointInPoly(poly,mx+nx*eps,my+ny*eps),minus=pnPointInPoly(poly,mx-nx*eps,my-ny*eps);
+          map[e.id]=(plus&&!minus)?1:((minus&&!plus)?-1:0);});   // +nx points interior → sInt +1; 0 = ambiguous (fallback)
+      }}
+    pnIntCache={sig,map};return map;}
   function pnPlanEdgeFrame(plan,e){const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);if(!A||!B)return null;
     const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux;
     const C=pnPlanCentroid(plan),mx=(A.x+B.x)/2,my=(A.y+B.y)/2;
-    const sInt=((C.x-mx)*nx+(C.y-my)*ny)>=0?1:-1;
+    let sInt=((C.x-mx)*nx+(C.y-my)*ny)>=0?1:-1;                    // centroid fallback (convex rooms / open bits)
+    const im=pnPlanInteriorMap(plan);if(im&&im[e.id])sInt=im[e.id];   // robust polygon interior — panels ALWAYS inside
+    if(plan.flipInside)sInt=-sInt;                                 // manual override (item 1 control)
     return {A,B,ux,uy,nx,ny,L,sInt,T:+e.wallThickness||PN_WALL_T};}
   function pnPlanLineX(p1,d1,p2,d2){const den=d1.x*d2.y-d1.y*d2.x;if(Math.abs(den)<1e-6)return null;const t=((p2.x-p1.x)*d2.y-(p2.y-p1.y)*d2.x)/den;return {x:p1.x+d1.x*t,y:p1.y+d1.y*t};}
   // exterior corner point of edge e at endpoint nodeId. A two-wall corner MITRES (intersection of the two
@@ -6161,6 +6203,10 @@
     body+=SEC('Corner rule',
       '<div class="pn-row"><label>Through / butt</label>'+pnSegHtml([['auto','Auto (longer through)'],['winding','Winding']],plan.cornerMode==='winding'?'winding':'auto','pnPlanSetCornerMode(\'%V\')')+'</div>'
       +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Auto</b>: the longer wall passes through, the shorter butts. <b>Winding</b>: uses the draw direction — the arriving wall passes through, the leaving wall butts (flips for anticlockwise) — for consistent returns/columns. Per-corner Auto/Through/Butt above always wins.</div>');
+    body+=SEC('Panel side',
+      '<div class="pn-row"><label>Panels</label><span>'+(plan.flipInside?'flipped (outside)':'inside the room')+'</span></div>'
+      +'<div class="pn-row"><button class="pn-mini" onclick="pnPlanFlipInside()">⇄ Flip panel side</button></div>'
+      +'<div class="pn-hint">Panels default to the INSIDE of a closed room automatically, whatever direction you drew the walls. If a wall\'s panel ends up on the wrong face, flip it here.</div>');
     body+=SEC('Panel thickness',
       '<div class="pn-row"><label>Thickness</label><input type="number" min="1" value="'+Math.round((plan.panelLayer&&plan.panelLayer.thickness)||PN_PANEL_T)+'" onchange="pnPlanSetPanelT(this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
       +'<div class="pn-hint">Teal panel layer in front of each wall · drives the corner clearance/allowance.</div>');
@@ -6276,6 +6322,7 @@
     }
     pnSave();renderPanels();}
   function pnPlanSetCornerMode(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.cornerMode=(v==='winding')?'winding':'auto';pnPlanApply();renderPanels();}
+  function pnPlanFlipInside(){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.flipInside=!room.plan.flipInside;pnSave();renderPanels();}   // manual override for panel inside/outside (item 1)
   // shared wall PANEL-RULE settings — rendered in BOTH the Front view inspector and the Top-view (2D builder)
   // inspector (item 2) so you never need to switch views to change shakers/sides/skirting/panel-on-off. All the
   // setters here act on pnSel.wall, so the caller sets pnSel.wall to this wall first.
@@ -6374,8 +6421,11 @@
     }
     if(pnSel.kind==='wall'&&wall){
       head='<div class="t">Wall '+(pnSel.wall+1)+'</div><div class="s">'+esc(room.name||'')+' · '+(wall.dir==='v'?'vertical':'horizontal')+' panelling</div>';
+      const wMeasured=Math.max(+wall.w||0,+wall.measured||0),hasGap=wMeasured>(+wall.w||0)+0.5;   // wall size vs shortened panel (item 2)
       body=SEC('Wall',
-        pnRowN('Width','wall','w',wall.w)+pnRowN('Height','wall','h',wall.h)
+        pnRowN('Width (wall)','wall','w',Math.round(wMeasured))
+        +(hasGap?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (corner gap '+Math.round(wMeasured-wall.w)+'mm)</div>':'')
+        +pnRowN('Height','wall','h',wall.h)
         +'<div class="pn-row"><label>Direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],wall.dir||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>');
       body+=pnWallPanelSections(room,pnSel.wall,L);   // shared shakers/sides/skirting/panel-on-off (also used in Top view)
       const opsL=(wall.openings||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
@@ -6447,7 +6497,7 @@
       +'<span class="pn-tab add" onclick="pnAddRoom()">+ room</span>'
       +'<span class="pn-tab add" onclick="pnAddDrawRoom()" title="Draw a room from above (2D top-down builder, Beta)">▦ draw</span></div>';
     const wallTabs='<div class="pn-tabs"><span class="lb">Walls</span>'
-      +room.walls.map((w,i)=>'<span class="pn-tab '+(i===pnSel.wall?'on':'')+'" onclick="pnSelWall('+i+')">Wall '+(i+1)+' · '+Math.round(w.w)+'×'+Math.round(w.h)+(w.dir==='v'?' · V':'')+'</span>').join('')
+      +room.walls.map((w,i)=>'<span class="pn-tab '+(i===pnSel.wall?'on':'')+'" onclick="pnSelWall('+i+')">Wall '+(i+1)+' · '+Math.round(Math.max(+w.w||0,+w.measured||0))+'×'+Math.round(w.h)+(w.dir==='v'?' · V':'')+'</span>').join('')
       +'<span class="pn-tab add" onclick="pnAddWall()">+ wall</span></div>';
     const views=(pnView==='plan')
       ?'<div class="pn-views">'

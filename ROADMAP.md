@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (n) — Painéis sempre dentro da sala, label parede≠painel, Wall Layout DXF horizontal
+
+Zona guardada: rendering do top view (`pnPlanEdgeFrame`), labels, Wall Layout DXF. Sheet DXF/quote/engine **inalterados** → GOLDEN_PANELS byte-idêntico, check.mjs verde. Só o `GOLDEN_WALL_LAYOUT.dxf` muda (de propósito, item 3): 3501→3428, regenerado.
+
+- **Painéis sempre DENTRO da sala (item 1)**: o lado interior (`sInt`) passa a ser decidido por **point-in-polygon** (ray-cast) contra o loop de paredes traçado (`pnPlanChain`→polígono, `pnPointInPoly`), em vez do produto-escalar com o centróide — que falhava em salas **não-convexas** (L/U/escada), onde o centróide cai no entalhe e virava alguns painéis para fora. Funciona horário/anti-horário/qualquer canto de início/paredes invertidas. Fallback para o centróide em junções T/X. Override manual: **`plan.flipInside`** (botão "⇄ Flip panel side"). Provado: sala U de 8 paredes → método antigo 3 painéis FORA, método novo **0 fora**; retângulo cw/ccw/misto → todos dentro.
+- **Label parede ≠ painel (item 2)**: a parede mantém o comprimento medido; só o painel encurta. Tabs/panorama/inspector do front agora mostram o **tamanho medido da parede** (Wall 2 = 600×3200, não 578) e o painel (578) aparece à parte como "panel …". `Math.max(w, measured)` = parede; `w` = painel físico.
+- **Wall Layout DXF HORIZONTAL/panorâmico (item 3)**: paredes lado-a-lado ESQUERDA→DIREITA na ordem da app (antes empilhadas na vertical). Label da parede = medida da parede, labels dos painéis = tamanho físico. Sheet DXF inalterado.
+
+Testado (n): U concava → old 3 fora / new 0; retângulo cw/ccw/misto todos dentro; flipInside inverte sInt; wall tab "Wall 2 · 600×3200" (não 578); wall2 measured 600 / panel 578; Wall Layout DXF Wall 1 x=0..2600 / Wall 2 x=2850..4450 (horizontal), labels "wall 2600 x 3200" + "panel 800 x 1030"; GOLDEN_WALL_LAYOUT byte-idêntico ao novo (3428); GOLDEN_PANELS byte-idêntico; check.mjs verde.
+
 ## 2026-07-10 (m) — Top view: labels legíveis em cantos com muitas paredes curtas
 
 Só **rendering do top view** (`pnPlanSvg`) — sem engine/DXF/quote. GOLDEN_PANELS + GOLDEN_WALL_LAYOUT byte-idênticos; check.mjs verde.

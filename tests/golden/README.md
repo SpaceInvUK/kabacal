@@ -42,7 +42,7 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 |---|---|
 | `GOLDEN_PANELS_18mm.dxf` (10038) | 40/40 joint seam, matching shakers, door + window openings (window = INSIDE cut to the FLOOR at its column so the band never overlaps the lower panel — regenerated 2026-07-08), vertical columns, visual-order PART_NUMBERs. **Recipe pins `ow.bottom = 900`** — the window default is now the panel-band top (item 6, 2026-07-10), so the recipe fixes the old sill (900) to keep this file stable & byte-identical. |
 | `QUOTE_mixed.json` (2774) | Rich doors + panels rooms combined (panels £2390 / 6 sheets, total £3665) |
-| `GOLDEN_WALL_LAYOUT.dxf` (3501) | **Wall Layout DXF** (item 7, 2026-07-10) — the non-cutting, front-view export: walls stacked in order, each full outline with its panels inside + labels. Layers `WALL`/`OUT`/`OFFSET_A`/`INSIDE`/`text`, no `SHEET`/`PART_NUMBER` (not mixed with the sheet DXF). |
+| `GOLDEN_WALL_LAYOUT.dxf` (3428) | **Wall Layout DXF** (2026-07-10, regenerated for the **horizontal/panoramic** layout) — the non-cutting, front-view export: walls placed LEFT→RIGHT in app order, each full measured outline with its panels inside; wall label shows the measured wall size, panel labels the physical panel size. Layers `WALL`/`WALL_GAP`/`OUT`/`OFFSET_A`/`INSIDE`/`text`, no `SHEET`/`PART_NUMBER`. |
 
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
@@ -132,8 +132,9 @@ w1.w=2600; w1.h=3200; w1.sideR='joint'; w1.id='pw_wl1';
 w2.w=1600; w2.h=3200; w2.sideL='joint'; w2.id='pw_wl2';
 const od = pnNewOpening('door', w1); od.x=800; od.id='po_wl1'; w1.openings=[od];
 r.walls=[w1,w2]; panelRooms.push(r); pnSave(); render();
-const wl = pnWallLayoutDxf();                 // -> GOLDEN_WALL_LAYOUT.dxf (3501 bytes, LF)
-// expect: labels "Wall 1  2600 x 3200" / "Wall 2  1600 x 3200", panels "Wall 1A/1B/2A", layers WALL/OUT/OFFSET_A/INSIDE, NO SHEET layer
+const wl = pnWallLayoutDxf();                 // -> GOLDEN_WALL_LAYOUT.dxf (3428 bytes, LF)
+// expect: HORIZONTAL — Wall 1 at x=0..2600, Wall 2 at x=2850..4450; labels "Wall 1  wall 2600 x 3200",
+// "Wall 2  wall 1600 x 3200"; panel labels "panel 800 x 1030" etc; layers WALL/OUT/OFFSET_A/INSIDE, NO SHEET
 ```
 
 ### Getting bytes out of the browser
