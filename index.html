@@ -5129,10 +5129,15 @@
     // (item 4). Exposed so the corner rule CAN use drawing direction instead of only "longer wall through".
     let shoe=0;(plan.edges||[]).forEach(e=>{const a=nById[e.a],b=nById[e.b];if(a&&b)shoe+=(a.x*b.y-b.x*a.y);});
     const winding=shoe>1?'cw':(shoe<-1?'ccw':null);
-    const cornerMode=(plan.cornerMode==='winding')?'winding':'auto';   // 'auto' (default) = longer-through, byte-identical
-    // does edge E (index i, length L) BUTT at node nid? yes if another edge there is longer, or equal-length but drawn earlier
+    // corner priority (item 5): 'auto' (default) = longer wall THROUGH / shorter BUTTS (gap on the shorter wall,
+    // byte-identical); 'longgap' = longer wall BUTTS / shorter THROUGH (gap on the LONGER wall); 'winding' = draw
+    // direction. Per-corner endA/endB always overrides. Only the panel gap/side moves — measured length unchanged.
+    const cornerMode=(plan.cornerMode==='winding')?'winding':((plan.cornerMode==='longgap')?'longgap':'auto');
+    const longerButts=(cornerMode==='longgap');
+    // does edge E (index i, length L) BUTT at node nid? default: another edge is longer (or equal & drawn earlier);
+    // 'longgap': another edge is SHORTER (so the longer edge takes the gap).
     const buttsAt=(nid,i,L)=>{const list=atNode[nid]||[];if(list.length<2)return false;
-      return list.some(o=>o.i!==i&&(eLen(o.e)>L||(eLen(o.e)===L&&o.i<i)));};
+      return list.some(o=>o.i!==i&&(longerButts?(eLen(o.e)<L||(eLen(o.e)===L&&o.i<i)):(eLen(o.e)>L||(eLen(o.e)===L&&o.i<i))));};
     // corner condition at node nid for edge e (index i, length L). WINDING mode (opt-in): at a clean 2-wall
     // corner the ARRIVING wall (node is its b/end) passes THROUGH and the LEAVING wall (node is its a/start)
     // BUTTS — flipped for anticlockwise winding — so the lapping rotates consistently around the room (the
@@ -5846,15 +5851,15 @@
   // move a node by (dx,dy). Locked node → no-op. keep-square ON → also translate the FAR ends of any incident
   // edges that were axis-aligned (one hop), so connected orthogonal neighbours stay parallel to themselves
   // (preserves 90° for L/U). Locked far ends are left in place (that neighbour re-angles — deliberate).
-  function pnPlanShift(plan,nodeId,dx,dy,keep,exceptEdgeId){
+  function pnPlanShift(plan,nodeId,dx,dy,keep,exceptEdgeId,exact){
     const nd=pnPlanNode(plan,nodeId);if(!nd||nd.lock)return false;
-    const move=[];
+    const move=[];const R=exact?(v=>v):pnR10;   // exact=typed value → NO 10mm rounding (item 4); default = snap to 10mm
     // one-hop keep-square: translate the far end of each axis-aligned neighbour edge — but NEVER the edge being
     // edited (its other end is the anchor and must stay put, or the length change cancels itself).
     if(keep)(plan.edges||[]).forEach(e=>{if(exceptEdgeId&&e.id===exceptEdgeId)return;let other=e.a===nodeId?e.b:(e.b===nodeId?e.a:null);if(other==null)return;
       const M=pnPlanNode(plan,other);if(!M||M.lock)return;if(Math.abs(nd.y-M.y)<1||Math.abs(nd.x-M.x)<1)move.push(M);});
-    nd.x=pnR10(nd.x+dx);nd.y=pnR10(nd.y+dy);
-    move.forEach(M=>{M.x=pnR10(M.x+dx);M.y=pnR10(M.y+dy);});
+    nd.x=R(nd.x+dx);nd.y=R(nd.y+dy);
+    move.forEach(M=>{M.x=R(M.x+dx);M.y=R(M.y+dy);});
     return true;
   }
   function pnPlanEnsure(room){if(!room.plan)room.plan={nodes:[],edges:[],openings:[],objects:[],panelLayer:{thickness:PN_PANEL_T,side:'front'}};
@@ -6132,8 +6137,8 @@
     if(field==='len'){
       const nl=Math.max(100,pnNum(val)),dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,keep=pnKeepSquare(room);
       pnPlanMsg='';
-      if(!B.lock){const tx=pnR10(A.x+ux*nl),ty=pnR10(A.y+uy*nl);pnPlanShift(plan,e.b,tx-B.x,ty-B.y,keep,e.id);}       // move the free end along the wall axis (anchor A stays)
-      else if(!A.lock){const tx=pnR10(B.x-ux*nl),ty=pnR10(B.y-uy*nl);pnPlanShift(plan,e.a,tx-A.x,ty-A.y,keep,e.id);}    // B locked → grow from A instead
+      if(!B.lock){const tx=A.x+ux*nl,ty=A.y+uy*nl;pnPlanShift(plan,e.b,tx-B.x,ty-B.y,keep,e.id,true);}       // EXACT typed length (item 4) — move the free end along the wall axis, anchor A stays
+      else if(!A.lock){const tx=B.x-ux*nl,ty=B.y-uy*nl;pnPlanShift(plan,e.a,tx-A.x,ty-A.y,keep,e.id,true);}    // B locked → grow from A instead (exact)
       else {pnPlanMsg='Both endpoints of this wall are locked 🔒 — unlock one to change the length.';renderPanels();return;}
     }
     else if(field==='thickness')e.wallThickness=Math.max(50,pnNum(val));
@@ -6223,9 +6228,10 @@
     // behaviour). Winding = the arriving wall goes through / the leaving wall butts, flipped for anticlockwise.
     const anyCI=(room.walls||[]).map(w=>w.cornerInfo).find(Boolean);
     const wnd=anyCI&&anyCI.winding, wLbl=wnd==='cw'?'clockwise':(wnd==='ccw'?'anticlockwise':'—');
-    body+=SEC('Corner rule',
-      '<div class="pn-row"><label>Through / butt</label>'+pnSegHtml([['auto','Auto (longer through)'],['winding','Winding']],plan.cornerMode==='winding'?'winding':'auto','pnPlanSetCornerMode(\'%V\')')+'</div>'
-      +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Auto</b>: the longer wall passes through, the shorter butts. <b>Winding</b>: uses the draw direction — the arriving wall passes through, the leaving wall butts (flips for anticlockwise) — for consistent returns/columns. Per-corner Auto/Through/Butt above always wins.</div>');
+    const cmNow=plan.cornerMode==='winding'?'winding':(plan.cornerMode==='longgap'?'longgap':'auto');
+    body+=SEC('Corner gap priority',
+      '<div class="pn-row"><label>Gap on</label>'+pnSegHtml([['auto','Shorter wall'],['longgap','Longer wall'],['winding','Winding']],cmNow,'pnPlanSetCornerMode(\'%V\')')+'</div>'
+      +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Shorter wall</b> (default): the longer wall passes through, the shorter butts / takes the gap. <b>Longer wall</b>: the LONGER wall butts / takes the gap, the shorter passes through. <b>Winding</b>: uses the draw direction (arriving wall through, leaving butts). Only the panel gap/side moves — measured length stays. Per-corner Auto/Through/Butt above always overrides.</div>');
     body+=SEC('Panel side',
       '<div class="pn-row"><label>Panels</label><span>'+(plan.flipInside?'flipped (outside)':'inside the room')+'</span></div>'
       +'<div class="pn-row"><button class="pn-mini" onclick="pnPlanFlipInside()">⇄ Flip panel side</button></div>'
@@ -6344,7 +6350,7 @@
       if(off)w.noPanel=true;else delete w.noPanel;
     }
     pnSave();renderPanels();}
-  function pnPlanSetCornerMode(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.cornerMode=(v==='winding')?'winding':'auto';pnPlanApply();renderPanels();}
+  function pnPlanSetCornerMode(v){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.cornerMode=(v==='winding')?'winding':((v==='longgap')?'longgap':'auto');pnPlanApply();renderPanels();}
   function pnPlanFlipInside(){const room=pnRoomObj();if(!room)return;pnPlanEnsure(room);pnPlanSnapshot();room.plan.flipInside=!room.plan.flipInside;pnSave();renderPanels();}   // manual override for panel inside/outside (item 1)
   // shared wall PANEL-RULE settings — rendered in BOTH the Front view inspector and the Top-view (2D builder)
   // inspector (item 2) so you never need to switch views to change shakers/sides/skirting/panel-on-off. All the

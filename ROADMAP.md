@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (p) — Comprimento digitado exato + prioridade do gap no canto (curta/longa)
+
+Rendering/edição do plan + inferência de canto (só salas de PLANO). GOLDEN_PANELS byte-idêntico; check.mjs verde (+ teste longgap).
+
+- **Comprimento digitado é EXATO (item 4)**: ao escrever o comprimento da parede no inspector, já NÃO arredonda a 10 mm — 886 fica 886 (e 1234 fica 1234). `pnPlanShift(...,exact)` salta o `pnR10`; arrastar/desenhar continua a snap a 10 mm. Propaga a tudo (label, front view, top view, Wall Layout DXF) porque a fonte é o coord do nó → `eLen` (arredonda só a 1 mm). Provado no browser: 886→886, 1234→1234.
+- **Prioridade do gap no canto (item 5)**: novo controlo "Corner gap priority: Shorter wall / Longer wall / Winding". `plan.cornerMode='longgap'` inverte a inferência — a parede MAIS LONGA encosta/leva o gap, a mais curta passa. Default = 'auto' (mais curta leva o gap, byte-idêntico). Só muda o tamanho físico do painel/gap; comprimento medido inalterado; override manual por canto (endA/endB) continua a mandar; regra through=frame+pt / butt=frame normal+gap mantida. Provado: 2000/1000/2000 default → gap na de 1000 (956); longgap → gap nas de 2000 (1978), a de 1000 passa inteira.
+
 ## 2026-07-10 (o) — Spec de janelas: implementados os itens sem conflito (default + aviso)
 
 Análise do spec de janelas/objects/painéis-mistos do Ednei. Implementado só o que NÃO conflita com regras confirmadas/goldens (default de posição + aviso). Geometria/engine grande (degrau lateral da janela, degrau H/V, painéis acima/abaixo de Object, fusão de horizontais) fica para confirmação — perguntas enviadas no chat. GOLDEN_PANELS byte-idêntico, check.mjs verde.

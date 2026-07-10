@@ -253,6 +253,11 @@ if (html) {
           must(w2.cornerInfo.l.gap === 22 && w2.cornerInfo.r.gap === 22, 'example Wall 2 has a 22mm gap at each end');
           const w1 = c22.find(w => w.id === 'pe_w1');   // through wall gets frame+pt on its through end
           must(w1.measured === 2000 && w1.w === 2000 && (w1.sideR === 'corner' || w1.sideL === 'corner'), 'example through wall stays 2000 + has a frame+pt (corner) end');
+          // corner gap priority (item 5): 'longgap' → the LONGER wall butts/takes the gap instead of the shorter.
+          const exL = ex(22); exL.plan.cornerMode = 'longgap'; const cL = api.pnPlanCompile(exL);
+          const lw2 = cL.find(w => w.id === 'pe_w2'), lw1 = cL.find(w => w.id === 'pe_w1');
+          must(lw2.w === 1000 && lw2.cornerInfo.l.gap === 0 && lw2.cornerInfo.r.gap === 0, `longgap: short Wall 2 now passes THROUGH (no gap, w ${lw2.w})`);
+          must(lw1.measured === 2000 && lw1.w === 1978 && (lw1.cornerInfo.l.gap === 22 || lw1.cornerInfo.r.gap === 22), `longgap: long Wall 1 now BUTTS (2000-22=1978, got ${lw1.w})`);
         }
         // corner allowance in the actual engine uses panel thickness for a plan room; compile→walls then lay out
         const uc = U(18); uc.walls = api.pnPlanCompile(uc);
