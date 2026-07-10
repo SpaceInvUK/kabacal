@@ -186,6 +186,19 @@ if (html) {
         const noZoneGeom = JSON.stringify(plain.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         const stillPlain = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 5000, vZones: [] })])).pieces.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         must(noZoneGeom === stillPlain, 'empty vZones array must equal no-zone geometry (byte-identical safety)');
+        // door-adjacent vertical zone (2026-07-10 fix, "James Test SNC" / Ensuite 3 / Wall 2): a vertical panel
+        // butting a door must take the DOOR ALLOWANCE on that side (like a horizontal span after a door), not the
+        // 40mm mid-wall joint — otherwise its shakers run into the door's clearance area.
+        const dz = api.pnLayoutRoom(room([wall({ w: 2600, openings: [{ id: 'od', type: 'door', name: 'Door', w: 820, h: 2100, x: 0, from: 'L', bottom: 0, topPanel: 'yes' }], vZones: [{ id: 'zd', x: 820, w: 900, h: 1300, cols: 1, rows: 1 }] })]));
+        const zoneD = dz.pieces.find(p => p.isZone);
+        must(!!zoneD && Math.abs(zoneD.x0 - 820) < 0.6, 'door-adjacent zone must start at the door edge (820)');
+        must(zoneD.sides.l.rule === 'door' && Math.abs(zoneD.sides.l.mm - 175) < 0.6, 'zone side facing a door must use the door allowance (175), not the 40mm joint');
+        must(Math.abs(zoneD.sides.r.mm - 40) < 0.6, 'the zone side NOT facing the door stays a 40mm joint');
+        const dcell = [...zoneD.cells].sort((a, b) => a.x - b.x)[0];
+        must(!!dcell && Math.abs((zoneD.x0 + dcell.x) - (820 + 175)) < 1, 'zone shaker must start a full door allowance clear of the door (995), not 40mm in');
+        must(Math.abs(zoneD.w - 900) < 0.6, 'door-adjacent zone keeps its physical width (only the internal cavity moves) — no too-long/short panel');
+        const midZone = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'zm', x: 2000, w: 1000, h: 3000 }] })])).pieces.find(p => p.isZone);
+        must(Math.abs(midZone.sides.l.mm - 40) < 0.6 && Math.abs(midZone.sides.r.mm - 40) < 0.6, 'mid-wall zone (no adjacent door) keeps 40/40 joints — no regression');
         // window (2026-07-08 fix): band notched DOWN TO THE FLOOR at the window column so it never overlaps the
         // separate lower panel (was: only the window rect, so the band covered 0..bottom = the overlap bug).
         const wr = api.pnLayoutRoom(room([wall({ w: 3000, openings: [{ id: 'ow', type: 'window', name: 'W', w: 1200, h: 1100, x: 1200, from: 'L', bottom: 900, topPanel: 'yes' }] })]));

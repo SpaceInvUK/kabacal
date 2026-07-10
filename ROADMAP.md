@@ -2,6 +2,21 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-10 (s) — Bug do painel VERTICAL colado a uma porta (folga da porta ignorada)
+
+Ficheiro real do Drive **JamesTEST.fastcnc.json** ("James Test SNC"), sala **Ensuite 3 · Wall 2**. Engine (`pnZonePieces`, dentro do `PN_ENGINE`). Os 8 goldens de chapa + `GOLDEN_WALL_LAYOUT` **byte-idênticos** (nenhum golden tem zona colada a porta); `check.mjs` verde com novo teste. Sem impacto no preço (tamanho físico da peça inalterado → nesting idêntico).
+
+- **Reproduzido no ficheiro real** (não num caso em branco): Wall 2 = 1620, porta 820 à esquerda (x=0) + **painel vertical** (`vZones` z34) colado à direita [820,1620]. A PORTA parte a banda corretamente em TODAS as vistas (Front/Top/panorama/DXF/nesting) — nenhum painel atravessa a abertura. **O defeito**: o lado do painel vertical virado para a porta usava a folga de junta **40mm** (`'joint'`) em vez da **folga de porta 147mm** (`doorAllow`) que um painel HORIZONTAL recebe ali. O shaker do painel vertical começava a 860 (só 40mm da porta) e **invadia a zona de folga da porta** [820,967].
+- **Causa**: `pnZonePieces` decidia o `lRule`/`rRule` da zona só por estar (ou não) na EXTREMIDADE da parede (`'joint'` para qualquer bordo interior) — nunca olhava para uma porta adjacente. Diferente do `pnWallSpans`, que já aplica `'door'→doorAllow` aos vãos horizontais depois de uma porta.
+- **Correção** (mínima, 4 linhas): a zona passa a olhar o que ENCOSTA a cada bordo (helper `abut`): extremidade da parede → `wall.sideL/R`; **porta → `doorAllow`**; objeto → frame normal; outro painel a meio → `joint`. Espelha exatamente o `pnWallSpans`. O retângulo FÍSICO da zona não muda (continua [820,1620], 800×1300) — só a cavidade/shaker interior recua para respeitar a folga da porta.
+- **Rendering vs geometria**: era **bug de geometria gerada** (as `cells` do painel, que alimentam Front view, Sheet DXF `OFFSET_A` e Wall Layout DXF), não só rendering. Agora o shaker começa a 967 (147 = doorAllow), igual a um painel horizontal ao lado da mesma porta.
+
+**Testado:**
+- Ficheiro real carregado do Drive (via `loadFastCnc`), Ensuite 3 / Wall 2. Antes: lado-porta = `joint` 40mm, shaker a x=860 (40 da porta). Depois: lado-porta = `door` 147mm, shaker a x=967 (147 da porta). Peça física 800×1300 inalterada.
+- Sem regressões: Wall 5 (porta + painel horizontal) mantém lado-porta `door` 147; Ensuite 2 Wall 6 mantém `door` 175; zona a meio de parede (sem porta) mantém 40/40. Nenhuma peça sobrepõe uma porta em nenhuma parede.
+- Front view: cadeia de cotas 820 (porta) + 800 (painel); shaker desenhado com 147 de folga. Top view: porta continua a partir a banda em [820,1620]. Nesting/Wall-Layout: peças idênticas (1300×800 / 800×1300) — sem painel "demasiado longo".
+- `node tools/check.mjs` → `kabacal check ok` (novo teste "door-adjacent vertical zone" + teste de não-regressão da zona a meio de parede). Goldens byte-idênticos.
+
 ## 2026-07-10 (r) — Inspector dos Panels organizado em separadores (tabs)
 
 Só UI/rendering — o bloco `PN_ENGINE` NÃO foi tocado. Os 8 goldens de chapa + `GOLDEN_WALL_LAYOUT` byte-idênticos; `check.mjs` verde (sem alterar testes).

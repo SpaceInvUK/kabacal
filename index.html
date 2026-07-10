@@ -4980,8 +4980,14 @@
     const f=D.frame,W=Math.max(0,+wall.w||0),sk=D.skirtFor(wi);
     (wall.vZones||[]).forEach(z=>{
       const r=pnZoneRect(z,wall,D);
-      const lRule=r.x0<=0.5?(wall.sideL||'normal'):'joint';
-      const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):'joint';
+      // side margin = what ABUTS this zone edge (mirrors pnWallSpans for horizontal spans): the wall edge →
+      // wall.sideL/R; a DOOR → the door allowance (doorAllow); an OBJECT → normal frame; another panel/zone
+      // mid-wall → joint (frame/2). Previously a mid-wall edge was ALWAYS 'joint', so a vertical panel butting a
+      // door lost the door allowance — its shakers ran into the door's clearance. Now they keep clear, like a
+      // horizontal panel beside the same door.
+      const abut=(x,which)=>{const o=(wall.openings||[]).find(op=>{if(op.type!=='door'&&op.type!=='object')return false;const or=pnOpRect(op,wall);return Math.abs((which==='l'?or.x1:or.x0)-x)<=1.5;});return o?(o.type==='door'?'door':'normal'):'joint';};
+      const lRule=r.x0<=0.5?(wall.sideL||'normal'):abut(r.x0,'l');
+      const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):abut(r.x1,'r');
       const p={wi,dir:'v',isZone:true,zid:z.id,x0:r.x0,x1:r.x1,y0:0,y1:r.h,w:r.w,h:r.h,
         sheet:r.h>PN_CAP['8x4']?'10x4':'8x4',
         sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
