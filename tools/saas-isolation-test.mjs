@@ -5,28 +5,34 @@
 //
 // Usage:
 //   node tools/saas-isolation-test.mjs                  # local stack (reads `npx supabase status -o env`)
-//   SUPABASE_URL=… SUPABASE_ANON_KEY=… SUPABASE_SERVICE_ROLE_KEY=… node tools/saas-isolation-test.mjs   # hosted
+//   SUPABASE_URL=… SUPABASE_ANON_KEY=… SUPABASE_SERVICE_ROLE_KEY=… node tools/saas-isolation-test.mjs   # hosted, auto test users
+//   SUPABASE_URL=… SUPABASE_ANON_KEY=… TEST_A_EMAIL=… TEST_A_PASSWORD=… TEST_B_EMAIL=… TEST_B_PASSWORD=… \
+//     node tools/saas-isolation-test.mjs                # hosted, NO service key: pre-create 2 users in the dashboard
 //
-// The service-role key is used ONLY to create the two test users (admin API) —
-// every actual test runs with anon/user JWTs, exactly like the app.
+// The service-role key (if given) is used ONLY to create the two test users —
+// every actual test runs with anon/user JWTs, exactly like the app. The no-service-key
+// form exists so the service key never has to leave the dashboard at all.
 // Exit code 0 = all green. Non-zero = AT LEAST ONE ISOLATION FAILURE — do not ship.
 
 import { execSync } from 'node:child_process';
 
 function env() {
   let { SUPABASE_URL: url, SUPABASE_ANON_KEY: anon, SUPABASE_SERVICE_ROLE_KEY: service } = process.env;
-  if (!url || !anon || !service) {
-    const out = execSync('npx supabase status -o env', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    const get = (k) => (out.match(new RegExp(`^${k}="?([^"\\n]+)"?$`, 'm')) || [])[1];
-    url = url || get('API_URL');
-    anon = anon || get('ANON_KEY');
-    service = service || get('SERVICE_ROLE_KEY');
+  const preUsers = process.env.TEST_A_EMAIL && process.env.TEST_A_PASSWORD && process.env.TEST_B_EMAIL && process.env.TEST_B_PASSWORD;
+  if (!url || !anon || (!service && !preUsers)) {
+    try {
+      const out = execSync('npx supabase status -o env', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const get = (k) => (out.match(new RegExp(`^${k}="?([^"\\n]+)"?$`, 'm')) || [])[1];
+      url = url || get('API_URL');
+      anon = anon || get('ANON_KEY');
+      service = service || get('SERVICE_ROLE_KEY');
+    } catch { /* no local stack */ }
   }
-  if (!url || !anon || !service) { console.error('missing SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY (and no local stack found)'); process.exit(2); }
-  return { url: url.replace(/\/$/, ''), anon, service };
+  if (!url || !anon || (!service && !preUsers)) { console.error('missing config: need SUPABASE_URL + SUPABASE_ANON_KEY plus either SUPABASE_SERVICE_ROLE_KEY or TEST_A/B_EMAIL+PASSWORD (or a running local stack)'); process.exit(2); }
+  return { url: url.replace(/\/$/, ''), anon, service, preUsers };
 }
 
-const { url, anon, service } = env();
+const { url, anon, service, preUsers } = env();
 const results = [];
 async function req(method, path, { token, key = anon, body, prefer } = {}) {
   const headers = { apikey: key, 'Content-Type': 'application/json' };
@@ -41,12 +47,17 @@ function check(name, ok, detail) { results.push({ name, ok, detail }); console.l
 
 const ts = Date.now();
 async function mkUser(tag) {
-  const email = `iso-${tag}-${ts}@test.local`, password = 'Iso-test-1234!';
-  const c = await req('POST', '/auth/v1/admin/users', { key: service, token: service, body: { email, password, email_confirm: true } });
-  if (c.status >= 300) { console.error(`cannot create test user ${tag}:`, c.status, JSON.stringify(c.data)); process.exit(2); }
+  let email, password;
+  if (preUsers) {
+    email = process.env[`TEST_${tag.toUpperCase()}_EMAIL`]; password = process.env[`TEST_${tag.toUpperCase()}_PASSWORD`];
+  } else {
+    email = `iso-${tag}-${ts}@test.local`; password = 'Iso-test-1234!';
+    const c = await req('POST', '/auth/v1/admin/users', { key: service, token: service, body: { email, password, email_confirm: true } });
+    if (c.status >= 300) { console.error(`cannot create test user ${tag}:`, c.status, JSON.stringify(c.data)); process.exit(2); }
+  }
   const t = await req('POST', '/auth/v1/token?grant_type=password', { token: null, body: { email, password } });
   if (!t.data || !t.data.access_token) { console.error(`cannot sign in test user ${tag}:`, t.status, JSON.stringify(t.data)); process.exit(2); }
-  return { email, id: c.data.id, jwt: t.data.access_token };
+  return { email, id: t.data.user.id, jwt: t.data.access_token };
 }
 
 const A = await mkUser('a'), B = await mkUser('b');
