@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (hh) — Fase 4 E2E: bloqueado por chave Stripe de conta errada + patch self-heal (redeploy pendente)
+
+Rodada de teste do checkout 4242 (via app publicado + curl). Diagnóstico e correções:
+
+- **Sintoma**: `create-checkout-session` → HTTP 500. Logs da função (antes da queda do painel): `Error: No such price: 'price_1Ts5JO...'`. Mas o `billing_customers` ganhou linhas novas (iso-a `cus_UrrZ...`, iso-b `cus_Urt4...`) → **a chave cria customers, logo é válida; só não enxerga os preços** = a `STRIPE_SECRET_KEY` salva é de OUTRA conta/sandbox Stripe, não a `acct_1Ts5DyJw3B6LYHCv` onde estão os 3 produtos + webhook. (Confirmado: página de produtos e de API keys ambas nesse acct, test mode.)
+- **Ação do Ednei (única)**: recopiar a Secret key da conta certa (Developers → API keys de `acct_1Ts5DyJw3B6LYHCv`, começa `sk_test_51Ts5Dy…`) para o secret `STRIPE_SECRET_KEY` no Supabase.
+- **Patch self-heal** (`404b9f7`, redeploy pendente): `create-checkout-session` verifica `stripe.customers.retrieve` no customer mapeado e **recria** se a chave atual não o vê (mata o resíduo órfão da troca de chave, em vez de 500 eterno); `create-portal-session` devolve 404 claro no mesmo caso. Precisa de redeploy — a UI de Edge Functions do Supabase ficou degradada durante a sessão (editores SQL/funções não carregavam; "Deploy status unavailable"), então o redeploy fica para quando ela voltar (ou `npx supabase functions deploy`).
+- **Resíduo**: linhas de teste órfãs em `billing_customers` (iso-a/iso-b) — inofensivas, o self-heal as substitui; ou apagar via SQL depois.
+
+### Testado (hh)
+Botões de Upgrade aparecem e disparam a chamada (app publicado) ✓ · preflight CORS da função = 200 com `Access-Control-Allow-Origin` da origem do Pages ✓ · **checkout ainda 500 (No such price) — PENDENTE**: precisa da chave da conta certa + redeploy do patch · flag OFF prístino, £180, goldens intactos, `check.mjs` verde ✓ · nenhum segredo lido/digitado pelo agente ✓.
+
 ## 2026-07-11 (gg) — Fase 4: botões de Upgrade no modal ☁ (checkout/portal Stripe TEST)
 
 Ednei colou os 4 secrets ("Salvei") → app ganhou o lado cliente do billing, tudo atrás do opt-in e só para OWNER:
