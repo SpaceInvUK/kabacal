@@ -7177,6 +7177,7 @@
       const m=(r.data||[])[0];
       cloudAccount=(m&&m.accounts)?{id:m.accounts.id,name:m.accounts.name,plan:m.accounts.plan,status:m.accounts.status,role:m.role}:null;
     }catch(e){cloudAccount=null;}
+    if(cloudAccount)cloudFetchSettingsMeta();
     cloudChip();if(cloudUI.open)cloudRender();
   }
   function cloudBusy(b,msg,err){cloudUI.busy=!!b;if(msg!==undefined)cloudUI.msg=msg;cloudUI.err=!!err;cloudRender();}
@@ -7220,7 +7221,7 @@
   async function cloudSignOut(){
     cloudBusy(true,'Signing out…');
     try{const sb=await sbClient();await sb.auth.signOut();}catch(e){}
-    cloudSession=null;cloudAccount=null;cloudJob=null;cloudUI.stage='email';cloudBusy(false,'');cloudChip();cloudRender();
+    cloudSession=null;cloudAccount=null;cloudJob=null;cloudSettingsMeta=null;cloudUI.confirmSet=null;cloudUI.stage='email';cloudBusy(false,'');cloudChip();cloudRender();
   }
   // ---- Phase 2: cloud jobs (jobs.job_json = the EXACT buildFastCnc payload) ----
   let cloudJob=null; // {id,name,updatedAt} of the cloud job currently loaded in this tab
@@ -7276,6 +7277,66 @@
     }catch(e){}
     cloudListJobs();
   }
+  // ---- Phase 3: workshop settings Push/Pull (explicit, never silent) ----------
+  // The RAW localStorage strings travel as-is inside account_settings.settings.keys;
+  // the boot-time tolerant readers stay the ONLY parser, so the cloud copy inherits
+  // the same load-forever rule as the device tier. Device-only keys (theme, mode,
+  // favs, colours, camjob, campaths) deliberately never sync.
+  const CLOUD_SYNC_KEYS=['kab_prices','kab_pricecfg','kab_custom_mats','kab_company','kab_tooldb','kab_doorTpl','kab_offcutTpl','kab_tp_templates'];
+  let cloudSettingsMeta=null; // {updatedAt} of the account's settings row (null = no cloud copy)
+  async function cloudFetchSettingsMeta(){
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('account_settings').select('updated_at').eq('account_id',cloudAccount.id).maybeSingle();
+      cloudSettingsMeta=(r.data&&r.data.updated_at)?{updatedAt:r.data.updated_at}:null;
+    }catch(e){cloudSettingsMeta=null;}
+    if(cloudUI.open)cloudRender();
+  }
+  async function cloudPushSettings(){
+    if(cloudUI.busy)return;
+    if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in and create your workshop first.',true);return;}
+    cloudBusy(true,'Pushing settings…');
+    try{
+      const keys={};
+      CLOUD_SYNC_KEYS.forEach(function(k){let v=null;try{v=localStorage.getItem(k);}catch(e){}keys[k]=v;});
+      let seq=0;try{seq=(+(localStorage.getItem('kab_seq')||'0'))||0;}catch(e){}
+      const settings={ver:1,keys:keys,quote_seq:seq};
+      const sb=await sbClient();
+      const upd=await sb.from('account_settings').update({settings:settings,updated_by:cloudSession.user.id}).eq('account_id',cloudAccount.id).select('updated_at');
+      if(upd.error)throw upd.error;
+      if(upd.data&&upd.data.length){cloudSettingsMeta={updatedAt:upd.data[0].updated_at};}
+      else{
+        const ins=await sb.from('account_settings').insert({account_id:cloudAccount.id,settings:settings,updated_by:cloudSession.user.id}).select('updated_at').single();
+        if(ins.error)throw ins.error;
+        cloudSettingsMeta={updatedAt:ins.data.updated_at};
+      }
+      cloudUI.confirmSet=null;
+      cloudBusy(false,'Workshop settings pushed to the cloud.');
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not push settings.',true);}
+  }
+  async function cloudPullSettings(){
+    if(cloudUI.busy)return;
+    if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in first.',true);return;}
+    cloudBusy(true,'Pulling settings…');
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('account_settings').select('settings').eq('account_id',cloudAccount.id).maybeSingle();
+      if(r.error)throw r.error;
+      const s=r.data&&r.data.settings;
+      if(!s||!s.keys){cloudUI.confirmSet=null;cloudBusy(false,'No cloud settings yet — push from the device that has your prices.',true);return;}
+      // carry the on-screen job (and its cloud link) across the reload
+      try{sessionStorage.setItem('kab_pull_job',JSON.stringify(buildFastCnc()));}catch(e){cloudBusy(false,'The current job is too large to carry across the reload — save it to a file first.',true);return;}
+      try{if(cloudJob)sessionStorage.setItem('kab_pull_cloudjob',JSON.stringify(cloudJob));}catch(e){}
+      try{sessionStorage.setItem('kab_pull_done','1');}catch(e){}
+      CLOUD_SYNC_KEYS.forEach(function(k){
+        const v=(typeof s.keys[k]==='string')?s.keys[k]:null;
+        try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}
+      });
+      // quote counter: MERGE upwards, never backwards — numbers must not repeat
+      try{const local=(+(localStorage.getItem('kab_seq')||'0'))||0;const cloud=(+s.quote_seq||0);localStorage.setItem('kab_seq',String(Math.max(local,cloud)));}catch(e){}
+      location.reload(); // boot re-reads every key through the existing tolerant readers — no second parser
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not pull settings.',true);}
+  }
   function cloudChip(){
     const host=document.querySelector('.appicons');if(!host)return;
     let b=document.getElementById('cloudChip');
@@ -7329,7 +7390,19 @@
           +'<input id="cloudJobName" type="text" value="'+esc(cloudJob?cloudJob.name:cloudJobName())+'">'
           +'<button class="cbtn" onclick="cloudSaveJob(false)"'+dis+'>'+(cloudJob?'☁ Update this cloud job':'☁ Save to cloud')+'</button>'
           +(cloudJob?'<button class="cbtn sec" onclick="cloudSaveJob(true)"'+dis+'>Save as a new cloud job</button>':'')
-          +'<button class="cbtn sec" onclick="cloudListJobs()"'+dis+'>Open from cloud…</button>';
+          +'<button class="cbtn sec" onclick="cloudListJobs()"'+dis+'>Open from cloud…</button>'
+          +'<div class="sub" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px"><b>Workshop settings</b> — prices, materials, company, tool DB, templates, quote counter. '
+            +(cloudSettingsMeta?('Cloud copy: '+esc((cloudSettingsMeta.updatedAt||'').slice(0,16).replace('T',' '))):'No cloud copy yet.')+'</div>'
+          +(cloudUI.confirmSet==='push'
+            ?'<div class="cloud-msg">Replace the cloud copy with the settings of THIS device?</div>'
+              +'<button class="cbtn" onclick="cloudPushSettings()"'+dis+'>Yes — push</button>'
+              +'<button class="cbtn sec" onclick="cloudUI.confirmSet=null;cloudRender()">Cancel</button>'
+            :cloudUI.confirmSet==='pull'
+            ?'<div class="cloud-msg">Replace the settings of THIS device with the cloud copy and reload? The job on screen is carried over.</div>'
+              +'<button class="cbtn" onclick="cloudPullSettings()"'+dis+'>Yes — pull + reload</button>'
+              +'<button class="cbtn sec" onclick="cloudUI.confirmSet=null;cloudRender()">Cancel</button>'
+            :'<button class="cbtn sec" onclick="cloudUI.confirmSet=\'push\';cloudRender()"'+dis+'>⇧ Push settings to cloud</button>'
+              +'<button class="cbtn sec" onclick="cloudUI.confirmSet=\'pull\';cloudRender()"'+dis+'>⇩ Pull settings from cloud</button>');
       }else{
         body+='<div class="sub" style="margin-top:8px">No workshop yet — create yours (you can invite team members later).</div>'
           +'<label>Workshop name</label><input id="cloudShop" type="text" placeholder="e.g. FAST CNC Services" onkeydown="if(event.key===\'Enter\')cloudCreateWorkshop()">'
@@ -7365,6 +7438,15 @@
   decorateMenus();
   pnInit();
   cloudBoot();
+  // settings Pull carries the on-screen job across its reload (see cloudPullSettings)
+  (function(){try{
+    const j=sessionStorage.getItem('kab_pull_job');if(!j)return;
+    sessionStorage.removeItem('kab_pull_job');
+    const cj=sessionStorage.getItem('kab_pull_cloudjob');sessionStorage.removeItem('kab_pull_cloudjob');
+    loadFastCnc(JSON.parse(j));
+    if(cj){try{cloudJob=JSON.parse(cj);}catch(e){}}
+    if(sessionStorage.getItem('kab_pull_done')==='1'){sessionStorage.removeItem('kab_pull_done');cloudOpen();cloudUI.msg='Workshop settings pulled from the cloud.';cloudUI.err=false;cloudRender();}
+  }catch(e){}})();
   // inline Smart Takeoff: the textarea itself is the drop target (.dxf / .txt / image)
   (function(){const t=document.getElementById('tkText');if(!t)return;
     t.addEventListener('dragover',e=>{e.preventDefault();t.classList.add('over');});

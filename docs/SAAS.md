@@ -16,7 +16,7 @@ Why Supabase: Postgres + Auth + RLS + Edge Functions in one vendor, generous fre
 | **0 (done)** | This doc, `supabase/migrations/0001`, env docs, `kab_cloud` flag (inert) | — |
 | **1 login (LIVE dark)** | Supabase project + migration applied; optional sign-in UI (magic link); "Account" chip; signups DISABLED (invite-only) | done 2026-07-11 — D1–D4 approved, isolation tests passed |
 | **2 cloud jobs (LIVE dark)** | ☁ modal: Save to cloud / Update / Save-as-new / Open from cloud / Archive; `job_json` = the exact `buildFastCnc()` payload; welcome gate on boot (skippable) when enabled+signed-out | done 2026-07-11 — E2E cycle green vs hosted |
-| **3 account settings** | Push/Pull of the business `kab_*` keys into `account_settings.settings`; fixes STATUS risks #3 (no backup) and the `kab_seq` collision (account-level quote counter) | 2+ beta shops using Phase 2 |
+| **3 account settings (LIVE dark)** | ⇧⇩ Push/Pull of the 8 business `kab_*` keys into `account_settings.settings` (raw strings, boot readers stay the only parser); quote counter max-merge; mitigates STATUS risk #3 once pushed | done 2026-07-11 — E2E vs hosted green |
 | **4 Stripe** | Checkout + customer portal + webhook → `accounts.plan/status`; plan gating | Beta feedback says people would pay; D5 (pricing) decided |
 | **5 public** | Self-serve signup ON, landing page, marketing | Isolation re-audit; support/backup story |
 
@@ -146,6 +146,10 @@ Positioning: **“Kabacal helps CNC workshops quote, plan and export MDF doors a
 Complete and verified end-to-end, still invisible by default. Hosted project `rvmyalrtoblxmxciiovd` (created by Ednei, configured 2026-07-11): migration applied, signups disabled, Site URL + dev redirects set, **all 9 isolation tests + sanity passed against the hosted DB** (`tools/saas-isolation-test.mjs` with pre-created dashboard test users — no service key ever left the dashboard). App side: `CLOUD_DEFAULTS` (URL + publishable key, public by design) inlined so a device only needs `kab_cloud={"enabled":true}` — or simply opening **`?cloud=on`** (`?cloud=off` disables; URL can toggle ONLY the enabled bit, never url/anonKey — anti-phishing); full E2E done in-app (real sign-in → account chip "Iso Shop A"/beta/owner via RLS → sign-out; OTP for a stranger correctly refused "Signups not allowed"). Flag-off re-verified byte-identical after inlining.
 
 **Known limit (blocks invites, not Ednei):** the built-in mailer sends only to org members and locks templates → magic-link e-mail is link-only today. **Custom SMTP (Resend free / fastcnc mailbox) is the one prerequisite before inviting beta shops**; it also enables the `{{ .Token }}` code the modal already accepts.
+
+## Phase 3 status (LIVE dark since 2026-07-11)
+
+Workshop settings Push/Pull in the ☁ modal (account stage), explicit with in-modal confirms — never silent. `CLOUD_SYNC_KEYS` = `kab_prices, kab_pricecfg, kab_custom_mats, kab_company, kab_tooldb, kab_doorTpl, kab_offcutTpl, kab_tp_templates`; the **raw localStorage strings** travel inside `account_settings.settings.keys` so the boot-time tolerant readers remain the only parser (cloud copies inherit load-forever). Device-only forever: theme, mode, favs, colours, camjob/campaths. **Pull** = write keys → `kab_seq` **max-merge** (never backwards) → `location.reload()`, carrying the on-screen job (and its `cloudJob` link) across via sessionStorage stash, with a confirmation message after boot. Missing key in the cloud copy removes the local key (true mirror). Quote counter: max-merge ships now; an atomic server-side `next_quote_seq` RPC is deferred until an account has a second member. Pushing regularly = the durable backup for STATUS risk #3.
 
 ## Phase 2 status (LIVE dark since 2026-07-11)
 

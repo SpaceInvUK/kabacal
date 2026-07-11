@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (dd) — SaaS Fase 3: configurações do workshop na conta (⇧ Push / ⇩ Pull) + contador de orçamento merge
+
+"Segue!" do Ednei → Fase 3 atrás do mesmo opt-in `kab_cloud`. Resolve na prática o risco nº 3 do STATUS (config de negócio presa num perfil de navegador): a partir de agora um ⇧ Push guarda tudo na conta, e qualquer outro dispositivo ⇩ Pull.
+
+- **Secção "Workshop settings" no modal ☁** (logado, com workshop): ⇧ **Push settings to cloud** / ⇩ **Pull settings from cloud**, ambos com confirmação DENTRO do modal (sem `confirm()` nativo); linha de estado mostra a data da cópia na nuvem (`cloudSettingsMeta`, buscada no login).
+- **Fidelidade por strings brutas**: `CLOUD_SYNC_KEYS` = `kab_prices, kab_pricecfg, kab_custom_mats, kab_company, kab_tooldb, kab_doorTpl, kab_offcutTpl, kab_tp_templates` — as strings do localStorage viajam como estão em `account_settings.settings.keys`; o ÚNICO parser continua sendo os leitores tolerantes do boot (cópias na nuvem herdam o load-forever). Chave ausente na nuvem = removida localmente (espelho fiel). Device-only para sempre: theme/mode/favs/cores/camjob/campaths.
+- **Pull = escrever chaves → `kab_seq` merge para CIMA (nunca regride; RPC atómico adiado até contas com 2º membro) → `location.reload()`** — o job na tela (e o vínculo `cloudJob`) atravessa o reload via stash em sessionStorage (`kab_pull_job`/`kab_pull_cloudjob`), com aviso "settings pulled" no modal depois do boot. Job grande demais para o stash aborta o Pull com instrução de salvar em arquivo primeiro.
+- Update-first + insert-fallback no `account_settings` (upsert do PostgREST tocaria `account_id` sem grant). Corrigido de passagem no ARCHITECTURE.md: as chaves reais dos templates DXF são `kab_doorTpl`/`kab_offcutTpl` (o doc dizia `kab_door`/`kab_offcut`).
+
+### Testado (dd)
+`check.mjs` verde ✓ · E2E contra o projeto hospedado (Iso Shop A): marcadores (`company="Push Test Co"`, `kab_prices={"mat:TestMat":123}`, `kab_seq=7`) → ⇧ Push ok (meta atualizada) → divergência local (company "Changed Locally", prices removido, seq 3) + job "Carry Me" 1 item na tela → ⇩ Pull → reload → **company e prices restaurados da nuvem, seq foi para o MAIOR (7→8 pelo boot normal do genOrderNumber, comportamento pré-existente), job intacto (1 item, "Carry Me"), modal aberto com "Workshop settings pulled from the cloud", stash limpo** ✓ · flag OFF prístino após limpeza (sem chip/modal/supabase-js, company default, £180) ✓ · goldens intactos ✓.
+
 ## 2026-07-11 (cc) — SaaS Fase 2: jobs na nuvem (☁ save/update/open/archive) + página de login na frente do app
 
 Ednei validou o magic link no app publicado ("o teste funcionou") e aprovou a Fase 2, pedindo uma "página antes da principal" para o login. Tudo continua atrás do opt-in `kab_cloud` — sem opt-in o app é byte-idêntico.
