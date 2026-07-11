@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (gg) — Fase 4: botões de Upgrade no modal ☁ (checkout/portal Stripe TEST)
+
+Ednei colou os 4 secrets ("Salvei") → app ganhou o lado cliente do billing, tudo atrás do opt-in e só para OWNER:
+
+- `CLOUD_DEFAULTS.plans` (3 price ids de teste, públicos por natureza; valores placeholder até D5); no estágio account do modal: plano `beta` → **"Upgrade — TEST mode, no real charges"** com Starter/Workshop/Pro; plano pago → **"Manage subscription…"** (portal). `cloudBilling(action,priceId)` chama as Edge Functions com o JWT da sessão (`apikey` + `Authorization`), redireciona para a URL do Stripe; erro vira `.cloud-msg`.
+- Retorno do checkout: `?cloud=on&billing=success|cancelled` → o bloco de URL guarda `kab_billing_msg` (sessionStorage) antes do `replaceState`; no boot o modal abre com a mensagem e, no success, refaz `cloudFetchAccount` após 4s (webhook já terá virado o plano).
+- Limitação anotada: o CORS das funções está preso à origem do Pages → botões de billing só funcionam no app publicado (dev local precisaria de allowlist de origem — não feito de propósito).
+
+### Testado (gg)
+`check.mjs` verde ✓ · com iso-a (owner, beta) o modal mostra os 3 botões + rótulo TEST mode ✓ · flag OFF prístino após limpeza (sem chip, sem supabase-js, £180) ✓ · goldens intactos ✓ · **E2E do cartão 4242 roda no app publicado logo após este deploy — resultados no addendum abaixo/STATUS**.
+
 ## 2026-07-11 (ff) — Fase 4 em MODO TESTE: Stripe sandbox configurado + 3 Edge Functions DEPLOYADAS
 
 Ednei criou a conta Stripe e pediu para continuar do onboarding ("describe your business") → orientado a PULAR a ativação (é KYC para dinheiro real; sandbox funciona sem, e banco/documentos são sempre dele). Configurado via o Chrome logado dele:

@@ -627,7 +627,11 @@
   const CLOUD_PHASE=2; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
   // Hosted project defaults (PUBLIC BY DESIGN — publishable key + RLS is the gate, signups
   // disabled; isolation proven by tools/saas-isolation-test.mjs). kab_cloud fields override.
-  const CLOUD_DEFAULTS={url:'https://rvmyalrtoblxmxciiovd.supabase.co',anonKey:'sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F'};
+  const CLOUD_DEFAULTS={url:'https://rvmyalrtoblxmxciiovd.supabase.co',anonKey:'sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F',
+    // Stripe TEST-mode price ids (public identifiers; amounts are placeholders until D5)
+    plans:[{price:'price_1Ts5JOJw3B6LYHCvwvQk10OC',name:'Starter',label:'£15/mo'},
+           {price:'price_1Ts5KXJw3B6LYHCvpAatHUPA',name:'Workshop',label:'£29/mo'},
+           {price:'price_1Ts5L6Jw3B6LYHCvrfNPZnhQ',name:'Pro',label:'£59/mo'}]};
   function cloudCfg(){try{const s=JSON.parse(localStorage.getItem('kab_cloud')||'null');return Object.assign({},CLOUD_DEFAULTS,(s&&typeof s==='object')?s:{});}catch(e){return Object.assign({},CLOUD_DEFAULTS);}}
   function cloudEnabled(){return CLOUD_PHASE>=1&&cloudCfg().enabled===true;}
   // URL opt-in without DevTools: ?cloud=on enables this device, ?cloud=off disables.
@@ -639,6 +643,8 @@
     let s={};try{const j=JSON.parse(localStorage.getItem('kab_cloud')||'null');if(j&&typeof j==='object')s=j;}catch(e){}
     if(v==='on'||v==='1'){s.enabled=true;localStorage.setItem('kab_cloud',JSON.stringify(s));}
     else{delete s.enabled;if(Object.keys(s).length)localStorage.setItem('kab_cloud',JSON.stringify(s));else localStorage.removeItem('kab_cloud');}
+    const b=new URLSearchParams(location.search).get('billing');
+    if(b==='success'||b==='cancelled'){try{sessionStorage.setItem('kab_billing_msg',b);}catch(e){}}
     history.replaceState(null,'',location.pathname+location.hash);
   }catch(e){}})();
   const TYPES={
@@ -7339,6 +7345,21 @@
       location.reload(); // boot re-reads every key through the existing tolerant readers — no second parser
     }catch(e){cloudBusy(false,(e&&e.message)||'Could not pull settings.',true);}
   }
+  // ---- Phase 4: billing — Checkout/portal via Edge Functions (Stripe TEST mode) ----
+  async function cloudBilling(action,priceId){
+    if(cloudUI.busy)return;
+    if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in first.',true);return;}
+    cloudBusy(true,action==='portal'?'Opening the billing portal…':'Starting checkout…');
+    try{
+      const c=cloudCfg();
+      const fn=(action==='portal')?'create-portal-session':'create-checkout-session';
+      const body=(action==='portal')?{account_id:cloudAccount.id}:{account_id:cloudAccount.id,price_id:priceId};
+      const r=await fetch(c.url+'/functions/v1/'+fn,{method:'POST',headers:{'Content-Type':'application/json','apikey':c.anonKey,'Authorization':'Bearer '+cloudSession.access_token},body:JSON.stringify(body)});
+      const j=await r.json().catch(function(){return {};});
+      if(!r.ok||!j.url)throw new Error(j.error||('billing service error ('+r.status+')'));
+      location.href=j.url;   // Stripe takes over; returns to the app with ?cloud=on&billing=…
+    }catch(e){cloudBusy(false,(e&&e.message)||'Billing call failed.',true);}
+  }
   function cloudChip(){
     const host=document.querySelector('.appicons');if(!host)return;
     let b=document.getElementById('cloudChip');
@@ -7389,6 +7410,10 @@
           +'<div class="cloud-row"><span>Workshop</span><b>'+esc(cloudAccount.name)+'</b></div>'
           +'<div class="cloud-row"><span>Plan</span><span class="cloud-plan">'+esc(cloudAccount.plan)+'</span></div>'
           +'<div class="cloud-row"><span>Billing</span><span style="font-size:11px;color:var(--muted)">'+(cloudAccount.plan==='beta'?'Beta — free while the beta runs':'Managed by Stripe')+'</span></div>'
+          +(cloudAccount.role==='owner'?(cloudAccount.plan==='beta'
+            ?'<div class="sub" style="margin:6px 0 2px">Upgrade — TEST mode, no real charges:</div>'
+              +((cloudCfg().plans||[]).map(function(p){return '<button class="cbtn sec" onclick="cloudBilling(\'checkout\',\''+p.price+'\')"'+dis+'>'+esc(p.name)+' — '+esc(p.label)+'</button>';}).join(''))
+            :'<button class="cbtn sec" onclick="cloudBilling(\'portal\')"'+dis+'>Manage subscription…</button>'):'')
           +'<div class="cloud-row"><span>Cloud job</span><b>'+(cloudJob?esc(cloudJob.name):'not saved yet')+'</b></div>'
           +'<label style="display:block;margin-top:8px">Job name</label>'
           +'<input id="cloudJobName" type="text" value="'+esc(cloudJob?cloudJob.name:cloudJobName())+'">'
@@ -7450,6 +7475,15 @@
     loadFastCnc(JSON.parse(j));
     if(cj){try{cloudJob=JSON.parse(cj);}catch(e){}}
     if(sessionStorage.getItem('kab_pull_done')==='1'){sessionStorage.removeItem('kab_pull_done');cloudOpen();cloudUI.msg='Workshop settings pulled from the cloud.';cloudUI.err=false;cloudRender();}
+  }catch(e){}})();
+  // returning from Stripe checkout (?billing=success|cancelled, stashed by the URL opt-in block)
+  (function(){try{
+    const bm=sessionStorage.getItem('kab_billing_msg');if(!bm)return;
+    sessionStorage.removeItem('kab_billing_msg');
+    cloudOpen();
+    cloudUI.msg=(bm==='success')?'Subscription started — the plan updates here in a few seconds.':'Checkout cancelled — nothing changed.';
+    cloudUI.err=false;cloudRender();
+    if(bm==='success')setTimeout(function(){cloudFetchAccount();},4000);
   }catch(e){}})();
   // inline Smart Takeoff: the textarea itself is the drop target (.dxf / .txt / image)
   (function(){const t=document.getElementById('tkText');if(!t)return;
