@@ -40,7 +40,7 @@ Two **modes** (`curMode`: `doors` default · `panels`) over four **views** (`cur
 | Panels | `panelRooms`, `pnSel`, `pnView` (wall·sheets·plan), `pnUid`, `pnLayoutMemo`, `pnVb`, `pnSnapGeo` · 2D builder: `pnPlanTool`/`pnPlanDrag`/`pnPlanSel`/`pnPlanMsg` | engine consts `PN_CAP`/`PN_CROSS`/`PN_SHK`/`PN_WALL_T`(150)/`PN_PANEL_T`(22); `pnRoomDefs().cornerTh` = plan panel thickness (else material) drives the frame+thickness corner allowance in `pnSideMM` |
 | History | `undoStack` — `snapshot()` covers the DOORS order only (items/project/services/spray/VAT/nesting). **Panels and CAM edits are NOT undoable** (known gap) | |
 | Templates (DXF) | `customDoorTemplates`, `customOffcutTemplates` | seeded factory blocks; travel inside `.fastcnc` |
-| Cloud (Phase 1) | `CLOUD_PHASE`, `cloudCfg()`/`cloudEnabled()` (script head) · `cloudSession`, `cloudAccount`, `cloudUI`, `_sb` (block before boot) | optional sign-in, rendered ONLY when `kab_cloud` opts in; supabase-js lazy-loads (Tesseract pattern); staged plan in docs/SAAS.md |
+| Cloud (Phase 2) | `CLOUD_PHASE`, `cloudCfg()`/`cloudEnabled()` (script head, `?cloud=on/off` toggles enabled only) · `cloudSession`, `cloudAccount`, `cloudUI`, `cloudJob` (the cloud row loaded in this tab), `_sb` (block before boot) | optional sign-in + cloud jobs (`cloudSaveJob`/`cloudListJobs`/`cloudOpenJob`/`cloudArchiveJob`), rendered ONLY when `kab_cloud` opts in; welcome gate on boot when signed-out (sessionStorage `kab_cloud_welcome`); supabase-js lazy-loads; staged plan in docs/SAAS.md |
 
 ## localStorage (device tier — 18 `kab_*` keys, never rename)
 

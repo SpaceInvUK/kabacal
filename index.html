@@ -624,7 +624,7 @@
   // Double gate: CLOUD_PHASE ships with the code, kab_cloud ({enabled,url,anonKey} JSON)
   // is the per-device opt-in — so at phase 0 the flag is inert by construction, and
   // later a beta device can be switched on without a deploy. Never force login.
-  const CLOUD_PHASE=1; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
+  const CLOUD_PHASE=2; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
   // Hosted project defaults (PUBLIC BY DESIGN — publishable key + RLS is the gate, signups
   // disabled; isolation proven by tools/saas-isolation-test.mjs). kab_cloud fields override.
   const CLOUD_DEFAULTS={url:'https://rvmyalrtoblxmxciiovd.supabase.co',anonKey:'sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F'};
@@ -7220,7 +7220,61 @@
   async function cloudSignOut(){
     cloudBusy(true,'Signing out…');
     try{const sb=await sbClient();await sb.auth.signOut();}catch(e){}
-    cloudSession=null;cloudAccount=null;cloudUI.stage='email';cloudBusy(false,'');cloudChip();cloudRender();
+    cloudSession=null;cloudAccount=null;cloudJob=null;cloudUI.stage='email';cloudBusy(false,'');cloudChip();cloudRender();
+  }
+  // ---- Phase 2: cloud jobs (jobs.job_json = the EXACT buildFastCnc payload) ----
+  let cloudJob=null; // {id,name,updatedAt} of the cloud job currently loaded in this tab
+  function cloudJobName(){const c=(project.client||'').trim(),n=(project.number||'').trim();return (c&&n)?(c+' — '+n):(c||n||'Untitled job');}
+  async function cloudSaveJob(asNew){
+    if(cloudUI.busy)return;
+    if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in and create your workshop first.',true);return;}
+    const el=document.getElementById('cloudJobName');
+    const nm=((el&&el.value)||'').trim()||cloudJobName();
+    cloudBusy(true,'Saving to cloud…');
+    try{
+      const sb=await sbClient();
+      const row={name:nm,client_name:(project.client||'').trim()||null,job_json:buildFastCnc()};
+      let r;
+      if(cloudJob&&!asNew){
+        r=await sb.from('jobs').update(row).eq('id',cloudJob.id).select('id,name,updated_at').single();
+      }else{
+        r=await sb.from('jobs').insert(Object.assign({account_id:cloudAccount.id,created_by:cloudSession.user.id},row)).select('id,name,updated_at').single();
+      }
+      if(r.error)throw r.error;
+      cloudJob={id:r.data.id,name:r.data.name,updatedAt:r.data.updated_at};
+      cloudBusy(false,'Saved to cloud: '+cloudJob.name);
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not save to cloud.',true);}
+  }
+  async function cloudListJobs(){
+    if(cloudUI.busy)return;
+    cloudBusy(true,'Loading cloud jobs…');
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('jobs').select('id,name,client_name,status,updated_at').neq('status','archived').order('updated_at',{ascending:false}).limit(50);
+      if(r.error)throw r.error;
+      cloudUI.jobs=r.data||[];cloudUI.stage='jobs';
+      cloudBusy(false,cloudUI.jobs.length?'':'No cloud jobs yet — save the current job first.');
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not list cloud jobs.',true);}
+  }
+  async function cloudOpenJob(id){
+    if(cloudUI.busy)return;
+    cloudBusy(true,'Opening…');
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('jobs').select('id,name,updated_at,job_json').eq('id',id).single();
+      if(r.error)throw r.error;
+      loadFastCnc(r.data.job_json);   // same tolerant reader as Open .fastcnc — old payloads load forever
+      cloudJob={id:r.data.id,name:r.data.name,updatedAt:r.data.updated_at};
+      cloudUI.busy=false;cloudUI.msg='';cloudUI.err=false;   // release BEFORE close — a stuck busy mutes every later cloud action
+      cloudClose();
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not open the cloud job.',true);}
+  }
+  async function cloudArchiveJob(id,ev){
+    if(ev)ev.stopPropagation();
+    try{const sb=await sbClient();const r=await sb.from('jobs').update({status:'archived'}).eq('id',id);if(r.error)throw r.error;
+      if(cloudJob&&cloudJob.id===id)cloudJob=null;
+    }catch(e){}
+    cloudListJobs();
   }
   function cloudChip(){
     const host=document.querySelector('.appicons');if(!host)return;
@@ -7250,17 +7304,32 @@
           +'<button class="cbtn sec" onclick="cloudUI.stage=\'email\';cloudRender()"'+dis+'>Different e-mail</button>'
           +'<button class="cbtn sec" onclick="cloudSendLink()"'+dis+'>Send again</button>';
       }else{
-        body=msg+'<div class="sub">No password. We e-mail you a sign-in link — like Notion or Slack. Signing in is optional and changes nothing else yet (cloud job saving arrives in Phase 2).</div>'
+        body=msg+'<div class="sub">No password. We e-mail you a sign-in link — like Notion or Slack. Signing in adds cloud-saved jobs; everything else works without it.</div>'
           +'<label>E-mail</label><input id="cloudEmail" type="email" placeholder="you@workshop.co.uk" value="'+esc(cloudUI.email)+'" onkeydown="if(event.key===\'Enter\')cloudSendLink()">'
-          +'<button class="cbtn" onclick="cloudSendLink()"'+dis+'>Send sign-in e-mail</button>';
+          +'<button class="cbtn" onclick="cloudSendLink()"'+dis+'>Send sign-in e-mail</button>'
+          +'<button class="cbtn sec" onclick="cloudClose()">Continue without account</button>';
       }
+    }else if(cloudUI.stage==='jobs'){
+      const rows=(cloudUI.jobs||[]).map(function(j){
+        const d=(j.updated_at||'').slice(0,16).replace('T',' ');
+        return '<div class="cloud-row" style="cursor:pointer" onclick="cloudOpenJob(\''+j.id+'\')" title="Open this job — it replaces the job on screen">'
+          +'<span><b>'+esc(j.name||'Untitled')+'</b>'+(j.client_name?(' · '+esc(j.client_name)):'')+'</span>'
+          +'<span style="white-space:nowrap;color:var(--muted);font-size:11px">'+esc(d)+' <span title="Archive this job" style="cursor:pointer;padding:2px 5px" onclick="cloudArchiveJob(\''+j.id+'\',event)">🗑</span></span></div>';
+      }).join('');
+      body=msg+'<div class="sub">Click a job to open it — it replaces what is on screen (save the current job first if it matters).</div>'+rows
+        +'<button class="cbtn sec" onclick="cloudUI.stage=\'account\';cloudRender()">Back</button>';
     }else{
       const em=cloudSession.user.email||'';
       body=msg+'<div class="cloud-row"><span>Signed in</span><b>'+esc(em)+'</b></div>';
       if(cloudAccount){
         body+='<div class="cloud-row"><span>Workshop</span><b>'+esc(cloudAccount.name)+'</b></div>'
           +'<div class="cloud-row"><span>Plan</span><span class="cloud-plan">'+esc(cloudAccount.plan)+'</span></div>'
-          +'<div class="sub" style="margin-top:8px">Cloud job saving arrives in Phase 2 — nothing else changes while you are signed in.</div>';
+          +'<div class="cloud-row"><span>Cloud job</span><b>'+(cloudJob?esc(cloudJob.name):'not saved yet')+'</b></div>'
+          +'<label style="display:block;margin-top:8px">Job name</label>'
+          +'<input id="cloudJobName" type="text" value="'+esc(cloudJob?cloudJob.name:cloudJobName())+'">'
+          +'<button class="cbtn" onclick="cloudSaveJob(false)"'+dis+'>'+(cloudJob?'☁ Update this cloud job':'☁ Save to cloud')+'</button>'
+          +(cloudJob?'<button class="cbtn sec" onclick="cloudSaveJob(true)"'+dis+'>Save as a new cloud job</button>':'')
+          +'<button class="cbtn sec" onclick="cloudListJobs()"'+dis+'>Open from cloud…</button>';
       }else{
         body+='<div class="sub" style="margin-top:8px">No workshop yet — create yours (you can invite team members later).</div>'
           +'<label>Workshop name</label><input id="cloudShop" type="text" placeholder="e.g. FAST CNC Services" onkeydown="if(event.key===\'Enter\')cloudCreateWorkshop()">'
@@ -7280,6 +7349,12 @@
         cloudSession=(s.data&&s.data.session)||null;
         cloudChip();
         if(cloudSession)cloudFetchAccount();
+        else{
+          // welcome gate: cloud is on but nobody is signed in → put the sign-in page in
+          // front of the app, once per tab session; "Continue without account" skips it.
+          let seen=false;try{seen=sessionStorage.getItem('kab_cloud_welcome')==='1';}catch(e){}
+          if(!seen){try{sessionStorage.setItem('kab_cloud_welcome','1');}catch(e){}cloudOpen();}
+        }
       }).catch(function(){});
     }
   }

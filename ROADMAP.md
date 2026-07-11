@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (cc) — SaaS Fase 2: jobs na nuvem (☁ save/update/open/archive) + página de login na frente do app
+
+Ednei validou o magic link no app publicado ("o teste funcionou") e aprovou a Fase 2, pedindo uma "página antes da principal" para o login. Tudo continua atrás do opt-in `kab_cloud` — sem opt-in o app é byte-idêntico.
+
+- **Welcome gate** (a "página antes"): com cloud ligado e ninguém logado, o modal de sign-in abre NA FRENTE do app no boot (1× por sessão de aba, `sessionStorage kab_cloud_welcome`); botão **"Continue without account"** pula — local-first preservado; logado nunca vê. Landing page real fica para a fase pública.
+- **Jobs na nuvem no modal ☁** (estágio account): input de nome (default `cliente — nº ordem`), **☁ Save to cloud** (insert) vs **Update this cloud job** (mesmo row; `cloudJob` guarda o job de nuvem carregado nesta aba, limpo no sign-out) + **Save as a new cloud job**; **Open from cloud…** lista os não-arquivados (recentes primeiro, 50), clique carrega via `loadFastCnc` (leitor tolerante — rows antigos carregam para sempre); 🗑 por linha = **Archive** (soft delete; a UI nunca oferece DELETE). `job_json` = payload `buildFastCnc()` EXATO — compatibilidade `.fastcnc` intacta.
+- **Bug achado E ficado pelo E2E**: `cloudOpenJob` fechava o modal sem liberar `cloudUI.busy` → todos os botões cloud seguintes ficavam mudos. Fix: libera busy antes do `cloudClose()`.
+- `CLOUD_PHASE` 1→2; textos do modal atualizados (sem "arrives in Phase 2"). Docs: SAAS.md (§Phase 2 status + tabela de fases), ARCHITECTURE.md (linha Cloud), STATUS.md.
+
+### Testado (cc)
+`check.mjs` verde (3×) ✓ · E2E contra o projeto hospedado (tenant de teste Iso Shop A): save (insert) → +1 porta → **update reusa o MESMO row** (lista não duplica) → wipe da tela → **open restaura** (2 itens, cliente "Teste Cloud E2E", £180) → save-as-new cria id NOVO → lista 3 → archive → lista 2 e o arquivado some ✓ · welcome gate: abre sozinho deslogado, "Continue without account" fecha, **não** aparece logado nem 2× na mesma aba ✓ · sessão sobrevive a reload (login persistente) ✓ · busy liberado após open (regressão do bug) ✓ · flag OFF prístino: sem chip/modal/supabase-js, `kab_cloud` null, basket £180 ✓ · goldens intactos ✓.
+
 ## 2026-07-11 (bb) — Opt-in do cloud por URL: `?cloud=on` / `?cloud=off` (sem DevTools)
 
 O Ednei esbarrou no aviso anti-self-XSS do Chrome ao colar o `localStorage.setItem` no Console — fricção inaceitável para beta users. Agora `?cloud=on` liga o device (grava `kab_cloud.enabled=true` e limpa a URL via `replaceState`), `?cloud=off` desliga (remove só o bit `enabled`, preserva overrides url/anonKey; remove a chave se ficar vazia). **Só o bit `enabled` é togglável por URL — url/anonKey continuam localStorage-only** (um link malicioso nunca pode apontar o app para outro backend). Bloco da flag no topo do script; nada guardado tocado.
