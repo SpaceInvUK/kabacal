@@ -19,5 +19,12 @@ tools/_baseline.html
 # per-session writer lock (see AGENTS.md session protocol)
 .session.lock
 
+# secrets — real env files never enter the repo (supabase/.env.example is the template)
+.env
+.env.*
+!.env.example
+!supabase/.env.example
+supabase/.temp/
+
 # Claude Code local-only settings
 .claude/settings.local.json

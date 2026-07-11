@@ -603,6 +603,14 @@
   </div>
 
 <script>
+  // ---- Cloud/SaaS feature flag (Phase 0 stub — plan + phases in docs/SAAS.md) ----
+  // Kabacal is local-first: this block is the ONLY cloud code in the app today.
+  // Double gate: CLOUD_PHASE ships with the code, kab_cloud ({enabled,url,anonKey} JSON)
+  // is the per-device opt-in — so at phase 0 the flag is inert by construction, and
+  // later a beta device can be switched on without a deploy. Never force login.
+  const CLOUD_PHASE=0; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
+  function cloudCfg(){try{const s=JSON.parse(localStorage.getItem('kab_cloud')||'null');return (s&&typeof s==='object')?s:{};}catch(e){return {};}}
+  function cloudEnabled(){return CLOUD_PHASE>=1&&cloudCfg().enabled===true;}
   const TYPES={
     flat:{name:'Flat',badge:'b-flat',color:'#2563eb',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`},
     trad:{name:'Traditional',badge:'b-trad',color:'#9333ea',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="8.5" y="6.5" width="9" height="13" fill="none" stroke="${c}" stroke-width="0.9"/></svg>`},

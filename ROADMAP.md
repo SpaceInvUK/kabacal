@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (y) — SaaS Fase 0: fundação (docs + schema Supabase + flag inerte) — SEM login, SEM mudança de comportamento
+
+Pedido do Ednei: plano faseado para SaaS (login, contas/empresas, jobs na cloud, settings por conta, Stripe depois, beta privada 3–5 users) implementando SÓ o passo mais seguro. Zonas guardadas: NENHUMA tocada (pricing/DXF/CAM/nesting intactos; goldens intactos por construção). `index.html` ganhou só um bloco de flag no topo do script (+8 linhas, inerte).
+
+- **`docs/SAAS.md` (novo, canónico)**: local-first para sempre (motores/`.fastcnc`/localStorage ficam primários; cloud = camada aditiva de sync/identidade); fases 0–5 com gates (1 login opcional magic-link → 2 jobs cloud → 3 settings por conta → 4 Stripe via Edge Functions → 5 público); modelo de dados; plano RLS; política de segredos (GitHub Pages nunca guarda segredos — service role/Stripe só em Edge Functions); auditoria do que o app público expõe hoje (PRICES, £75, fórmula 25/139/20, rates, toolDb) + o que migra para `account_settings` na Fase 3; plano Stripe futuro (tabelas billing_* + webhooks); plano da beta privada; decisões D1–D5 para o Ednei.
+- **`supabase/migrations/0001_saas_foundation.sql` (draft, nada aplicado)**: `accounts` / `account_members` (owner por trigger) / `jobs` (`job_json` = payload `.fastcnc` exato) / `account_settings` (1 jsonb espelhando as chaves `kab_*` de negócio). RLS deny-by-default: anon revogado, policies só `authenticated` via `is_account_member/owner` (security definer, search_path fixo), grants por coluna (`plan`/`status` = só billing; `account_id` de jobs imutável — sem mudança cross-tenant).
+- **`supabase/README.md`**: runbook de aplicação (CLI local com Docker primeiro, hosted depois), checklist da beta (signups DESLIGADOS, invite-only) e **9 testes de isolamento** obrigatórios antes de qualquer user real. `supabase/.env.example` só com placeholders; `.gitignore` agora bloqueia `.env*`.
+- **Flag `kab_cloud` (18ª chave `kab_*`, aditiva)**: `CLOUD_PHASE=0` + `cloudCfg()`/`cloudEnabled()` no topo do script — gate duplo (fase no código E opt-in no device), hoje inerte por construção; login NÃO implementado de propósito (Fase 1 espera D1–D4). `AGENTS.md` (reading order), `docs/ARCHITECTURE.md` (chave nova + linha no state registry + secção Cloud tier) e `STATUS.md` (riscos 3/4 apontam para o plano, decision log, Next #4) atualizados.
+
+### Testado (y)
+`node tools/check.mjs` verde (2×: após edit e no fim) ✓ · boot local (preview 8125) sem erros de consola ✓ · `CLOUD_PHASE===0`, `cloudEnabled()===false`, `kab_cloud` ausente por defeito e NADA escrito no boot ✓ · gate duplo: `kab_cloud={enabled:true}` no device → `cloudEnabled()` continua `false` na fase 0 ✓ (chave removida depois) · workflow local intacto: quick-add 600×400 q2 → quote **£180 inc VAT** no chip vivo ✓ · round-trip Save/Load JSON (`buildFastCnc`→`loadFastCnc`): 1 bloco, item restaurado, quote £180 igual ✓ · goldens não tocados (`git status tests/golden/` vazio) ✓ · diff de `index.html` = só o bloco da flag (+8) ✓.
+
 ## 2026-07-11 (x) — UX round pedido pelo Ednei: topo legível + Doors "digita e vê o preço" (UI only, 1 commit reversível)
 
 Rodada CTO/Arquiteto focada em facilidade de uso (Doors + topo; Panels ficou de fora DE PROPÓSITO — as rodadas *q*–*w* de outra sessão já cobriram o inspector/labels/openings do Panels; colidir seria retrabalho). Reversão: `git revert` deste commit desfaz o pacote inteiro.

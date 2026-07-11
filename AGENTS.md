@@ -79,6 +79,7 @@ Family: `cnc-calculator` repo = the production calculator Kabacal stays file-com
 - **CAM / NC / templates** → `docs/CONTRACT-CAM.md` (machine + post + cutting pattern) + `KABACAL_RULES.md` (template rules, binary-order reversal)
 - **Panels** → `KABACAL_RULES.md` §Panels + the PN tests inside `tools/check.mjs`
 - **State / persistence / where things live** → `docs/ARCHITECTURE.md` (state registry, localStorage keys, `.fastcnc` schema, marker blocks)
+- **SaaS / cloud / accounts** → `docs/SAAS.md` (staged plan, data model, RLS, secrets policy) + `supabase/README.md`
 - **Testing / evidence** → `docs/TESTING.md` + `tests/golden/README.md`
 - **History / what shipped** → `ROADMAP.md` — read the **top 2 entries only** (it's 75KB+ of history)
 
