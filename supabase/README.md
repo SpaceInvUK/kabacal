@@ -4,7 +4,7 @@
 
 ## Applying the schema
 
-Local first (recommended — needs Docker):
+Local first (recommended — needs Docker Desktop **fully set up**: its first-run wizard/licence must have been completed once by a human; observed 2026-07-11 that a fresh install with no WSL distro blocks `supabase start` with engine 500s):
 
 ```bash
 npx supabase init          # once, from repo root (creates supabase/config.toml)
@@ -37,7 +37,9 @@ Copy `.env.example` to `.env` (**gitignored — never commit `.env`**). Only the
 
 ## Isolation acceptance tests
 
-Create two users A and B (dashboard), each with their own account (rows in `accounts` via the app or SQL). Then, using **B's JWT** against the REST API (`curl -H "apikey: <anon>" -H "Authorization: Bearer <B_jwt>"`):
+Automated: **`node tools/saas-isolation-test.mjs`** — zero deps; against the local stack it self-configures from `supabase status`, against the hosted project set `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` env vars (service key creates the two throwaway users only; all checks run with user JWTs). Running it against the **hosted** project before inviting anyone is acceptable — and mandatory if the local stack isn't available.
+
+What it proves — two users A and B, each with their own account; using **B's JWT** against the REST API:
 
 | Attempt (as B) | Expected |
 |---|---|

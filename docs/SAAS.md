@@ -133,10 +133,14 @@ Top of the inline script: `CLOUD_PHASE` const (**0** today) + `cloudCfg()`/`clou
 
 Positioning: **“Kabacal helps CNC workshops quote, plan and export MDF doors and wall panels faster.”** Scope words: quoting + doors + wall panels + nesting + PDF + DXF for VCarve workflow. Do NOT position as a CAM replacement (the .NC path hasn't cut real material yet — STATUS risk #1). One static page, same repo or subdomain, after Phase 2.
 
-## Decisions needed from Ednei
+## Decisions (D1–D4 answered by Ednei 2026-07-11)
 
-- **D1 auth method:** magic-link only for beta (recommended — no passwords to breach/reset) vs email+password too.
-- **D2 embedded FAST CNC numbers:** accept as-is through beta (recommended) vs genericise after Phase 3 (guarded pricing change).
-- **D3 which keys sync in Phase 3:** proposed = prices, pricecfg, custom_mats, company, tooldb, templates, quote counter. Device-only forever = theme, mode, favs, colours.
-- **D4 repo visibility:** public repo + private tenant data (recommended) vs private repo (loses Pages simplicity).
-- **D5 (Phase 4):** plan prices/limits.
+- **D1 auth method: magic-link only** for beta. Explicitly changeable later — adding email+password is additive in Supabase (enable the provider + a "set password" flow; same `auth.users`, no migration). Session persists per device (supabase-js refresh tokens), so users receive a link/code roughly **once per device/browser**, not per visit — the Notion/Slack pattern.
+- **D2 embedded FAST CNC numbers: keep for now.** Revisit after Phase 3 moves the real config into `account_settings` (genericising = guarded pricing change, own approved commit).
+- **D3 Phase 3 sync scope: all business keys** — prices, pricecfg, custom_mats, company, tooldb, DXF/machining templates, quote counter. Device-only forever: theme, mode, favs, colours.
+- **D4 repo visibility: stays public**; tenant data private via RLS.
+- **D5 (Phase 4):** plan prices/limits — still open, decide when Phase 4 starts.
+
+## Phase 1 status (shipped dark 2026-07-11)
+
+Client code is live but invisible: `CLOUD_PHASE=1` + the full sign-in flow (lazy supabase-js pinned `@2.45.4`, ☁ header chip, e-mail → magic link OR 6-digit code (`verifyOtp`), first-login "Create your workshop", sign out) — all rendered ONLY when a device sets `kab_cloud`. supabase-js keeps its session in its own `sb-<ref>-auth-token` localStorage key (not `kab_*`). Isolation tests: `node tools/saas-isolation-test.mjs` (local stack via Docker, or env vars for hosted). **Missing before real sign-ins: the hosted Supabase project** (Ednei creates it — checklist in supabase/README.md), then inline its URL/anon key as defaults.

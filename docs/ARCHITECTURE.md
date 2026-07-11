@@ -40,11 +40,11 @@ Two **modes** (`curMode`: `doors` default · `panels`) over four **views** (`cur
 | Panels | `panelRooms`, `pnSel`, `pnView` (wall·sheets·plan), `pnUid`, `pnLayoutMemo`, `pnVb`, `pnSnapGeo` · 2D builder: `pnPlanTool`/`pnPlanDrag`/`pnPlanSel`/`pnPlanMsg` | engine consts `PN_CAP`/`PN_CROSS`/`PN_SHK`/`PN_WALL_T`(150)/`PN_PANEL_T`(22); `pnRoomDefs().cornerTh` = plan panel thickness (else material) drives the frame+thickness corner allowance in `pnSideMM` |
 | History | `undoStack` — `snapshot()` covers the DOORS order only (items/project/services/spray/VAT/nesting). **Panels and CAM edits are NOT undoable** (known gap) | |
 | Templates (DXF) | `customDoorTemplates`, `customOffcutTemplates` | seeded factory blocks; travel inside `.fastcnc` |
-| Cloud (Phase 0) | `CLOUD_PHASE`, `cloudCfg()`, `cloudEnabled()` | inert stub at the script head — double gate (shipped phase AND `kab_cloud` opt-in); staged plan in docs/SAAS.md |
+| Cloud (Phase 1) | `CLOUD_PHASE`, `cloudCfg()`/`cloudEnabled()` (script head) · `cloudSession`, `cloudAccount`, `cloudUI`, `_sb` (block before boot) | optional sign-in, rendered ONLY when `kab_cloud` opts in; supabase-js lazy-loads (Tesseract pattern); staged plan in docs/SAAS.md |
 
 ## localStorage (device tier — 18 `kab_*` keys, never rename)
 
-`kab_mat` (material colours) · `kab_favs` · `kab_tooldb` (versioned `ver:2`) · `kab_camjob` · `kab_campaths` · `kab_tp_tpl` (toolpath form presets) · `kab_tp_templates` (per-piece machining templates) · `kab_door` / `kab_offcut` (DXF template blocks) · `kab_prices` (overrides) · `kab_pricecfg` (method+formula) · `kab_custom_mats` · `kab_company` · `kab_theme` (string) · `kab_seq` (quote counter — per-browser, known collision risk) · `kab_panels` · `kab_mode` · `kab_cloud` (cloud/SaaS per-device opt-in, JSON `{enabled,url,anonKey}` — inert while `CLOUD_PHASE` is 0; docs/SAAS.md).
+`kab_mat` (material colours) · `kab_favs` · `kab_tooldb` (versioned `ver:2`) · `kab_camjob` · `kab_campaths` · `kab_tp_tpl` (toolpath form presets) · `kab_tp_templates` (per-piece machining templates) · `kab_door` / `kab_offcut` (DXF template blocks) · `kab_prices` (overrides) · `kab_pricecfg` (method+formula) · `kab_custom_mats` · `kab_company` · `kab_theme` (string) · `kab_seq` (quote counter — per-browser, known collision risk) · `kab_panels` · `kab_mode` · `kab_cloud` (cloud/SaaS per-device opt-in, JSON `{enabled,url,anonKey}` — gates the Phase-1 sign-in UI; docs/SAAS.md). When cloud is enabled, supabase-js additionally manages its own session key `sb-<project-ref>-auth-token` (not a `kab_*` key, absent for local-only devices).
 
 **Versioning convention:** `.fastcnc` has a top-level `version`; `kab_tooldb` carries `ver`. Any NEW or reshaped payload gets a version field and a tolerant reader (accept old shapes forever). Full `{v,data}` envelopes for all 17 keys were deliberately deferred — near-zero value until a migration actually needs them, high typo risk across 17 dense call sites.
 
@@ -59,9 +59,9 @@ Top level: `app, fileType, version, activeCalculatorMode, customDoorTemplates, c
 
 Old files must always load (`loadFastCnc` tolerant); new fields are added, never repurposed. Round-trip regression: `docs/TESTING.md`.
 
-## Cloud tier (planned — docs/SAAS.md)
+## Cloud tier (Phase 1 shipped dark — docs/SAAS.md)
 
-Phase 0 only today: schema draft in `supabase/migrations/`, inert flag stub at the script head. When live (Phase 2+), `jobs.job_json` stores the **exact `.fastcnc` payload** and `account_settings.settings` mirrors the business `kab_*` keys — both additive, both behind Supabase RLS; the device and file tiers above stay primary and the app stays fully functional logged-out.
+Optional sign-in (magic link / 6-digit code) exists in the client but renders only for devices that set `kab_cloud`; schema lives in `supabase/migrations/`, isolation tests in `tools/saas-isolation-test.mjs`. No hosted project yet. From Phase 2, `jobs.job_json` stores the **exact `.fastcnc` payload** and `account_settings.settings` mirrors the business `kab_*` keys — both additive, both behind Supabase RLS; the device and file tiers above stay primary and the app stays fully functional logged-out.
 
 ## Function map
 

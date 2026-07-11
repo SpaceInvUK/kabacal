@@ -421,6 +421,22 @@
   body.dark .switch.off{background:var(--input);color:var(--ink)}
   body.dark .tk-mini:focus{background:var(--input)}
   body.dark .tab.active{background:#334155;color:#fff}
+  /* Cloud sign-in (Phase 1 — only ever rendered when cloudEnabled(); docs/SAAS.md) */
+  .cloud-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:400;display:flex;align-items:flex-start;justify-content:center;padding-top:9vh}
+  .cloud-card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 50px rgba(2,6,23,.35);width:340px;max-width:92vw;padding:16px 18px;font-size:13px}
+  .cloud-card h3{margin:0 0 4px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .cloud-card .sub{color:var(--muted);font-size:11.5px;line-height:1.45;margin-bottom:10px}
+  .cloud-card input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--input);color:var(--ink);font-size:13px;margin:4px 0 10px}
+  .cloud-card .cbtn{width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2563eb;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-size:13px}
+  .cloud-card .cbtn.sec{background:transparent;color:var(--ink);border-color:var(--line);font-weight:600;margin-top:6px}
+  .cloud-card .cbtn[disabled]{opacity:.55;cursor:default}
+  .cloud-msg{border-radius:8px;padding:6px 9px;font-size:11.5px;margin-bottom:8px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af}
+  .cloud-msg.err{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+  body.dark .cloud-msg{background:#172554;border-color:#1e40af;color:#bfdbfe}
+  body.dark .cloud-msg.err{background:#450a0a;border-color:#991b1b;color:#fecaca}
+  .cloud-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12px}
+  .cloud-row b{font-size:12px}
+  .cloud-plan{background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:999px;padding:1px 8px;font-size:10.5px;font-weight:700;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -608,7 +624,7 @@
   // Double gate: CLOUD_PHASE ships with the code, kab_cloud ({enabled,url,anonKey} JSON)
   // is the per-device opt-in — so at phase 0 the flag is inert by construction, and
   // later a beta device can be switched on without a deploy. Never force login.
-  const CLOUD_PHASE=0; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
+  const CLOUD_PHASE=1; // 0 local-only · 1 optional login · 2 cloud jobs · 3 account settings · 4 billing
   function cloudCfg(){try{const s=JSON.parse(localStorage.getItem('kab_cloud')||'null');return (s&&typeof s==='object')?s:{};}catch(e){return {};}}
   function cloudEnabled(){return CLOUD_PHASE>=1&&cloudCfg().enabled===true;}
   const TYPES={
@@ -7114,11 +7130,152 @@
   function openQuoteDoc(){const v=validateOrder();if(v.errs.length){alert('Fix invalid parts first:\n'+v.errs.map(e=>'• item '+(e.i+1)+': '+e.b.join(', ')).join('\n'));return;}openPrintWindow('Kabacal Quote '+(project.number||''),buildQuoteHtml());}
   function openCutList(){const v=validateOrder();if(v.errs.length){alert('Fix invalid parts first:\n'+v.errs.map(e=>'• item '+(e.i+1)+': '+e.b.join(', ')).join('\n'));return;}openPrintWindow('Kabacal Cut list '+(project.number||''),buildCutListHtml());}
 
+  // ===== CLOUD — Phase 1: optional sign-in (docs/SAAS.md) =====================
+  // Everything below is inert unless cloudEnabled() (CLOUD_PHASE>=1 AND the device
+  // opted in via kab_cloud {enabled,url,anonKey}). No chip, no DOM, no network when off.
+  // supabase-js lazy-loads from CDN only when needed (same pattern as loadTesseract);
+  // its session lives in its own localStorage key (sb-<ref>-auth-token), not kab_*.
+  let cloudSession=null, cloudAccount=null, _sb=null, _sbP=null, _sbJsP=null;
+  let cloudUI={open:false,busy:false,msg:'',err:false,stage:'email',email:''};
+  function loadSupabaseJs(){
+    if(window.supabase&&window.supabase.createClient)return Promise.resolve();
+    if(_sbJsP)return _sbJsP;
+    _sbJsP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';s.onload=()=>res();s.onerror=()=>{_sbJsP=null;rej(new Error('could not load the cloud library — check the internet connection.'));};document.head.appendChild(s);});
+    return _sbJsP;
+  }
+  function sbClient(){
+    if(_sb)return Promise.resolve(_sb);
+    if(_sbP)return _sbP;
+    const c=cloudCfg();
+    if(!c.url||!c.anonKey)return Promise.reject(new Error('Cloud is not configured on this device (kab_cloud needs url + anonKey).'));
+    _sbP=loadSupabaseJs().then(()=>{
+      _sb=window.supabase.createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+      _sb.auth.onAuthStateChange((ev,sess)=>{cloudSession=sess||null;if(!cloudSession)cloudAccount=null;cloudChip();if(cloudSession&&!cloudAccount)cloudFetchAccount();else if(cloudUI.open)cloudRender();});
+      return _sb;
+    }).catch(e=>{_sbP=null;throw e;});
+    return _sbP;
+  }
+  async function cloudFetchAccount(){
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('account_members').select('role,accounts(id,name,plan,status)').order('created_at',{ascending:true}).limit(1);
+      if(r.error)throw r.error;
+      const m=(r.data||[])[0];
+      cloudAccount=(m&&m.accounts)?{id:m.accounts.id,name:m.accounts.name,plan:m.accounts.plan,status:m.accounts.status,role:m.role}:null;
+    }catch(e){cloudAccount=null;}
+    cloudChip();if(cloudUI.open)cloudRender();
+  }
+  function cloudBusy(b,msg,err){cloudUI.busy=!!b;if(msg!==undefined)cloudUI.msg=msg;cloudUI.err=!!err;cloudRender();}
+  async function cloudSendLink(){
+    const em=(document.getElementById('cloudEmail')||{}).value||cloudUI.email;
+    const email=String(em||'').trim().toLowerCase();
+    if(!/^\S+@\S+\.\S+$/.test(email)){cloudBusy(false,'Enter a valid e-mail address.',true);return;}
+    cloudUI.email=email;cloudBusy(true,'Sending sign-in e-mail…');
+    try{
+      const sb=await sbClient();
+      const r=await sb.auth.signInWithOtp({email:email,options:{emailRedirectTo:location.origin+location.pathname}});
+      if(r.error)throw r.error;
+      cloudUI.stage='code';cloudBusy(false,'E-mail sent — click the link in it, or type the 6-digit code here.');
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not send the e-mail.',true);}
+  }
+  async function cloudVerifyCode(){
+    const tk=String(((document.getElementById('cloudCode')||{}).value||'')).replace(/\D/g,'');
+    if(tk.length<6){cloudBusy(false,'Type the 6-digit code from the e-mail.',true);return;}
+    cloudBusy(true,'Checking code…');
+    try{
+      const sb=await sbClient();
+      const r=await sb.auth.verifyOtp({email:cloudUI.email,token:tk,type:'email'});
+      if(r.error)throw r.error;
+      cloudUI.stage='account';cloudBusy(false,'Signed in.');
+    }catch(e){cloudBusy(false,(e&&e.message)||'Code rejected.',true);}
+  }
+  async function cloudCreateWorkshop(){
+    const nm=String(((document.getElementById('cloudShop')||{}).value||'')).trim();
+    if(!nm){cloudBusy(false,'Give the workshop a name.',true);return;}
+    cloudBusy(true,'Creating workshop…');
+    try{
+      const sb=await sbClient();
+      // no .select() here: the RETURNING row isn't visible until the AFTER-insert
+      // membership trigger lands — fetch the account through account_members instead
+      const r=await sb.from('accounts').insert({name:nm,owner_user_id:cloudSession.user.id});
+      if(r.error)throw r.error;
+      await cloudFetchAccount();
+      cloudBusy(false,'Workshop created.');
+    }catch(e){cloudBusy(false,(e&&e.message)||'Could not create the workshop.',true);}
+  }
+  async function cloudSignOut(){
+    cloudBusy(true,'Signing out…');
+    try{const sb=await sbClient();await sb.auth.signOut();}catch(e){}
+    cloudSession=null;cloudAccount=null;cloudUI.stage='email';cloudBusy(false,'');cloudChip();cloudRender();
+  }
+  function cloudChip(){
+    const host=document.querySelector('.appicons');if(!host)return;
+    let b=document.getElementById('cloudChip');
+    if(!cloudEnabled()){if(b)b.remove();return;}
+    if(!b){b=document.createElement('button');b.id='cloudChip';b.onclick=cloudOpen;host.appendChild(b);}
+    const who=cloudSession?((cloudAccount&&cloudAccount.name)||cloudSession.user.email||'Account'):'Sign in';
+    b.title=cloudSession?('Kabacal cloud — signed in as '+(cloudSession.user.email||'')+(cloudAccount?(' · '+cloudAccount.name):'')):'Sign in to Kabacal cloud (optional — the app works fully without it)';
+    b.innerHTML='<span class="glyph">☁</span> '+esc(who);
+  }
+  function cloudOpen(){cloudUI.open=true;cloudUI.msg='';cloudUI.err=false;cloudUI.stage=cloudSession?'account':'email';cloudRender();}
+  function cloudClose(){cloudUI.open=false;const m=document.getElementById('cloudModal');if(m)m.remove();}
+  function cloudRender(){
+    if(!cloudUI.open)return;
+    let ov=document.getElementById('cloudModal');
+    if(!ov){ov=document.createElement('div');ov.id='cloudModal';ov.className='cloud-overlay';ov.onclick=function(e){if(e.target===ov)cloudClose();};document.body.appendChild(ov);}
+    const c=cloudCfg();const dis=cloudUI.busy?' disabled':'';
+    const msg=cloudUI.msg?'<div class="cloud-msg'+(cloudUI.err?' err':'')+'">'+esc(cloudUI.msg)+'</div>':'';
+    let body='';
+    if(!c.url||!c.anonKey){
+      body='<div class="sub">Cloud is not configured on this device. Ask for an invite — and note the app works fully without signing in.</div>';
+    }else if(!cloudSession){
+      if(cloudUI.stage==='code'){
+        body=msg+'<label>6-digit code for <b>'+esc(cloudUI.email)+'</b></label>'
+          +'<input id="cloudCode" inputmode="numeric" maxlength="6" placeholder="123456" onkeydown="if(event.key===\'Enter\')cloudVerifyCode()">'
+          +'<button class="cbtn" onclick="cloudVerifyCode()"'+dis+'>Verify code</button>'
+          +'<button class="cbtn sec" onclick="cloudUI.stage=\'email\';cloudRender()"'+dis+'>Different e-mail</button>'
+          +'<button class="cbtn sec" onclick="cloudSendLink()"'+dis+'>Send again</button>';
+      }else{
+        body=msg+'<div class="sub">No password. We e-mail you a sign-in link and a 6-digit code — like Notion or Slack. Signing in is optional and changes nothing else yet (cloud job saving arrives in Phase 2).</div>'
+          +'<label>E-mail</label><input id="cloudEmail" type="email" placeholder="you@workshop.co.uk" value="'+esc(cloudUI.email)+'" onkeydown="if(event.key===\'Enter\')cloudSendLink()">'
+          +'<button class="cbtn" onclick="cloudSendLink()"'+dis+'>Send sign-in e-mail</button>';
+      }
+    }else{
+      const em=cloudSession.user.email||'';
+      body=msg+'<div class="cloud-row"><span>Signed in</span><b>'+esc(em)+'</b></div>';
+      if(cloudAccount){
+        body+='<div class="cloud-row"><span>Workshop</span><b>'+esc(cloudAccount.name)+'</b></div>'
+          +'<div class="cloud-row"><span>Plan</span><span class="cloud-plan">'+esc(cloudAccount.plan)+'</span></div>'
+          +'<div class="sub" style="margin-top:8px">Cloud job saving arrives in Phase 2 — nothing else changes while you are signed in.</div>';
+      }else{
+        body+='<div class="sub" style="margin-top:8px">No workshop yet — create yours (you can invite team members later).</div>'
+          +'<label>Workshop name</label><input id="cloudShop" type="text" placeholder="e.g. FAST CNC Services" onkeydown="if(event.key===\'Enter\')cloudCreateWorkshop()">'
+          +'<button class="cbtn" onclick="cloudCreateWorkshop()"'+dis+'>Create workshop</button>';
+      }
+      body+='<button class="cbtn sec" onclick="cloudSignOut()"'+dis+'>Sign out</button>';
+    }
+    ov.innerHTML='<div class="cloud-card" onclick="event.stopPropagation()"><h3>☁ Kabacal cloud <span style="margin-left:auto;cursor:pointer;color:var(--muted)" onclick="cloudClose()">✕</span></h3>'+body+'</div>';
+  }
+  function cloudBoot(){
+    if(!cloudEnabled())return;
+    cloudChip();
+    const c=cloudCfg();
+    if(c.url&&c.anonKey){
+      sbClient().then(async function(sb){
+        const s=await sb.auth.getSession();
+        cloudSession=(s.data&&s.data.session)||null;
+        cloudChip();
+        if(cloudSession)cloudFetchAccount();
+      }).catch(function(){});
+    }
+  }
+
   buildMatUI();
   genOrderNumber();
   syncClientBar();
   decorateMenus();
   pnInit();
+  cloudBoot();
   // inline Smart Takeoff: the textarea itself is the drop target (.dxf / .txt / image)
   (function(){const t=document.getElementById('tkText');if(!t)return;
     t.addEventListener('dragover',e=>{e.preventDefault();t.classList.add('over');});

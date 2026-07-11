@@ -54,6 +54,7 @@ Family: `cnc-calculator` repo = the production calculator Kabacal stays file-com
 | Quote + VAT | `calcQuote` (single composition point: doors + panels + services + spray + VAT), `sprayCalc`, `machOf`, `setSvc`, `toggleVat` |
 | Print docs | `buildQuoteHtml`, `buildCutListHtml`, `openQuoteDoc`, `openCutList` |
 | App meta | `snapshot`/`undo` (**doors-scope only** — panels/CAM edits are NOT undoable today), `validateOrder`, `genOrderNumber`, `setView`/`curMode` (modes: doors default · panels; views: order · quote · toolpaths · panels) |
+| Cloud (optional sign-in) | `cloudEnabled`/`cloudCfg` (script head), `sbClient`/`loadSupabaseJs`, `cloudBoot`, `cloudChip`, `cloudRender`, `cloudSendLink`/`cloudVerifyCode`, `cloudCreateWorkshop`, `cloudSignOut` | invisible unless the device sets `kab_cloud` — plan/contracts in docs/SAAS.md |
 
 ## Session protocol (multi-session safety)
 

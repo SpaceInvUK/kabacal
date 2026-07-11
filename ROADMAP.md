@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (z) — SaaS Fase 1 DARK: login opcional completo, invisível sem opt-in (`kab_cloud`)
+
+D1–D4 respondidos pelo Ednei (magic-link only · manter preços embutidos · sync total de negócio na Fase 3 · repo público) → `CLOUD_PHASE` 0→1 e o fluxo de sign-in inteiro entrou em `index.html`, mas **só renderiza quando o device seta `kab_cloud`** — sem opt-in o app é indistinguível do anterior (sem chip, sem DOM extra, sem NENHUM request novo). Zonas guardadas: nenhuma tocada.
+
+- **Código** (+~175 linhas: CSS `.cloud-*` + bloco JS antes do boot + `cloudBoot()`): supabase-js `@2.45.4` lazy via CDN (padrão `loadTesseract`; sessão fica na chave própria `sb-<ref>-auth-token`, não `kab_*`); chip ☁ no `.appicons`; modal com estágios e-mail → código de 6 dígitos (`signInWithOtp` + `verifyOtp` — o e-mail serve link E código, padrão Notion/Slack) → conta (workshop/plan/sign-out) ou "Create your workshop" no primeiro login (insert em `accounts` SEM `.select()` — o RETURNING não enxerga a linha antes do trigger de membership; busca via `account_members` depois). Erros sempre no `.cloud-msg`, nunca travam o busy.
+- **`tools/saas-isolation-test.mjs` (novo)**: os 9 testes de isolamento automatizados, zero deps — local (lê `supabase status`) ou hospedado (env vars); service key SÓ para criar os 2 users descartáveis, todos os checks com JWT de user. `supabase init` commitado (`config.toml`); README do supabase ganhou o runbook do script.
+- **Bloqueio registrado**: Docker Desktop desta máquina nunca completou a primeira execução (WSL sem distro → engine 500) — stack local não sobe até o Ednei concluir o wizard uma vez; os testes de isolamento rodam contra o projeto hospedado ANTES de qualquer convite (obrigatório de qualquer forma).
+- Docs: `docs/SAAS.md` (§Decisions D1–D4 + §Phase 1 status), `docs/ARCHITECTURE.md` (state registry, chave `sb-*`, Cloud tier), `AGENTS.md` (âncoras Cloud no mapa), `STATUS.md`.
+
+### Testado (z)
+`node tools/check.mjs` verde (3×) ✓ · **flag OFF byte-idêntico em comportamento**: sem `#cloudChip`, sem modal, `window.supabase` NÃO carregado (zero request ao CDN), quick-add 600×400 q2 → **£180 inc VAT**, console limpo, `kab_cloud` null ✓ · goldens não tocados (`git status tests/golden/` vazio) ✓ · **flag ON (config falsa 127.0.0.1:59999)**: chip "☁ Sign in" aparece, modal abre no estágio e-mail, Send → supabase-js carrega do CDN e o erro de rede vira `.cloud-msg` vermelho ("Failed to fetch"), busy liberado, estágio preservado ✓ · `{enabled:true}` sem url/key → card "not configured" ✓ · remover `kab_cloud` + `cloudChip()` → chip removido do DOM ✓ · **NÃO testado ainda (bloqueado pelo Docker/projeto hospedado): OTP E2E real e os 9 testes de isolamento** — ambos obrigatórios no projeto hospedado antes de convidar alguém.
+
 ## 2026-07-11 (y) — SaaS Fase 0: fundação (docs + schema Supabase + flag inerte) — SEM login, SEM mudança de comportamento
 
 Pedido do Ednei: plano faseado para SaaS (login, contas/empresas, jobs na cloud, settings por conta, Stripe depois, beta privada 3–5 users) implementando SÓ o passo mais seguro. Zonas guardadas: NENHUMA tocada (pricing/DXF/CAM/nesting intactos; goldens intactos por construção). `index.html` ganhou só um bloco de flag no topo do script (+8 linhas, inerte).
