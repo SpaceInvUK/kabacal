@@ -1,6 +1,10 @@
 # Kabacal — Supabase (cloud tier)
 
-**Status: DRAFT — no Supabase project exists yet.** This folder holds the schema and the runbook for when Phase 1 starts (see `docs/SAAS.md` for the plan and the phase gates). Nothing here affects the live app; the app only gains cloud behaviour when `CLOUD_PHASE ≥ 1` code ships AND a device opts in via `kab_cloud`.
+**Status: LIVE (dark) since 2026-07-11.** Hosted project `rvmyalrtoblxmxciiovd` (org "Kabacal LTD", AWS eu-central-1), URL `https://rvmyalrtoblxmxciiovd.supabase.co`. Migration 0001 applied; signups DISABLED (invite-only); Site URL = the Pages app + localhost:8123/8125 redirects; isolation tests **passed against this project** 2026-07-11. The app embeds the URL + **publishable** key as defaults (public by design — RLS is the gate); a device still shows zero cloud UI until `kab_cloud` sets `{"enabled":true}`.
+
+**Built-in mailer restrictions (matters before ANY beta invite):** the default email service only delivers to the project org's member addresses and cannot edit templates — so today the magic-link e-mail is the stock link-only template and reaches Ednei's own address only. **Before inviting outside users: configure custom SMTP** (Resend free tier or the fastcnc mailbox) — that unlocks delivery to anyone AND the `{{ .Token }}` 6-digit-code template the app's code input already supports.
+
+**Test fixtures:** users `iso-a@kabacal.test` / `iso-b@kabacal.test` (+ their "Iso Shop A/B" accounts, jobs, settings) are disposable rows created by the isolation tests — safe to delete from the dashboard any time; re-running the script recreates its own.
 
 ## Applying the schema
 

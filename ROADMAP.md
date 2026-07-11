@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (aa) — SaaS Fase 1 AO VIVO (dark): projeto Supabase hospedado + 10/10 testes de isolamento + E2E real
+
+Ednei criou o projeto (`rvmyalrtoblxmxciiovd`, org Kabacal LTD, eu-central-1) e pediu "faz o resto" → configurei via a sessão logada do Chrome dele: **migration 0001 aplicada** no SQL editor (colada via `monaco.setValue` — digitação por teclado corrompia com autocomplete, ex. `authenticated`→`authentication_method`; valor final byte-idêntico verificado antes do Run, "Success. No rows returned"); **signups DESLIGADOS** (invite-only); Site URL = Pages + redirects localhost 8123/8125; **3 users criados** (edneilacerda@gmail.com para o Ednei + fixtures iso-a/b@kabacal.test); chave **publishable** copiada (a secret ficou mascarada — nunca saiu do painel).
+
+- **`tools/saas-isolation-test.mjs` contra o projeto REAL: 10/10 verdes** (sanity + T1–T9) usando os users pré-criados (modo sem service key): B não lê/escreve nada de A (conta/jobs/settings), colunas travadas (sem self-upgrade de plan, sem mover job de conta), DELETE de conta falha, anônimo vê nada.
+- **App**: `CLOUD_DEFAULTS` (URL + publishable key, públicos por design) embutidos em `cloudCfg()` → o opt-in do device virou só `kab_cloud={"enabled":true}`; texto do modal ajustado para "link-first" (o mailer embutido usa template fixo SÓ com link — sem `{{ .Token }}`; o campo de código fica como secundário, já pronto para quando houver SMTP próprio).
+- **E2E dentro do app** (preview + projeto real): chip ☁ Sign in → login real (user de teste, JWT verdadeiro) → `onAuthStateChange` → chip vira **"☁ Iso Shop A …"**, modal mostra e-mail/workshop/plan `beta`/role owner (leitura via RLS `account_members`) → Sign out volta a "Sign in"; OTP para e-mail desconhecido recusado **"Signups not allowed for this instance"** (invite-only provado no app).
+- **Limite documentado (bloqueia convites, não o Ednei)**: mailer embutido entrega SÓ para membros da org e não edita template → **SMTP próprio (Resend grátis / caixa fastcnc) é o único pré-requisito antes de convidar betas**. `supabase/README.md` + `docs/SAAS.md` §Phase 1 atualizados; fixtures iso-* descartáveis documentadas.
+
+### Testado (aa)
+`check.mjs` verde (2×) ✓ · isolamento hospedado 10/10 ✓ (saída completa no chat; script re-rodável) · E2E: login/conta/plan/role/sign-out no app contra o projeto real ✓ · invite-only no app ("Signups not allowed") ✓ · **flag OFF re-verificado após embutir defaults**: sem chip, sem supabase-js, sem request, basket £180, `kab_cloud` null ✓ · goldens intactos ✓ · migration = "Success. No rows returned" + SQL do editor byte-igual ao repo ✓.
+
 ## 2026-07-11 (z) — SaaS Fase 1 DARK: login opcional completo, invisível sem opt-in (`kab_cloud`)
 
 D1–D4 respondidos pelo Ednei (magic-link only · manter preços embutidos · sync total de negócio na Fase 3 · repo público) → `CLOUD_PHASE` 0→1 e o fluxo de sign-in inteiro entrou em `index.html`, mas **só renderiza quando o device seta `kab_cloud`** — sem opt-in o app é indistinguível do anterior (sem chip, sem DOM extra, sem NENHUM request novo). Zonas guardadas: nenhuma tocada.

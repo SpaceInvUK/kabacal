@@ -141,6 +141,8 @@ Positioning: **“Kabacal helps CNC workshops quote, plan and export MDF doors a
 - **D4 repo visibility: stays public**; tenant data private via RLS.
 - **D5 (Phase 4):** plan prices/limits — still open, decide when Phase 4 starts.
 
-## Phase 1 status (shipped dark 2026-07-11)
+## Phase 1 status (LIVE dark since 2026-07-11)
 
-Client code is live but invisible: `CLOUD_PHASE=1` + the full sign-in flow (lazy supabase-js pinned `@2.45.4`, ☁ header chip, e-mail → magic link OR 6-digit code (`verifyOtp`), first-login "Create your workshop", sign out) — all rendered ONLY when a device sets `kab_cloud`. supabase-js keeps its session in its own `sb-<ref>-auth-token` localStorage key (not `kab_*`). Isolation tests: `node tools/saas-isolation-test.mjs` (local stack via Docker, or env vars for hosted). **Missing before real sign-ins: the hosted Supabase project** (Ednei creates it — checklist in supabase/README.md), then inline its URL/anon key as defaults.
+Complete and verified end-to-end, still invisible by default. Hosted project `rvmyalrtoblxmxciiovd` (created by Ednei, configured 2026-07-11): migration applied, signups disabled, Site URL + dev redirects set, **all 9 isolation tests + sanity passed against the hosted DB** (`tools/saas-isolation-test.mjs` with pre-created dashboard test users — no service key ever left the dashboard). App side: `CLOUD_DEFAULTS` (URL + publishable key, public by design) inlined so a device only needs `kab_cloud={"enabled":true}`; full E2E done in-app (real sign-in → account chip "Iso Shop A"/beta/owner via RLS → sign-out; OTP for a stranger correctly refused "Signups not allowed"). Flag-off re-verified byte-identical after inlining.
+
+**Known limit (blocks invites, not Ednei):** the built-in mailer sends only to org members and locks templates → magic-link e-mail is link-only today. **Custom SMTP (Resend free / fastcnc mailbox) is the one prerequisite before inviting beta shops**; it also enables the `{{ .Token }}` code the modal already accepts. Phase 2 (cloud jobs) is unblocked.
