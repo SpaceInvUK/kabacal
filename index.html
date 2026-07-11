@@ -7229,6 +7229,7 @@
   async function cloudSaveJob(asNew){
     if(cloudUI.busy)return;
     if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in and create your workshop first.',true);return;}
+    if(cloudAccount.status==='suspended'){cloudBusy(false,'This workshop account is suspended — cloud saving is blocked (billing).',true);return;}
     const el=document.getElementById('cloudJobName');
     const nm=((el&&el.value)||'').trim()||cloudJobName();
     cloudBusy(true,'Saving to cloud…');
@@ -7295,6 +7296,7 @@
   async function cloudPushSettings(){
     if(cloudUI.busy)return;
     if(!cloudSession||!cloudAccount){cloudBusy(false,'Sign in and create your workshop first.',true);return;}
+    if(cloudAccount.status==='suspended'){cloudBusy(false,'This workshop account is suspended — cloud saving is blocked (billing).',true);return;}
     cloudBusy(true,'Pushing settings…');
     try{
       const keys={};
@@ -7383,8 +7385,10 @@
       const em=cloudSession.user.email||'';
       body=msg+'<div class="cloud-row"><span>Signed in</span><b>'+esc(em)+'</b></div>';
       if(cloudAccount){
-        body+='<div class="cloud-row"><span>Workshop</span><b>'+esc(cloudAccount.name)+'</b></div>'
+        body+=(cloudAccount.status==='suspended'?'<div class="cloud-msg err">This workshop account is suspended — cloud saving is blocked. Reading your jobs still works.</div>':'')
+          +'<div class="cloud-row"><span>Workshop</span><b>'+esc(cloudAccount.name)+'</b></div>'
           +'<div class="cloud-row"><span>Plan</span><span class="cloud-plan">'+esc(cloudAccount.plan)+'</span></div>'
+          +'<div class="cloud-row"><span>Billing</span><span style="font-size:11px;color:var(--muted)">'+(cloudAccount.plan==='beta'?'Beta — free while the beta runs':'Managed by Stripe')+'</span></div>'
           +'<div class="cloud-row"><span>Cloud job</span><b>'+(cloudJob?esc(cloudJob.name):'not saved yet')+'</b></div>'
           +'<label style="display:block;margin-top:8px">Job name</label>'
           +'<input id="cloudJobName" type="text" value="'+esc(cloudJob?cloudJob.name:cloudJobName())+'">'

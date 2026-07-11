@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (ee) — SaaS Fase 4 PREPARADA: tabelas de billing + Edge Functions Stripe + app respeita suspensão
+
+"Pode começar a fase 4 até onde dá" → feito tudo que não precisa da conta Stripe do Ednei (que é grátis: sem mensalidade, só taxa por transação ~1.5%+20p UK; modo teste grátis para sempre).
+
+- **Migration `0002_billing.sql` APLICADA no projeto hospedado** ("Success. No rows returned"): `billing_customers` (conta ↔ customer Stripe) + `billing_subscriptions` (espelho das subscriptions com `plan` resolvido, `raw` para auditoria). RLS deny-by-default: membros LEEM as próprias linhas, **nenhum grant de escrita para clientes — o webhook (service role) é o ÚNICO escritor** dessas tabelas e de `accounts.plan/status`.
+- **3 Edge Functions completas em `supabase/functions/`** (Deno, npm:stripe@16, prontas para deploy — SÓ faltam os secrets do Ednei): `stripe-webhook` (assinatura verificada, `verify_jwt=false` no config.toml; checkout.completed + subscription created/updated/deleted; deriva plan/status: active/trialing→plano, unpaid→suspended, canceled→volta a beta, past_due→graça) · `create-checkout-session` (só OWNER, allowlist de preços via secret `STRIPE_PRICES`, CORS preso à origem do app) · `create-portal-session` (só OWNER, gerir/cancelar).
+- **App (dark)**: `status='suspended'` → banner vermelho no modal ☁ + `cloudSaveJob`/`cloudPushSettings` bloqueados com mensagem; **leitura continua** (loja suspensa sempre consegue tirar os dados). Linha "Billing: Beta — free while the beta runs".
+- **Testes de isolamento estendidos para 13** (`T10` cliente não escreve billing · `T11` B não lê billing de A · `T12` anónimo nada) — **13/13 verdes contra o hospedado**. Runbook de go-live (~30 min, modo teste) em `supabase/README.md`; D5 (valores dos planos) continua aberto.
+
+### Testado (ee)
+`check.mjs` verde ✓ · 0002 aplicada via SQL editor (monaco.setValue byte-igual, "Success. No rows returned") ✓ · **isolamento 13/13 vs hospedado** ✓ · enforcement no app (preview + projeto real, suspensão simulada em memória): banner aparece, Save/Push bloqueados com a mensagem, `cloudListJobs` continua funcionando, estado ativo mostra "Beta — free" sem banner ✓ · flag OFF prístino (£180) ✓ · goldens intactos ✓ · Stripe NÃO tocado (sem conta, sem secrets, sem deploy — por desenho).
+
 ## 2026-07-11 (dd) — SaaS Fase 3: configurações do workshop na conta (⇧ Push / ⇩ Pull) + contador de orçamento merge
 
 "Segue!" do Ednei → Fase 3 atrás do mesmo opt-in `kab_cloud`. Resolve na prática o risco nº 3 do STATUS (config de negócio presa num perfil de navegador): a partir de agora um ⇧ Push guarda tudo na conta, e qualquer outro dispositivo ⇩ Pull.

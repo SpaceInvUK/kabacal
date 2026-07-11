@@ -114,6 +114,16 @@ check('T8 accounts cannot be client-deleted', still.status === 200 && still.data
 r = await req('GET', '/rest/v1/jobs?select=id', { token: null }); // anon: apikey only, no user JWT
 check('T9 anon reads nothing', r.status !== 200 || (Array.isArray(r.data) && r.data.length === 0), `${r.status} ${JSON.stringify(r.data)}`);
 
+// ---- billing (0002): webhook/service-role is the only writer; clients read own rows only ----
+r = await req('POST', '/rest/v1/billing_subscriptions', { token: B.jwt, body: { id: `sub_fake_${ts}`, account_id: shopB.id, status: 'active' } });
+check('T10 clients cannot write billing', r.status === 403 || r.status === 401, `${r.status} ${JSON.stringify(r.data)}`);
+
+r = await req('GET', `/rest/v1/billing_subscriptions?account_id=eq.${shopA.id}`, { token: B.jwt });
+check('T11 B cannot read A billing', r.status === 200 && r.data.length === 0, `${r.status} ${JSON.stringify(r.data)}`);
+
+r = await req('GET', '/rest/v1/billing_customers?select=*', { token: null });
+check('T12 anon reads no billing', r.status !== 200 || (Array.isArray(r.data) && r.data.length === 0), `${r.status} ${JSON.stringify(r.data)}`);
+
 const bad = results.filter(x => !x.ok).length;
 console.log(bad ? `\n${bad} FAILURE(S) — DO NOT SHIP / DO NOT INVITE USERS` : '\nall isolation checks green');
 process.exit(bad ? 1 : 0);

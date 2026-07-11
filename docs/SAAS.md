@@ -17,7 +17,7 @@ Why Supabase: Postgres + Auth + RLS + Edge Functions in one vendor, generous fre
 | **1 login (LIVE dark)** | Supabase project + migration applied; optional sign-in UI (magic link); "Account" chip; signups DISABLED (invite-only) | done 2026-07-11 — D1–D4 approved, isolation tests passed |
 | **2 cloud jobs (LIVE dark)** | ☁ modal: Save to cloud / Update / Save-as-new / Open from cloud / Archive; `job_json` = the exact `buildFastCnc()` payload; welcome gate on boot (skippable) when enabled+signed-out | done 2026-07-11 — E2E cycle green vs hosted |
 | **3 account settings (LIVE dark)** | ⇧⇩ Push/Pull of the 8 business `kab_*` keys into `account_settings.settings` (raw strings, boot readers stay the only parser); quote counter max-merge; mitigates STATUS risk #3 once pushed | done 2026-07-11 — E2E vs hosted green |
-| **4 Stripe** | Checkout + customer portal + webhook → `accounts.plan/status`; plan gating | Beta feedback says people would pay; D5 (pricing) decided |
+| **4 Stripe (PREPARED)** | Billing tables applied (0002); 3 Edge Functions written in `supabase/functions/`; app enforces `status=suspended` (writes blocked, reads allowed) | To go LIVE: Ednei's Stripe test account + secrets + deploy (runbook in supabase/README.md) + D5 prices |
 | **5 public** | Self-serve signup ON, landing page, marketing | Isolation re-audit; support/backup story |
 
 Rollback at every phase = flag off (app is 100% local again). Phases are additive — no phase rewrites an earlier one.
@@ -114,12 +114,15 @@ Top of the inline script: `CLOUD_PHASE` const (**0** today) + `cloudCfg()`/`clou
 3. **Supabase CLI local stack** (`supabase init/start`, Docker): full Postgres+Auth on localhost; `supabase db reset` replays `supabase/migrations/`. Recommended from Phase 1 — RLS gets tested locally before any real data exists.
 4. **Hosted project last:** apply the same migration; flag on for dev devices only.
 
-## Stripe (Phase 4 — prepared, not built)
+## Stripe (Phase 4 — PREPARED 2026-07-11, not live)
 
-- New tables (later migration): `billing_customers` (account_id pk, stripe_customer_id unique) · `billing_subscriptions` (id = Stripe sub id, account_id, price_id, status, current_period_end, cancel_at_period_end, raw jsonb). Client access: read-only via RLS; writes ONLY from the webhook (service role).
-- Edge Functions: `create-checkout-session` (auth'd member → Checkout URL), `create-portal-session`, `stripe-webhook` (signature-verified; handles `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.payment_failed` → grace period). Webhook is the single writer of `accounts.plan/status`.
-- Plans: Beta (free, invited) · Starter · Workshop · Pro. Limits (jobs count, members) enforced where cheap in UI, where real in RLS/Edge — never front-end-only.
-- Beta accounts keep `plan='beta'` and simply bypass billing until launch.
+Everything buildable without a Stripe account is done and on the hosted project:
+
+- **Tables applied** (`supabase/migrations/0002_billing.sql`): `billing_customers` (account ↔ Stripe customer) · `billing_subscriptions` (mirror of Stripe subs incl. resolved `plan`, `current_period_end`, `raw`). Read-only for members via RLS (isolation tests T10–T12 green); **the webhook is the only writer** of these AND of `accounts.plan/status`.
+- **Edge Functions written** (`supabase/functions/`, deploy runbook in supabase/README.md): `stripe-webhook` (signature-verified, `verify_jwt=false` in config.toml; handles checkout completed + subscription created/updated/deleted; derives plan/status: active/trialing→plan, unpaid→suspended, canceled→back to beta, past_due→grace) · `create-checkout-session` (OWNER-only, price allowlist via `STRIPE_PRICES` secret, CORS pinned to the app origin) · `create-portal-session` (OWNER-only manage/cancel).
+- **App enforcement live (dark)**: `status='suspended'` shows a red banner and blocks cloud SAVING (jobs + settings push) while reads stay allowed — a suspended shop can always get its data out. Billing row shows "Beta — free while the beta runs".
+- Plans: Beta (free, invited) · Starter · Workshop · Pro — amounts = **D5, still open**. Limits (job counts, members) enforced in RLS/Edge when they exist — never front-end-only.
+- Stripe costs: no monthly fee on the standard plan — per-transaction only (~1.5% + 20p UK cards); **test mode is free forever**, so the whole flow gets E2E'd with test cards before any real money moves.
 
 ## Private beta (3–5 shops)
 
