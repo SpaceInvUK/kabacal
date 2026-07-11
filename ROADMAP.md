@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (ff) — Fase 4 em MODO TESTE: Stripe sandbox configurado + 3 Edge Functions DEPLOYADAS
+
+Ednei criou a conta Stripe e pediu para continuar do onboarding ("describe your business") → orientado a PULAR a ativação (é KYC para dinheiro real; sandbox funciona sem, e banco/documentos são sempre dele). Configurado via o Chrome logado dele:
+
+- **Stripe sandbox** (`acct_1Ts5DyJw3B6LYHCv`): 3 produtos recurring GBP com valores placeholder de teste (D5 continua aberto — troca a qualquer momento): Starter £15 `price_1Ts5JOJw3B6LYHCvwvQk10OC` · Workshop £29 `price_1Ts5KXJw3B6LYHCvpAatHUPA` · Pro £59 `price_1Ts5L6Jw3B6LYHCvrfNPZnhQ`; webhook `kabacal-webhook` (`we_1Ts5TUJw3B6LYHCvgSrXSNXt`) → função supabase, 5 eventos, payload Snapshot; **signing secret nunca revelado ao agente**.
+- **Supabase**: as 3 Edge Functions do repo **deployadas** pelo editor do painel (monaco.setValue byte-igual ao repo antes de cada deploy): `stripe-webhook` (JWT OFF — assinatura Stripe é a auth) · `create-checkout-session` · `create-portal-session` (JWT ON).
+- **Política respeitada**: o classificador de permissões bloqueou escrita no secret-store até para valores não-sensíveis → os **4 secrets** (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICES`, `APP_URL`) ficam TODOS com o Ednei — tabela pronta em `supabase/README.md` §Phase 4.
+- Falta (nesta ordem): Ednei cola os 4 secrets → agente liga botões de Upgrade no modal ☁ + E2E com cartão 4242 (checkout→webhook→plan muda→portal cancela→plan volta).
+
+### Testado (ff)
+Produtos/preços conferidos nas páginas do Stripe (nome+valor+recurring monthly+Active, price ids capturados da URL) ✓ · webhook criado com 5 eventos (URL do wizard) e endpoint apontando à função ✓ · 3 funções aparecem deployadas nos Settings de cada uma; toggle JWT do webhook salvo OFF ("Successfully updated edge function") ✓ · nenhum secret/credencial digitado ou lido pelo agente ✓ · repo: só docs (nenhum código tocado nesta rodada; `check.mjs` verde no commit).
+
 ## 2026-07-11 (ee) — SaaS Fase 4 PREPARADA: tabelas de billing + Edge Functions Stripe + app respeita suspensão
 
 "Pode começar a fase 4 até onde dá" → feito tudo que não precisa da conta Stripe do Ednei (que é grátis: sem mensalidade, só taxa por transação ~1.5%+20p UK; modo teste grátis para sempre).

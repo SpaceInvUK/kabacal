@@ -39,17 +39,20 @@ Copy `.env.example` to `.env` (**gitignored — never commit `.env`**). Only the
 6. Create each shop's account row + membership from the dashboard (or let the Phase-1 UI's "Create your workshop" do it on first login).
 7. Run the isolation tests below. **No real user data before they pass.**
 
-## Phase 4 go-live runbook (Stripe — Ednei's steps, ~30 min in TEST mode)
+## Phase 4 — TEST-mode state (2026-07-11) + the 4 secrets Ednei pastes
 
-Code is ready (`functions/`, migration 0002 applied). To switch billing on:
+**Done via the dashboard/sandbox (agent, 2026-07-11):** Stripe account created by Ednei (sandbox `acct_1Ts5DyJw3B6LYHCv`, business activation deliberately SKIPPED — only needed for live money). 3 recurring GBP products created with **placeholder test amounts** (real prices = D5, changeable any time): Kabacal Starter £15/m `price_1Ts5JOJw3B6LYHCvwvQk10OC` · Workshop £29/m `price_1Ts5KXJw3B6LYHCvpAatHUPA` · Pro £59/m `price_1Ts5L6Jw3B6LYHCvrfNPZnhQ`. Webhook destination `kabacal-webhook` (`we_1Ts5TUJw3B6LYHCvgSrXSNXt`) → `https://rvmyalrtoblxmxciiovd.supabase.co/functions/v1/stripe-webhook`, 5 events, signing secret never revealed to the agent. All 3 Edge Functions **deployed** via dashboard editor (`stripe-webhook` with JWT verification OFF; the other two ON).
 
-1. **Create the Stripe account** (stripe.com — free, no monthly fee; it opens in Test mode).
-2. Stripe → Product catalogue → create 3 Products with **recurring** Prices (Starter / Workshop / Pro — amounts = D5). Copy the three `price_…` ids.
-3. Deploy the functions (once, from the repo root; `npx supabase login` opens the browser):
-   `npx supabase functions deploy stripe-webhook create-checkout-session create-portal-session --project-ref rvmyalrtoblxmxciiovd`
-4. Stripe → Developers → Webhooks → Add endpoint `https://rvmyalrtoblxmxciiovd.supabase.co/functions/v1/stripe-webhook`, events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. Copy the `whsec_…` signing secret.
-5. Supabase dashboard → Edge Functions → Secrets (never in the repo): `STRIPE_SECRET_KEY` (sk_test_…), `STRIPE_WEBHOOK_SECRET` (whsec_…), `STRIPE_PRICES` = `{"price_A":"starter","price_B":"workshop","price_C":"pro"}`, `APP_URL` = `https://spaceinvuk.github.io/kabacal/`.
-6. Hand back to the agent: wire the Upgrade buttons in the ☁ modal + full E2E with test card `4242 4242 4242 4242` (checkout → webhook → plan flips → portal cancel → plan reverts). Only after that, and after beta demand: flip the Stripe account to live mode.
+**Remaining — Ednei pastes 4 secrets** (Supabase → Edge Functions → Secrets; the secret-store is human-only by policy):
+
+| Name | Value / where to get it |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe → Developers → API keys → reveal the **test** secret key (`sk_test_…`) |
+| `STRIPE_WEBHOOK_SECRET` | Stripe → the `kabacal-webhook` destination page → Signing secret → Reveal (`whsec_…`) |
+| `STRIPE_PRICES` | `{"price_1Ts5JOJw3B6LYHCvwvQk10OC":"starter","price_1Ts5KXJw3B6LYHCvpAatHUPA":"workshop","price_1Ts5L6Jw3B6LYHCvrfNPZnhQ":"pro"}` |
+| `APP_URL` | `https://spaceinvuk.github.io/kabacal/` |
+
+**Then hand back to the agent:** wire the Upgrade buttons in the ☁ modal + full E2E with test card `4242 4242 4242 4242` (checkout → webhook → plan flips → portal cancel → plan reverts). Live mode only after beta demand + D5 + Stripe business activation (bank/KYC — always Ednei's own steps).
 
 ## Isolation acceptance tests
 
