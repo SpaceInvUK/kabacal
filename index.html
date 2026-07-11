@@ -39,7 +39,9 @@
   .dd-item:hover{background:#eff6ff}
   .dd-sep{height:1px;background:var(--line);margin:5px 4px}
   .appicons{display:flex;gap:5px;align-items:center}
-  .appicons button{border:1px solid var(--line);background:#fff;border-radius:7px;height:28px;min-width:30px;cursor:pointer;font-size:14px;color:#334155;line-height:1}
+  .appicons button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--card);border-radius:7px;height:28px;padding:0 10px;cursor:pointer;font-size:11.5px;font-weight:700;color:var(--ink);line-height:1;white-space:nowrap}
+  .appicons .glyph{font-size:13px;line-height:1}
+  .hsep{width:1px;height:20px;background:var(--line);margin:0 4px;flex:none}
   .appicons button:hover{background:#f1f5f9}
   .ksc{margin-left:auto;color:var(--muted);font-size:11px;padding-left:14px}
   .dd-item{display:flex;align-items:center;gap:6px}
@@ -473,10 +475,11 @@
       </span>
     </div>
     <div class="appicons">
-      <button title="New project — clears the current job (Doors + Panels + toolpaths); global settings are kept" onclick="newProject()">✚</button>
-      <button title="Open / Load .fastcnc" onclick="document.getElementById('fileIn').click()">⤒</button>
-      <button title="Save .fastcnc" onclick="downloadFastCnc()">⤓</button>
-      <button title="Export DXF (Doors mode: order · Panels mode: panels)" onclick="(curMode==='panels'?pnDownloadDxf:downloadDxf)()" style="width:auto;padding:0 8px;font-size:11px;font-weight:800">DXF</button>
+      <button title="New project — clears the current job (Doors + Panels + toolpaths); global settings are kept" onclick="newProject()"><span class="glyph">✚</span> New</button>
+      <button title="Open / Load a saved .fastcnc project" onclick="document.getElementById('fileIn').click()"><span class="glyph">⤒</span> Open</button>
+      <button title="Save this project as .fastcnc" onclick="downloadFastCnc()"><span class="glyph">⤓</span> Save</button>
+      <button title="Export the cutting DXF (Doors mode: order · Panels mode: panels)" onclick="(curMode==='panels'?pnDownloadDxf:downloadDxf)()" style="font-weight:800"><span class="glyph">⬇</span> DXF</button>
+      <span class="hsep"></span>
       <div class="hdr-mode"><button id="modeDoors" class="on" onclick="setMode('doors')">Doors</button><button id="modePanels" onclick="setMode('panels')" title="Wall panelling — rooms, walls, shaker panels">Panels</button></div>
     </div>
     <div class="tabs">
@@ -541,24 +544,9 @@
       <aside class="card inspector-card"><div id="inspector"></div></aside>
       <div class="maincol">
       <div class="card">
-        <h2>New order — add the customer's items</h2>
-        <div class="hint">Each line is a door/part with its own type, size and settings — mix types freely in one list.</div>
-
-        <div class="tk-inline">
-          <textarea id="tkText" class="tkText tk-mini" placeholder="Smart Takeoff — paste sizes here (3 x 600 x 400 · 600x400 · D 450x900 · a Kabacal checklist) or drop a .dxf / .txt / image file"></textarea>
-          <div class="tk-inline-side">
-            <button class="btn primary tiny" onclick="tkAddText()">Add parts</button>
-            <button class="btn ghost tiny" onclick="tkPickImage()" title="Read a photo/screenshot of a cutting list with OCR">📷 OCR</button>
-            <span id="tkStatus" class="sub"></span>
-          </div>
-          <input id="tkImg" type="file" accept="image/*" style="display:none" onchange="if(this.files[0])tkOcr(this.files[0]);this.value=''">
-        </div>
-
-        <div class="matbar">
-          <span class="favs" id="favChips" style="display:inline-flex;gap:5px;flex-wrap:wrap"></span>
-          <input type="file" id="fileIn" accept=".json,.fastcnc.json" style="display:none" onchange="onFile(event)">
-        </div>
-        <datalist id="matList"></datalist>
+        <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">New order — add the customer's items
+          <span id="ordTotal" onclick="setView('quote')" title="Live job total — click to open the Quote" style="margin-left:auto;cursor:pointer;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:16px;padding:3px 12px;font-size:12.5px;font-weight:800">£0</span></h2>
+        <div class="hint">Type a size and press <b>Enter</b> — or paste a whole list below. Each line is a door/part with its own type, size and settings.</div>
 
         <div class="quickadd">
           <div class="qa-field"><label>Material</label><select id="qaMat" onchange="orderMaterial=this.value;updateMatPricing()" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:170px"></select></div>
@@ -572,11 +560,28 @@
             </select>
           </div>
           <div class="qa-div"></div>
-          <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600"></div>
-          <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400"></div>
-          <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" value="1"></div>
-          <div class="qa-field"><label>Text</label><input id="qaText" type="text" placeholder="optional" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:120px"></div>
-          <button class="btn primary" onclick="addItem()">+ Add to order</button>
+          <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" value="1" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Text</label><input id="qaText" type="text" placeholder="optional" onkeydown="qaEnter(event)" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:120px"></div>
+          <button class="btn primary" onclick="addItem()" title="Enter in any size field does the same">+ Add to order</button>
+        </div>
+
+        <div class="matbar">
+          <span class="favs" id="favChips" style="display:inline-flex;gap:5px;flex-wrap:wrap"></span>
+          <input type="file" id="fileIn" accept=".json,.fastcnc.json" style="display:none" onchange="onFile(event)">
+        </div>
+        <datalist id="matList"></datalist>
+
+        <div class="sub" style="margin:2px 0 4px;font-weight:700">…or paste a whole list / photo:</div>
+        <div class="tk-inline">
+          <textarea id="tkText" class="tkText tk-mini" placeholder="Smart Takeoff — paste sizes here (3 x 600 x 400 · 600x400 · D 450x900 · a Kabacal checklist) or drop a .dxf / .txt / image file"></textarea>
+          <div class="tk-inline-side">
+            <button class="btn primary tiny" onclick="tkAddText()">Add parts</button>
+            <button class="btn ghost tiny" onclick="tkPickImage()" title="Read a photo/screenshot of a cutting list with OCR">📷 OCR</button>
+            <span id="tkStatus" class="sub"></span>
+          </div>
+          <input id="tkImg" type="file" accept="image/*" style="display:none" onchange="if(this.files[0])tkOcr(this.files[0]);this.value=''">
         </div>
 
         <div id="orderWarn"></div>
@@ -660,10 +665,13 @@
       const hit=map.find(m=>m[0].test(t));
       if(hit)el.insertAdjacentHTML('afterbegin',ic(hit[1]));
     });
+    // header action buttons: proper icon + a readable LABEL (glyph-only buttons confused users)
     document.querySelectorAll('.appicons button').forEach(b=>{
       const t=b.getAttribute('title')||'';
-      if(/^Open/.test(t))b.innerHTML=ic('open',16);
-      else if(/^Save/.test(t))b.innerHTML=ic('save',16);
+      if(/^New project/.test(t))b.innerHTML=ic('plus',15)+' New';
+      else if(/^Open/.test(t))b.innerHTML=ic('open',15)+' Open';
+      else if(/^Save/.test(t))b.innerHTML=ic('save',15)+' Save';
+      else if(/DXF/.test(t))b.innerHTML=ic('export',15)+' DXF';
     });
   }
   const BLOCK_PALETTE=['#2563eb','#16a34a','#9333ea','#0891b2','#d97706','#db2777','#0d9488','#7c3aed','#ca8a04','#dc2626'];
@@ -1434,6 +1442,14 @@
       +'<div style="max-height:54vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;columns:2;column-gap:18px">'+rows+'</div>'
       +'<div style="margin-top:10px;text-align:right"><button class="btn ghost" onclick="resetFavs()">Reset to default</button></div>');
   }
+  // Enter in the quick-add row = add the part and arm the Width field for the next one (rapid entry)
+  function qaEnter(ev){if(ev.key==='Enter'){ev.preventDefault();addItem();const w=document.getElementById('qaW');if(w){w.focus();w.select();}}}
+  // live job total chip in the order header — the user sees the price WHILE building, not only in Quote
+  function updateOrderTotal(){const el=document.getElementById('ordTotal');if(!el)return;
+    try{const q=calcQuote();
+      el.textContent=hideValues?'£ •••':(money(q.total)+(vatOn?' inc VAT':' ex VAT'));
+      el.title='Live job total — click to open the Quote'+((q.panels&&q.panels.total)?(' · includes Wall Panelling '+money(q.panels.total)):'');
+    }catch(e){}}
   function setQaMat(v){const q=document.getElementById('qaMat');if(q){if(q.querySelector(`option[value="${v}"]`)===null)q.innerHTML=matOptionsHtml(v);q.value=v;}orderMaterial=v;updateMatPricing();}
   function updateMatPricing(){const mm=document.getElementById('mpMat');if(mm)mm.textContent=orderMaterial;const ms=document.getElementById('mpSheet');if(ms)ms.textContent=money(priceForSheet(orderMaterial,nestSize));const mc=document.getElementById('mpCnc');if(mc)mc.textContent=money(cncForThickness(orderMaterial));}
 
@@ -1517,6 +1533,7 @@
     if(selItem<0&&items.length)selItem=0;
     selSet=new Set([...selSet].filter(k=>k>=0&&k<items.length));
     const L=document.getElementById('list');L.innerHTML='';
+    if(!items.length)L.innerHTML='<div style="padding:26px 14px;text-align:center;color:var(--muted)"><div style="font-size:26px;margin-bottom:4px">📐</div><b style="color:var(--ink)">Type a size above and press Enter</b> — 600 × 400 is already filled in.<div class="sub" style="margin-top:5px">Or paste a whole cutting list (or drop a photo) in the box below the size row. The price updates live in the blue chip above.</div></div>';
     // group the list by material — one section per group, in first-appearance order
     const grp=new Map();items.forEach((it,i)=>{if(!grp.has(it.mat))grp.set(it.mat,[]);grp.get(it.mat).push(i);});
     grp.forEach((idxs,mat)=>{
@@ -1568,7 +1585,7 @@
     renderNest();updateMatPricing();summary();
     if(curView==='toolpaths')renderToolpaths();
     if(curView==='quote')renderQuoteView();
-    renderWarn();updateHVCheck();updateBSCheck();captureHistory();
+    renderWarn();updateHVCheck();updateBSCheck();captureHistory();updateOrderTotal();
   }
   // plain click = single select · Ctrl/Cmd+click = add/remove · Shift+click = range (list order)
   function sel(i,ev){

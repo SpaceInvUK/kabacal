@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (x) — UX round pedido pelo Ednei: topo legível + Doors "digita e vê o preço" (UI only, 1 commit reversível)
+
+Rodada CTO/Arquiteto focada em facilidade de uso (Doors + topo; Panels ficou de fora DE PROPÓSITO — as rodadas *q*–*w* de outra sessão já cobriram o inspector/labels/openings do Panels; colidir seria retrabalho). Reversão: `git revert` deste commit desfaz o pacote inteiro.
+
+- **Topo legível** (queixa explícita): os botões-glifo ✚ ⤒ ⤓ viraram botões com **ícone SVG + rótulo** — ✚ New · ⤒ Open · ⤓ Save · ⬇ DXF (o `decorateMenus` agora injeta ícone Lucide + label nos 4, em vez de substituir Open/Save por ícone mudo) + separador visual antes do toggle Doors|Panels + tooltips completos + fundo `var(--card)` (consertando o branco fixo no dark).
+- **Doors — digitar tamanho ficou instantâneo**: **Enter** em Width/Height/Qty/Text adiciona a peça e devolve o foco na Width já selecionada (`qaEnter`) — 700 ⇥ 500 ⇥ 2 ⏎ e a próxima já pode ser digitada. A linha rápida (Material/Frame/Type/W/H/Qty) subiu pro TOPO do card; o Smart Takeoff desceu com o rótulo "…or paste a whole list / photo:".
+- **Preço vivo no Order entry** (antes só existia na aba Quote): chip azul no cabeçalho do card — `£180 inc VAT` — atualiza a cada `render()`, clica → Quote, tooltip mostra "includes Wall Panelling £X" quando houver, e respeita Hide values (`£ •••`). (`updateOrderTotal` no fecho do render.)
+- **Lista vazia orienta**: "📐 Type a size above and press Enter — 600 × 400 is already filled in" + dica da lista/foto e do chip de preço.
+
+### Testado (x)
+Header: 4 botões com svg+label + hsep (DOM) ✓ screenshot conferido ✓ · Enter adiciona 700×500 q2 e foca Width ✓ · chip £0→£180 vivo ✓ · Hide values → "£ •••" ✓ · title menciona Panels quando há rooms ✓ · empty-state ✓ · **goldens byte-idênticos: QUOTE_standard + NC ll + DXF 18mm** ✓ · `check.mjs` ok ✓ · console limpo ✓.
+
 ## 2026-07-11 (w) — Área de desenho FIXA (só o inspector faz scroll) + Openings dentro de Wall
 
 **Só UI/CSS.** Zonas tocadas: layout do inspector dos Panels (`.pn-insp` CSS), Wall/Openings UI (Front + Top). NÃO tocado: geometria, motor, DXF/quote/nesting, layers, `.fastcnc`. **Goldens byte-idênticos** (browser: `GOLDEN_WALL_LAYOUT` 3428=3428, `GOLDEN_PANELS_18mm` 10038=10038); `check.mjs` verde; git só `index.html`; basket doors intacto (£300 doors / £3228 total).
