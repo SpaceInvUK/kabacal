@@ -630,6 +630,17 @@
   const CLOUD_DEFAULTS={url:'https://rvmyalrtoblxmxciiovd.supabase.co',anonKey:'sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F'};
   function cloudCfg(){try{const s=JSON.parse(localStorage.getItem('kab_cloud')||'null');return Object.assign({},CLOUD_DEFAULTS,(s&&typeof s==='object')?s:{});}catch(e){return Object.assign({},CLOUD_DEFAULTS);}}
   function cloudEnabled(){return CLOUD_PHASE>=1&&cloudCfg().enabled===true;}
+  // URL opt-in without DevTools: ?cloud=on enables this device, ?cloud=off disables.
+  // ONLY the enabled bit is togglable by URL — url/anonKey overrides stay localStorage-only
+  // (a crafted link must never be able to point the app at someone else's backend).
+  (function(){try{
+    const v=new URLSearchParams(location.search).get('cloud');
+    if(v!=='on'&&v!=='1'&&v!=='off'&&v!=='0')return;
+    let s={};try{const j=JSON.parse(localStorage.getItem('kab_cloud')||'null');if(j&&typeof j==='object')s=j;}catch(e){}
+    if(v==='on'||v==='1'){s.enabled=true;localStorage.setItem('kab_cloud',JSON.stringify(s));}
+    else{delete s.enabled;if(Object.keys(s).length)localStorage.setItem('kab_cloud',JSON.stringify(s));else localStorage.removeItem('kab_cloud');}
+    history.replaceState(null,'',location.pathname+location.hash);
+  }catch(e){}})();
   const TYPES={
     flat:{name:'Flat',badge:'b-flat',color:'#2563eb',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`},
     trad:{name:'Traditional',badge:'b-trad',color:'#9333ea',icon:c=>`<svg class="ticon" viewBox="0 0 26 26"><rect x="4.5" y="2.5" width="17" height="21" fill="none" stroke="${c}" stroke-width="1.3"/><rect x="8.5" y="6.5" width="9" height="13" fill="none" stroke="${c}" stroke-width="0.9"/></svg>`},

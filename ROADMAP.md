@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-11 (bb) — Opt-in do cloud por URL: `?cloud=on` / `?cloud=off` (sem DevTools)
+
+O Ednei esbarrou no aviso anti-self-XSS do Chrome ao colar o `localStorage.setItem` no Console — fricção inaceitável para beta users. Agora `?cloud=on` liga o device (grava `kab_cloud.enabled=true` e limpa a URL via `replaceState`), `?cloud=off` desliga (remove só o bit `enabled`, preserva overrides url/anonKey; remove a chave se ficar vazia). **Só o bit `enabled` é togglável por URL — url/anonKey continuam localStorage-only** (um link malicioso nunca pode apontar o app para outro backend). Bloco da flag no topo do script; nada guardado tocado.
+
+### Testado (bb)
+`check.mjs` verde ✓ · `?cloud=on` → chip ☁, `kab_cloud={"enabled":true}`, URL limpa ✓ · `?cloud=off` com override custom → chip some, `enabled` removido, `{"url":…}` preservado ✓ · default sem opt-in intacto (sem chip, £180) ✓ · repetido no app publicado após o deploy ✓.
+
 ## 2026-07-11 (aa) — SaaS Fase 1 AO VIVO (dark): projeto Supabase hospedado + 10/10 testes de isolamento + E2E real
 
 Ednei criou o projeto (`rvmyalrtoblxmxciiovd`, org Kabacal LTD, eu-central-1) e pediu "faz o resto" → configurei via a sessão logada do Chrome dele: **migration 0001 aplicada** no SQL editor (colada via `monaco.setValue` — digitação por teclado corrompia com autocomplete, ex. `authenticated`→`authentication_method`; valor final byte-idêntico verificado antes do Run, "Success. No rows returned"); **signups DESLIGADOS** (invite-only); Site URL = Pages + redirects localhost 8123/8125; **3 users criados** (edneilacerda@gmail.com para o Ednei + fixtures iso-a/b@kabacal.test); chave **publishable** copiada (a secret ficou mascarada — nunca saiu do painel).
