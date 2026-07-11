@@ -37,6 +37,8 @@ Deno.serve(async (req) => {
   const { data: bc } = await admin.from("billing_customers")
     .select("stripe_customer_id").eq("account_id", account_id).maybeSingle();
   if (!bc) return json({ error: "no billing customer yet — subscribe first" }, 404);
+  try { await stripe.customers.retrieve(bc.stripe_customer_id); }
+  catch { return json({ error: "billing customer belongs to another Stripe environment — subscribe again" }, 404); }
 
   const session = await stripe.billingPortal.sessions.create({
     customer: bc.stripe_customer_id,

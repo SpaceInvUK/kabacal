@@ -44,6 +44,11 @@ Deno.serve(async (req) => {
   const { data: bc } = await admin.from("billing_customers")
     .select("stripe_customer_id").eq("account_id", account_id).maybeSingle();
   let customer = bc?.stripe_customer_id;
+  if (customer) {
+    // self-heal: a mapping saved under a different Stripe environment (key swap) is
+    // invisible to the current key — verify and recreate instead of crashing forever
+    try { await stripe.customers.retrieve(customer); } catch { customer = undefined; }
+  }
   if (!customer) {
     const c = await stripe.customers.create({ email: user.email ?? undefined, metadata: { account_id } });
     customer = c.id;
