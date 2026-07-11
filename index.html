@@ -387,6 +387,12 @@
   .pn-itab.on{background:#2563eb;border-color:#2563eb;color:#fff}
   .pn-itab.on:hover{background:#2563eb;border-color:#2563eb}
   .pn-itab .cnt{opacity:.65;font-weight:700;margin-left:3px}
+  /* Doors-style accordion inside the Panels inspector (same .acc structure/behaviour, panels-density body) */
+  .pn-insp .acc{border-bottom:1px solid var(--line)}
+  .pn-insp .acc:first-of-type{border-top:0}
+  .pn-insp .acc-b{display:block;padding:9px 12px 12px}
+  .pn-insp .acc-t{font-size:12px}
+  .pn-insp .acc-hint{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pn-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:7px;font-size:12px}
   .pn-row:last-child{margin-bottom:0}
   .pn-row label{color:var(--ink)}
@@ -980,6 +986,7 @@
     });
     // Panels mode: restore the additive panelRooms field, or import legacy panel-mode blocks
     const pr=Array.isArray(doc.panelRooms)?JSON.parse(JSON.stringify(doc.panelRooms)):pnImportLegacy(doc);
+    if(doc.panelProject&&Array.isArray(doc.panelProject.lines)&&doc.panelProject.lines.length===7)pnProjLines=JSON.parse(JSON.stringify(doc.panelProject.lines));   // additive: project offset defaults
     if(pr&&pr.length){panelRooms=pr;pnSel={room:0,wall:0,kind:'room',id:null};pnSave();}
     if(!out.length){
       if(pr&&pr.length){
@@ -1060,6 +1067,7 @@
     const base=rawDoc?JSON.parse(JSON.stringify(rawDoc)):{app:'FAST CNC Quote Calculator',fileType:'fast-cnc-quote',version:1,activeCalculatorMode:'doors',customDoorTemplates:[],customOffcutTemplates:[],materialPriceOverrides:{},client:{name:'',contact:''},services:{designHours:'0',cuttingListHours:'0',assemblyHours:'0'},spray:{enabled:false,profiles:{},addons:{},prepRate:0}};
     base.savedAt=new Date().toISOString();
     base.panelRooms=JSON.parse(JSON.stringify(panelRooms||[]));   // Panels mode payload (additive — old readers ignore it)
+    base.panelProject={lines:JSON.parse(JSON.stringify(pnProjLines))};   // project-wide offset defaults (additive)
     // group items by material+size, preserving first-seen order
     const groups=new Map();
     items.forEach((it,idx)=>{const key=it.mat+'|'+it.size;if(!groups.has(key))groups.set(key,[]);groups.get(key).push({it,idx});});
@@ -5074,8 +5082,22 @@
     // ANY override (count OR a side rule) re-flows this panel's cells immediately so
     // the preview always matches the settings; joints/slices never move.
     pieces.forEach(p=>{
-      const w=walls[p.wi],ov=w&&w.panelOv&&w.panelOv[p.pid];if(!ov)return;
+      const w=walls[p.wi],ov0=w&&w.panelOv&&w.panelOv[p.pid];
+      const ps=w&&w.panelSkirt&&w.panelSkirt[p.pid];const psOn=!!(ps&&ps.mode==='custom');
+      if(!ov0&&!psOn)return;const ov=ov0||{};
       const fL=(+ov.frame>0)?+ov.frame:D.frame,f=fL;
+      // per-panel side GAP/OVERLAP (2026-07-11): 'gap' pulls this panel edge back by the ACTUAL panel
+      // thickness; 'overlap' extends it past its boundary by the same amount (mirror of the wall-end rule).
+      // pt = plan panel-layer thickness, else the material thickness — never a hard-coded 22. The piece's
+      // internal grid re-flows over the new physical width below; margins on a gap/overlap side stay a
+      // NORMAL frame (pnSideMM default branch).
+      const pt=(D.cornerTh!=null?D.cornerTh:D.th)||18;
+      const dL=(ov.sideL==='gap')?pt:((ov.sideL==='overlap')?-pt:0);
+      const dR=(ov.sideR==='gap')?pt:((ov.sideR==='overlap')?-pt:0);
+      if(dL||dR){const nx0=p.x0+dL,nx1=p.x1-dR;
+        if(nx1-nx0>=80){p.x0=nx0;p.x1=nx1;p.w=p.x1-p.x0;p.ovPhys=true;
+          p.sheet=(Math.max(p.w,p.h)>PN_CAP['8x4'])?'10x4':'8x4';}
+        else p.ovNote='gap/overlap ignored — the panel would be under 80mm wide';}
       const seen={},bands=[];
       (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
       const colsBefore=bands.length?Math.max(1,Math.round((p.cells||[]).length/bands.length)):Math.max(1,(p.cells||[]).length);
@@ -5092,6 +5114,9 @@
       }
       // per-panel FRAME — internal grid only (top/bottom margins + cell gaps); joint halves stay 40/40
       if(+ov.frame>0){const sk=D.skirtFor(p.wi,p.pid);p.sides.t=fL;p.sides.b=(p.y0<=0.5&&sk.on&&!p.isCap&&!p.isLower)?(sk.h+fL):fL;p.ovFrame=fL;}
+      // per-panel SKIRTING (2026-07-11): wall.panelSkirt[pid] wins over wall/room (skirtFor resolves panel >
+      // wall > room) — only THIS panel's bottom margin moves; the grid re-flows below with the new bottom.
+      if(psOn&&!p.isCap&&!p.isLower&&p.y0<=0.5){const sk=D.skirtFor(p.wi,p.pid);p.sides.b=sk.on?(sk.h+fL):fL;p.skirtSrc='panel';}
       // per-panel ORIENTATION — the panel's internal shaker style: 'h' = one row of shakers,
       // 'v' = columns × rows grid. Mixing panels on one wall is allowed; joints stay put.
       const gDir=(ov.dir==='v'||ov.dir==='h')?ov.dir:(bands.length>1?'v':'h');
@@ -5100,7 +5125,7 @@
       const cols=Math.max(1,Math.round(+ov.cols>0?+ov.cols:(+ov.count>0?+ov.count:colsBefore)));
       const cw=(inner-fL*(cols-1))/cols;
       if(!(cw>40)){p.ovNote=p.ovNote||'grid does not fit (cells under 40mm) — showing auto cells';return;}
-      if(gDir==='v'&&!(+ov.rows>0)&&!(+ov.h>0)&&!(+ov.frame>0)&&!ov.dir&&bands.length){
+      if(gDir==='v'&&!(+ov.rows>0)&&!(+ov.h>0)&&!(+ov.frame>0)&&!ov.dir&&!psOn&&bands.length){
         // legacy path: count-only override on an already-vertical panel keeps its original row bands
         p.cells=[];bands.forEach(b=>{for(let i=0;i<cols;i++)p.cells.push({x:p.sides.l.mm+i*(cw+fL),y:b[0],w:cw,h:b[1]});});
       }else{
@@ -5114,6 +5139,21 @@
       if(+ov.count>0||+ov.cols>0)p.ovCount=cols;
       if(ov.dir||+ov.rows>0||+ov.cols>0||+ov.h>0||+ov.frame>0)p.ovGrid=true;
     });
+    // overlap CONFLICTS (2026-07-11): a gap/overlap-adjusted panel may physically run into a neighbour on the
+    // same wall. Allowed — never blocked — but both pieces get .conflict and a warning is raised (views paint
+    // the intersection red). Only ovPhys pieces are checked, so existing layouts (band+lower/cap pairs, which
+    // legitimately share rects via notches) are never flagged and stay byte-identical.
+    pieces.forEach(p=>{if(!p.ovPhys)return;
+      pieces.forEach(q=>{if(q===p||q.wi!==p.wi)return;
+        const ix=Math.min(p.x1,q.x1)-Math.max(p.x0,q.x0),iy=Math.min(p.y1,q.y1)-Math.max(p.y0,q.y0);
+        if(ix>1&&iy>1){p.conflict=true;q.conflict=true;
+          const msg='overlap conflict: '+p.name+' runs into '+q.name+' by '+Math.round(ix)+'mm (Wall '+(p.wi+1)+')';
+          if(warns.indexOf(msg)<0)warns.push(msg);}});});
+    // wall-END overlap conflicts (plan rooms): flagged by pnPlanCompile in cornerInfo — surface them as warnings
+    walls.forEach((w,wi)=>{const ci=w&&w.cornerInfo;if(!ci||w.noPanel)return;
+      ['l','r'].forEach(sd=>{const c=ci[sd];if(c&&c.cond==='overlap'&&c.conflict){
+        const msg='overlap conflict on Wall '+(wi+1)+' ('+(sd==='l'?'start':'end')+') — the extended panel runs into the neighbouring wall\'s panel';
+        if(warns.indexOf(msg)<0)warns.push(msg);}});});
     return {pieces,runs,warns,D};
   }
   // ===== 2D room builder: compile a drawn plan into the existing Panels walls =====
@@ -5177,6 +5217,17 @@
       // end; 'through'/'butt' only override an actual corner (they need a neighbour).
       if(e.endA==='overlap')cA='overlap';else if(cA!=='free'&&(e.endA==='through'||e.endA==='butt'))cA=e.endA;
       if(e.endB==='overlap')cB='overlap';else if(cB!=='free'&&(e.endB==='through'||e.endB==='butt'))cB=e.endB;
+      // overlap CONFLICT at a corner (2026-07-11): an overlap end extends pt past the wall end. If the
+      // NEIGHBOURING wall's panel at that node does not BUTT (it passes through, or also overlaps), both
+      // panels occupy the same corner space → flag it (allowed, but drawn red + warned). A butting neighbour
+      // (shortened by pt) or a free end leaves the corner empty → no conflict.
+      const endConf=(nid,cnd)=>{if(cnd!=='overlap')return false;
+        const list=atNode[nid]||[];const oth=list.find(o=>o.e!==e);if(!oth||oth.e.noPanel)return false;
+        let oc=cond(nid,oth.i,eLen(oth.e),oth.e);
+        const oOv=(oth.e.a===nid)?oth.e.endA:oth.e.endB;
+        if(oOv==='overlap')oc='overlap';else if(oc!=='free'&&(oOv==='through'||oOv==='butt'))oc=oOv;
+        return oc==='through'||oc==='overlap';};
+      const confA=endConf(e.a,cA),confB=endConf(e.b,cB);
       // CONFIRMED corner rule (2026-07-10): the BUTT side keeps the NORMAL frame and just loses `pt` of panel
       // (the physical corner GAP the through panel passes into); the THROUGH side carries the frame+panel
       // allowance (frame+pt) so its wider stile covers that return. The wall stays full measured length; only the
@@ -5187,9 +5238,10 @@
       const shortenL=endDelta(cA), shortenR=endDelta(cB);
       const wmm=Math.max(1,measured-shortenL-shortenR);        // overlap → measured + pt per end
       const sideL=cA==='through'?'corner':'normal', sideR=cB==='through'?'corner':'normal';   // THROUGH end = frame+pt allowance
-      const endInfo=(cond,shorten)=>({cond:cond,shorten:shorten,
+      const endInfo=(cond,shorten,conf)=>({cond:cond,shorten:shorten,
         gap:cond==='butt'?pt:0,                              // BUTT: visible corner gap = panel thickness
         extend:cond==='overlap'?pt:0,                        // OVERLAP: panel extends past the wall end by pt
+        conflict:!!conf,                                     // OVERLAP running into the neighbour's panel (additive flag)
         allowance:cond==='through'?allowance:frame});        // THROUGH: frame+pt · BUTT/overlap/free: normal frame
       const w={id:id,w:wmm,h:Math.round(+e.height>0?+e.height:defH),
         dir:prev.dir||'h',sideL:sideL,sideR:sideR,
@@ -5198,7 +5250,7 @@
         openings:(prev.openings||[]).filter(o=>String(o.id).indexOf('plan_')!==0),   // keep inspector openings
         measured:measured,
         cornerInfo:{pt:pt,frame:frame,allowance:allowance,winding:winding,cornerMode:cornerMode,
-          l:endInfo(cA,shortenL),r:endInfo(cB,shortenR)},
+          l:endInfo(cA,shortenL,confA),r:endInfo(cB,shortenR,confB)},
         _edge:e.id};
       if(e.noPanel)w.noPanel=true;   // panel OFF is stored on the plan EDGE (item 6) → survives save + granular undo
       if(prev.panelNotes)w.panelNotes=prev.panelNotes;
@@ -5227,7 +5279,7 @@
   function pnDefaultLines(){return [0,1,2,3,4,5,6].map(()=>({en:false,mm:0,rd:false}));}
   function pnNewWall(){return {id:'pw'+(++pnUid)+'_'+Date.now(),w:5200,h:3200,dir:'h',sideL:'normal',sideR:'normal',shakerCount:0,vRows:2,vCols:0,openings:[],panelOv:{}};}
   function pnNewRoom(n){return {id:'pr'+(++pnUid)+'_'+Date.now(),name:'Room '+n,mat:'MDF 18mm',frame:80,target:350,doorAllow:175,
-    skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',matCost:null,cncCost:330,lines:pnDefaultLines(),walls:[pnNewWall()]};}
+    skirtOn:true,skirtH:225,sillH:22,hPanelH:1030,vPanelH:3000,sheetPref:'auto',matCost:null,cncCost:330,lines:pnDefaultLines(),linesScope:'project',walls:[pnNewWall()]};}
   // default window X: after the (rightmost) door + a min gap; if it won't fit, before the (leftmost) door; else
   // centred. Stays inside the wall. Doors/objects keep the centred default.
   function pnAutoWindowX(wall,width,gap){
@@ -5246,7 +5298,18 @@
     return {id:'po'+(++pnUid)+'_'+Date.now(),type,name:type==='door'?'Door':(type==='window'?'Window':'Object'),
       w:d.w,h:d.h,x:x,from:'L',bottom:d.bottom,topPanel:'yes'};
   }
-  function pnSave(){pnLayoutMemo.clear();try{localStorage.setItem('kab_panels',JSON.stringify({rooms:panelRooms}));}catch(e){}}
+  function pnSave(){pnLayoutMemo.clear();try{localStorage.setItem('kab_panels',JSON.stringify({rooms:panelRooms,proj:{lines:pnProjLines}}));}catch(e){}}
+  // ---- offset lines scope (2026-07-11): PROJECT (shared default) vs ROOM-only override ----
+  // pnProjLines = the project-wide A–G set. A room with linesScope 'project' follows it; 'room' uses its own
+  // room.lines. Legacy rooms (no linesScope) keep behaving: any enabled room line ⇒ 'room', else 'project' —
+  // so old files/goldens render byte-identical. All persistence is additive (kab_panels.proj / doc.panelProject).
+  let pnProjLines=pnDefaultLines();
+  function pnLinesScope(room){if(room&&(room.linesScope==='room'||room.linesScope==='project'))return room.linesScope;
+    return (room&&(room.lines||[]).some(l=>l&&l.en))?'room':'project';}
+  function pnLinesFor(room){return pnLinesScope(room)==='room'?((room.lines&&room.lines.length===7)?room.lines:pnDefaultLines()):pnProjLines;}
+  function pnSetLinesScope(v){const r=pnRoomObj();if(!r)return;r.linesScope=(v==='room')?'room':'project';
+    if(r.linesScope==='room'&&!(r.lines&&r.lines.length===7))r.lines=pnDefaultLines();
+    pnRefresh();}
   function pnRoomObj(){return panelRooms[pnSel.room]||null;}
   function pnWallObj(){const r=pnRoomObj();return r?(r.walls[pnSel.wall]||null):null;}
   // memoized layout per room (real nesting deps: candidates are scored on actual MaxRects sheets)
@@ -5385,7 +5448,7 @@
       const th=parseMat(room.mat).th;
       const nest=pnNestRoom(room,L.pieces);
       if(!byTh.has(th))byTh.set(th,[]);
-      const lines=(room.lines&&room.lines.length===7)?room.lines:[];
+      const lines=pnLinesFor(room);   // scope-aware (Project vs Room offsets)
       nest.sheets.forEach(sh=>byTh.get(th).push({mat:room.mat,room:room.name||'',lines,sh}));
     });
     const files={};byTh.forEach((list,th)=>{files['PANELS_'+th]=pnDxfForThickness(th,list);});
@@ -5421,8 +5484,8 @@
     panelRooms.forEach((room,ri)=>{
       if(onlyRoomIdx!=null&&ri!==onlyRoomIdx)return;
       let L;try{L=pnRoom(room);}catch(e){return;}
-      // room offset/pocket lines (A–G) — same source the Sheet DXF uses, so pockets added to the room show here too
-      const rlines=(room.lines&&room.lines.length===7)?room.lines.map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en):[];
+      // room offset/pocket lines (A–G) — same scope-aware source the Sheet DXF uses (Project vs Room)
+      const rlines=pnLinesFor(room).map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en);
       let maxH=1;room.walls.forEach(w=>{maxH=Math.max(maxH,Math.max(1,+w.h||0));});
       const roomX0=xCur;
       room.walls.forEach((wall,wi)=>{
@@ -5524,7 +5587,8 @@
     setView(curMode==='panels'?'panels':'order');
   }
   function pnInit(){
-    try{const s=JSON.parse(localStorage.getItem('kab_panels')||'null');if(s&&Array.isArray(s.rooms))panelRooms=s.rooms;}catch(e){}
+    try{const s=JSON.parse(localStorage.getItem('kab_panels')||'null');if(s&&Array.isArray(s.rooms))panelRooms=s.rooms;
+      if(s&&s.proj&&Array.isArray(s.proj.lines)&&s.proj.lines.length===7)pnProjLines=s.proj.lines;}catch(e){}
     // Doors is ALWAYS the default mode on open (user rule 2026-07-07). Panels stays one click away
     // in the header; the last-used mode is deliberately NOT restored.
   }
@@ -5638,8 +5702,11 @@
   }
   // select the wall from the canvas background (keep zoom + measure state; just switch the inspector context)
   function pnPickWall(){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'wall',id:null};if(pnTab==='room'||pnTab==='export')pnTab='wall';renderPanels();}
-  function pnSetLine(i,field,val){const r=pnRoomObj();if(!r)return;r.lines=r.lines&&r.lines.length===7?r.lines:pnDefaultLines();
-    const l=r.lines[i];if(!l)return;
+  function pnSetLine(i,field,val){const r=pnRoomObj();if(!r)return;
+    let arr;   // scope-aware (2026-07-11): Project scope edits the shared pnProjLines, Room scope this room's own set
+    if(pnLinesScope(r)==='project'){arr=pnProjLines;}
+    else{r.lines=r.lines&&r.lines.length===7?r.lines:pnDefaultLines();arr=r.lines;}
+    const l=arr[i];if(!l)return;
     if(field==='en')l.en=!l.en;else if(field==='rd')l.rd=!l.rd;else l.mm=Math.max(0,pnNum(val));
     pnRefresh();}
   function pnSetView(v){pnView=v;pnVb=null;renderPanels();}
@@ -5655,7 +5722,11 @@
     return ids;
   }
   const PN_SIDE_OPTS=[['normal','Normal'],['joint','Joint'],['corner','Corner'],['column','Column'],['door','Door']];
-  function pnSideSel(cur,fn){return '<select onchange="'+fn+'">'+PN_SIDE_OPTS.map(o=>'<option value="'+o[0]+'"'+(o[0]===(cur||'normal')?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';}
+  // panel-level sides also offer GAP (panel pulled back by the panel thickness) and OVERLAP (panel extended
+  // past its boundary by the panel thickness) — physical, thickness-driven (see the engine override block).
+  const PN_SIDE_OPTS_PANEL=PN_SIDE_OPTS.concat([['gap','Gap (−th)'],['overlap','Overlap (+th)']]);
+  function pnSideSel(cur,fn,panelLevel){const opts=panelLevel?PN_SIDE_OPTS_PANEL:PN_SIDE_OPTS;
+    return '<select onchange="'+fn+'">'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===(cur||'normal')?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';}
   function pnRowN(label,scope,field,val){return '<div class="pn-row"><label>'+label+'</label><input type="number" value="'+(val==null?'':val)+'" onchange="pnSet(\''+scope+'\',\''+field+'\',this.value)"></div>';}
   function pnSegHtml(opts,cur,fn){return '<div class="pn-seg">'+opts.map(o=>'<span class="'+(o[0]===cur?'on':'')+'" onclick="'+fn.replace('%V',o[0])+'">'+o[1]+'</span>').join('')+'</div>';}
   function pnWallSvg(room,L,wi){
@@ -5686,15 +5757,18 @@
       s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#e11d48" stroke-width="0.8" stroke-opacity="0.55"/>';
       s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#e11d48" fill-opacity="0.9">butt −'+Math.round(mm)+'</text>';};
     clStrip(wx0,clL*sc,clL,X(0));clStrip(X(W),clR*sc,clR,X(W));
-    // OVERLAP marker (shorten < 0): the panel EXTENDS past the wall end by pt — purple, mirrors the butt marker.
-    const ovStrip=(sx,w,mm,edgeX)=>{if(mm>=-0.5||w<=0)return;
-      const y0=Y(0),hMark=Math.max(40,Math.min(hpx*0.12,90)),yTop=y0-hMark,ym=y0-hMark*0.5;
-      s+='<line x1="'+edgeX+'" y1="'+y0+'" x2="'+edgeX+'" y2="'+yTop+'" stroke="#7c3aed" stroke-width="0.9" stroke-opacity="0.6" stroke-dasharray="4 3"/>';
-      s+='<line x1="'+sx+'" y1="'+ym+'" x2="'+(sx+w)+'" y2="'+ym+'" stroke="#7c3aed" stroke-width="0.8" stroke-opacity="0.55"/>';
-      s+='<text x="'+(sx+w/2)+'" y="'+(yTop-3)+'" text-anchor="middle" font-size="9" fill="#7c3aed" fill-opacity="0.9">overlap +'+Math.round(-mm)+'</text>';};
-    ovStrip(X(0),wx0-X(0),clL,wx0);ovStrip(wx1,X(W)-wx1,clR,wx1);
+    // OVERLAP band (shorten < 0): the panel EXTENDS past the wall end by pt. Drawn as a FILLED translucent band
+    // over the whole extension (2026-07-11 — was a thin marker, too subtle) + the wall-edge line + a bold label.
+    // Purple = clean overlap (return/external corner); RED = overlap CONFLICT (it runs into the neighbouring
+    // wall's panel — allowed, but flagged).
+    const ovStrip=(sx,w,mm,edgeX,conf)=>{if(mm>=-0.5||w<=0)return;
+      const col=conf?'#dc2626':'#7c3aed',y0=Y(0),yTop=y0-hpx;
+      s+='<rect x="'+sx+'" y="'+yTop+'" width="'+w+'" height="'+hpx+'" fill="'+col+'" fill-opacity="0.13" stroke="'+col+'" stroke-width="1" stroke-dasharray="5 3"/>';
+      s+='<line x1="'+edgeX+'" y1="'+y0+'" x2="'+edgeX+'" y2="'+yTop+'" stroke="'+col+'" stroke-width="1.2" stroke-opacity="0.8"/>';
+      s+='<text x="'+(sx+w/2)+'" y="'+(yTop+13)+'" text-anchor="middle" font-size="9.5" font-weight="800" fill="'+col+'">'+(conf?'⚠ conflict +':'overlap +')+Math.round(-mm)+'</text>';};
+    ovStrip(X(0),wx0-X(0),clL,wx0,ci&&ci.l&&ci.l.conflict);ovStrip(wx1,X(W)-wx1,clR,wx1,ci&&ci.r&&ci.r.conflict);
     // (wall/panel width summary lives ONCE in the bottom dimension chain now — no duplicate floor label)
-    const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
+    const lines=pnLinesFor(room);   // scope-aware: PROJECT default or this room's own set
     const pcs=L.pieces.filter(p=>p.wi===wi);
     pcs.forEach(p=>{
       const selp=pnSel.kind==='piece'&&pnSel.id===p.pid;
@@ -5725,6 +5799,16 @@
       if(pw>40&&ph>26)s+='<text x="'+(px+5)+'" y="'+(py+ph-6)+'" font-size="8.5" fill="var(--muted)" fill-opacity="0.75">'+Math.round(p.h)+'h</text>';
       s+='</g>';
     });
+    // overlap CONFLICTS (2026-07-11): paint the intersection where two panels physically cross each other in
+    // RED + label — allowed, never blocked, but impossible to miss.
+    for(let ia=0;ia<pcs.length;ia++)for(let ib=ia+1;ib<pcs.length;ib++){
+      const a=pcs[ia],b2=pcs[ib];if(!(a.conflict&&b2.conflict))continue;
+      const ix0=Math.max(a.x0,b2.x0),ix1=Math.min(a.x1,b2.x1),iy0=Math.max(a.y0,b2.y0),iy1=Math.min(a.y1,b2.y1);
+      if(ix1-ix0>1&&iy1-iy0>1){
+        s+='<rect x="'+X(ix0)+'" y="'+Y(iy1)+'" width="'+((ix1-ix0)*sc)+'" height="'+((iy1-iy0)*sc)+'" fill="#dc2626" fill-opacity="0.32" stroke="#dc2626" stroke-width="1.3"/>';
+        s+='<text x="'+X((ix0+ix1)/2)+'" y="'+(Y(iy1)-4)+'" text-anchor="middle" font-size="9" font-weight="800" fill="#dc2626">overlap conflict</text>';
+      }
+    }
     // wall seams of chained runs (drawn where a run crosses this wall boundary)
     (L.runs||[]).forEach(run=>{
       if(!run.seams||!run.seams.length)return;
@@ -6043,13 +6127,14 @@
       // inspector lists them too). The butt corner gap is still visible in the geometry itself. Scaled to length.
       if(sel&&!noPanel){
         const condL=ci?ci.l.cond:'', condR=ci?ci.r.cond:'';
+        const confL=!!(ci&&ci.l&&ci.l.conflict), confR=!!(ci&&ci.r&&ci.r.conflict);
         const ctf=Math.max(Math.round(fs*0.34),Math.round(wfs*0.9));
-        const cornerTag=(u,cond,mm)=>{const g0=off(u,sInt*(pt+ctf*1.1));
+        const cornerTag=(u,cond,mm,conf)=>{const g0=off(u,sInt*(pt+ctf*1.1));
           if(cond==='butt'){s+='<line x1="'+off(u,0).x.toFixed(1)+'" y1="'+off(u,0).y.toFixed(1)+'" x2="'+off(u,sInt*pt).x.toFixed(1)+'" y2="'+off(u,sInt*pt).y.toFixed(1)+'" stroke="#e11d48" stroke-width="1.4" '+ns+'/><text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#e11d48">butt −'+Math.round(mm)+'</text>';}
           else if(cond==='through'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#0f766e" fill-opacity="0.85">through</text>';}
-          else if(cond==='overlap'){s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" fill="#7c3aed">overlap +'+Math.round(-mm)+'</text>';}};
-        cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL);
-        cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR);
+          else if(cond==='overlap'){const oc=conf?'#dc2626':'#7c3aed';s+='<text x="'+g0.x.toFixed(1)+'" y="'+g0.y.toFixed(1)+'" text-anchor="middle" font-size="'+ctf+'" font-weight="'+(conf?'800':'400')+'" fill="'+oc+'">'+(conf?'⚠ conflict +':'overlap +')+Math.round(-mm)+'</text>';}};
+        cornerTag(clL>0.5?clL/2:Math.min(L*0.14,300),condL,clL,confL);
+        cornerTag(clR>0.5?L-clR/2:L-Math.min(L*0.14,300),condR,clR,confR);
       }
       // openings/objects — draggable group; interior side is +sInt, wall band is 0..-sInt*T
       (plan.openings||[]).concat(plan.objects||[]).filter(o=>o.edgeId===e.id).forEach(o=>{
@@ -6233,40 +6318,51 @@
     (plan.objects||[]).slice().forEach(o=>{if(o.edgeId===id)plan.objects=plan.objects.filter(x=>x!==o);});
     pnPlanSel=null;pnPlanApply();renderPanels();}
   function pnPlanInspectorHtml(room,L){
-    const plan=pnPlanEnsure(room),SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
+    const plan=pnPlanEnsure(room);
     const tabs={room:'',wall:'',panel:'',corners:'',openings:'',export:''};
     const head='<div class="pn-ihead"><div><div class="t">'+esc(room.name||'Room')+' · 2D builder</div><div class="s">'+(plan.edges||[]).length+' wall'+((plan.edges||[]).length===1?'':'s')+' drawn · mm</div></div></div>';
     // Draw/Select live on the toolbar; middle-mouse pans, wheel zooms, Delete deletes, Ctrl+Z undoes.
-    const builderHelp=SEC('Builder',
+    const builderHelp=pnAcc('t_help','Builder',pnPlanMsg?'⚠':'',
       '<div class="pn-hint"><b>Draw</b> = click-drag a wall ('+PN_WALL_T+'mm), chain from an endpoint. <b>Select</b> = click a wall/opening to edit it, drag a corner to move it. <b>Middle-mouse drag</b> = pan · wheel = zoom · <b>Delete</b> = remove the selected unlocked item · <b>Ctrl+Z</b> = undo one action.</div>'
-      +(pnPlanMsg?'<div class="pn-warn" style="margin-top:6px">'+esc(pnPlanMsg)+'</div>':''));
+      +(pnPlanMsg?'<div class="pn-warn" style="margin-top:6px">'+esc(pnPlanMsg)+'</div>':''),!!pnPlanMsg);
     // resolve the selected edge (if any) and point the shared controls at that wall
     let e=null,idx=-1,F=null;
     if(pnPlanSel&&pnPlanSel.kind==='edge'){e=pnPlanEdgeById(plan,pnPlanSel.id);F=e&&pnPlanEdgeFrame(plan,e);if(e&&F){idx=plan.edges.indexOf(e);pnSel.wall=idx;}else{e=null;}}
-    const parts=(idx>=0)?pnWallPanelSections(room,idx,L):{};   // {onoff,panel,sides,skirt,notes}
+    const parts=(idx>=0)?pnWallPanelSections(room,idx,L):{};   // accordion parts {t,c,b}
 
-    // ---------- WALL tab: builder help + geometry + panel on/off + sides + skirting + notes ----------
+    // ---------- WALL tab (accordion): builder help + geometry + wall ends + panel on/off + skirting + notes ----------
     {
       let w=builderHelp;
       if(idx>=0){
         const A=pnPlanNode(plan,e.a),B=pnPlanNode(plan,e.b);
-        w+=SEC('Wall '+(idx+1)+' — geometry',
+        w+=pnAcc('t_geo','Wall '+(idx+1)+' — geometry',Math.round(F.L)+' × '+Math.round(e.height||3200),
           '<div class="pn-row"><label>Length (mm)</label><input type="number" min="100" value="'+Math.round(F.L)+'" onchange="pnPlanEdgeLen(\'len\',this.value)"></div>'
           +'<div class="pn-row"><label>Wall thickness</label><input type="number" min="50" value="'+Math.round(e.wallThickness||PN_WALL_T)+'" onchange="pnPlanEdgeLen(\'thickness\',this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
           +'<div class="pn-row"><label>Height</label><input type="number" min="300" value="'+Math.round(e.height||3200)+'" onchange="pnPlanEdgeLen(\'height\',this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
-          +'<div class="pn-row"><label>Endpoint locks</label><span><button class="pn-mini" onclick="pnPlanLockNode(\'a\')">'+((A&&A.lock)?'🔒':'🔓')+' Start</button> <button class="pn-mini" onclick="pnPlanLockNode(\'b\')">'+((B&&B.lock)?'🔒':'🔓')+' End</button></span></div>');
-        w+=(parts.onoff||'')+(parts.sides||'')+(parts.skirt||'')+(parts.notes||'');
-        w+=SEC('','<button class="pn-mini" onclick="pnPlanDelEdge()" style="color:#dc2626">🗑 Delete wall</button>');
+          +'<div class="pn-row"><label>Endpoint locks</label><span><button class="pn-mini" onclick="pnPlanLockNode(\'a\')">'+((A&&A.lock)?'🔒':'🔓')+' Start</button> <button class="pn-mini" onclick="pnPlanLockNode(\'b\')">'+((B&&B.lock)?'🔒':'🔓')+' End</button></span></div>'
+          +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelEdge()" style="color:#dc2626">🗑 Delete wall</button></div>',true);
+        const ends=pnWallEndsPart(room,idx);
+        if(ends)w+=pnAcc('w_ends',ends.t,ends.c,ends.b);
+        if(parts.onoff)w+=pnAcc('w_onoff',parts.onoff.t,parts.onoff.c,parts.onoff.b);
+        if(parts.skirt)w+=pnAcc('w_skirt',parts.skirt.t,parts.skirt.c,parts.skirt.b);
+        if(parts.notes)w+=pnAcc('w_notes',parts.notes.t,parts.notes.c,parts.notes.b);
       } else {
-        w+=SEC('','<div class="pn-hint">Select a wall to edit its length, panels, shakers, sides, skirting and corners — or draw a new wall.</div>');
+        w+=pnAcc('t_pick','Wall','none','<div class="pn-hint">Select a wall to edit its length, panels, shakers, sides, skirting and corners — or draw a new wall.</div>',true);
       }
       tabs.wall=w;
     }
 
-    // ---------- PANEL tab ----------
-    if(idx>=0)tabs.panel=(parts.panel||(room.walls[idx]&&room.walls[idx].noPanel?SEC('Panel','<div class="pn-hint">Panel is OFF for this wall — turn it back On in the <b>Wall</b> tab to edit shakers.</div>'):''));
+    // ---------- PANEL tab (accordion): grid + wall-level panel sides ----------
+    if(idx>=0){
+      let ptab='';
+      if(parts.panel)ptab+=pnAcc('p_grid',parts.panel.t,parts.panel.c,parts.panel.b,true);
+      if(parts.sides)ptab+=pnAcc('p_sides',parts.sides.t,parts.sides.c,parts.sides.b);
+      if(!parts.panel&&room.walls[idx]&&room.walls[idx].noPanel)ptab+=pnAcc('p_off','Panel','OFF','<div class="pn-hint">Panel is OFF for this wall — turn it back On in the <b>Wall</b> tab to edit shakers.</div>',true);
+      ptab+=pnAcc('p_hint','Per-panel overrides','','<div class="pn-hint">To edit ONE panel (its own sides incl. Gap / Overlap, grid, skirting, notes), open <b>Front view</b> and click that panel.</div>');
+      tabs.panel=ptab;
+    }
 
-    // ---------- CORNERS tab (per-end joins + gap priority + panel side + thickness + corner shakers) ----------
+    // ---------- CORNERS tab (global corner behaviour only) ----------
     tabs.corners=pnCornerTabHtml(room,idx);
 
     // ---------- OPENINGS tab ----------
@@ -6274,31 +6370,23 @@
       let opTab='';
       if(pnPlanSel&&pnPlanSel.kind==='op'){
         const o=pnPlanOpObj();
-        if(o)opTab+=SEC(o.type.toUpperCase(),
+        if(o)opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.width||0)+'×'+Math.round(o.height||0),
           '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(o.name||'')+'" onchange="pnPlanSetOp(\'name\',this.value)"></div>'
           +'<div class="pn-row"><label>Width</label><input type="number" value="'+Math.round(o.width||0)+'" onchange="pnPlanSetOp(\'width\',this.value)"></div>'
           +'<div class="pn-row"><label>Height</label><input type="number" value="'+Math.round(o.height||0)+'" onchange="pnPlanSetOp(\'height\',this.value)"></div>'
           +'<div class="pn-row"><label>Offset from start</label><input type="number" value="'+Math.round(o.offset||0)+'" onchange="pnPlanSetOp(\'offset\',this.value)"></div>'
           +(o.type!=='door'?'<div class="pn-row"><label>Bottom</label><input type="number" value="'+Math.round(o.bottom||0)+'" onchange="pnPlanSetOp(\'bottom\',this.value)"></div>':'')
-          +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove this opening</button></div>');
+          +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove this opening</button></div>',true);
       }
-      opTab+=SEC('Openings on this wall',
+      opTab+=pnAcc('o_list','Openings on this wall','',
         '<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>'
-        +((idx<0&&!(pnPlanSel&&pnPlanSel.kind==='op'))?'<div class="pn-hint" style="margin-top:6px">Select a wall first, then add a door / window / object to it.</div>':''));
+        +((idx<0&&!(pnPlanSel&&pnPlanSel.kind==='op'))?'<div class="pn-hint" style="margin-top:6px">Select a wall first, then add a door / window / object to it.</div>':''),true);
       tabs.openings=opTab;
     }
 
-    // ---------- ROOM tab (defaults reachable from Top view too) ----------
-    tabs.room=SEC('Room defaults',
-      '<div class="pn-row"><label>Material</label><select onchange="pnSet(\'room\',\'mat\',this.value)">'+matOptionsHtml(room.mat)+'</select></div>'
-      +pnRowN('Frame (mm)','room','frame',room.frame)
-      +pnRowN('Shaker target','room','target',room.target)
-      +pnRowN('Door allowance','room','doorAllow',room.doorAllow)
-      +pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
-      +pnRowN('Vertical panel H','room','vPanelH',room.vPanelH)
-      +'<div class="pn-row"><label>Skirting</label>'+pnSegHtml([['yes','Yes'],['no','No']],room.skirtOn!==false?'yes':'no','pnSet(\'room\',\'skirtOn\',\'%V\'===\'yes\')')+'</div>'
-      +pnRowN('Skirting height','room','skirtH',room.skirtH)
-      +'<div class="pn-hint">These cascade to every wall. Pricing, offset lines and window sill are on the Front view Room tab.</div>');
+    // ---------- ROOM tab: same full accordion as the Front view (Project Standards / Room Setup /
+    // Skirting & Sill / Offsets / Pricing) — nothing is "only on the other view" any more ----------
+    tabs.room=pnRoomTabHtml(room);
 
     // ---------- EXPORT tab ----------
     tabs.export=pnExportTabHtml(room);
@@ -6404,28 +6492,28 @@
   // shared wall PANEL-RULE settings — rendered in BOTH the Front view inspector and the Top-view (2D builder)
   // inspector (item 2) so you never need to switch views to change shakers/sides/skirting/panel-on-off. All the
   // setters here act on pnSel.wall, so the caller sets pnSel.wall to this wall first.
-  // returns named parts so callers can place them across tabs: {onoff, panel(shakers/grid), sides, skirt, notes}
+  // returns named accordion PARTS {t:title,c:chip,b:body} so callers place each group under the right category:
+  // {onoff, panel(shakers/grid), sides, skirt, notes} — used by BOTH the Front and Top inspectors.
   function pnWallPanelSections(room,wi,L){
     const wall=room.walls[wi];if(!wall)return {};
-    const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
-    const onoff=SEC('Panel layer',
+    const onoff={t:'Panel on this wall',c:wall.noPanel?'OFF':'On',b:
       '<div class="pn-row"><label>Panel on this wall</label>'+pnSegHtml([['on','On'],['off','Off']],wall.noPanel?'off':'on','pnWallPanelOnOff(\'%V\')')+'</div>'
-      +'<div class="pn-hint">'+(wall.noPanel?'Panel OFF — the wall stays in the drawing but is excluded from the quote, DXF and nesting.':'Turn Off to remove this wall\'s panel while keeping the wall.')+'</div>');
+      +'<div class="pn-hint">'+(wall.noPanel?'Panel OFF — the wall stays in the drawing but is excluded from the quote, DXF and nesting.':'Turn Off to remove this wall\'s panel while keeping the wall.')+'</div>'};
     if(wall.noPanel)return {onoff:onoff};
     const isV=wall.dir==='v';
     let autoCnt=0;if(L){const run=(L.runs||[]).find(r=>r.segs.some(g=>g.wi===wi));if(run&&run.grid)autoCnt=run.grid.count;}
     const panel=isV
-      ? SEC('Vertical grid',
+      ? {t:'Vertical grid',c:(+wall.vCols>0?wall.vCols:'auto')+' × '+Math.max(1,+wall.vRows||2),b:
         '<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vCols\',-1,0)">−</button><b>'+(+wall.vCols>0?wall.vCols:'auto')+'</b><button onclick="pnStep(\'wall\',\'vCols\',1,0)">+</button></span></div>'
         +'<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnStep(\'wall\',\'vRows\',-1,1)">−</button><b>'+(Math.max(1,+wall.vRows||2))+'</b><button onclick="pnStep(\'wall\',\'vRows\',1,1)">+</button></span></div>'
-        +'<div class="pn-hint">columns ≤ '+PN_CROSS+'mm each · 0 = auto · bottom row lines up with the horizontal panel line</div>')
-      : SEC('Shakers (whole run)',
+        +'<div class="pn-hint">columns ≤ '+PN_CROSS+'mm each · 0 = auto · bottom row lines up with the horizontal panel line</div>'}
+      : {t:'Shakers (whole run)',c:(+wall.shakerCount>0?wall.shakerCount+'':autoCnt+' auto'),b:
         '<div class="pn-row"><label>Quantity</label><span class="pn-step"><button onclick="pnStepShaker(-1,'+autoCnt+')">−</button><b>'+(+wall.shakerCount>0?wall.shakerCount:autoCnt+' · auto')+'</b><button onclick="pnStepShaker(1,'+autoCnt+')">+</button></span></div>'
-        +(+wall.shakerCount>0?'<div class="pn-row"><button class="pn-mini" onclick="pnShakerAuto()">↺ Auto (target ≈ '+Math.round((L?L.D.target:350))+'mm)</button></div>':'<div class="pn-hint">auto targets ≈ '+Math.round((L?L.D.target:350))+'mm · whole run/chain</div>'));
-    const sides=SEC('Wall sides',
+        +(+wall.shakerCount>0?'<div class="pn-row"><button class="pn-mini" onclick="pnShakerAuto()">↺ Auto (target ≈ '+Math.round((L?L.D.target:350))+'mm)</button></div>':'<div class="pn-hint">auto targets ≈ '+Math.round((L?L.D.target:350))+'mm · whole run/chain</div>')};
+    const sides={t:'Panel sides (this wall)',c:(wall.sideL||'normal')+' / '+(wall.sideR||'normal'),b:
       '<div class="pn-row"><label>Left</label>'+pnSideSel(wall.sideL,'pnSet(\'wall\',\'sideL\',this.value)')+'</div>'
       +'<div class="pn-row"><label>Right</label>'+pnSideSel(wall.sideR,'pnSet(\'wall\',\'sideR\',this.value)')+'</div>'
-      +'<div class="pn-hint">Joint on both facing sides chains two walls into one shaker run (40/40 at the seam).</div>');
+      +'<div class="pn-hint">Rules for the whole wall run — Joint on both facing sides chains two walls into one shaker run (40/40 at the seam). Click a single panel to override ITS OWN sides, including <b>Gap (−th)</b> and <b>Overlap (+th)</b>.</div>'};
     const skirt=(function(){
       const wsk=L?L.D.skirtFor(wi):{on:(room.skirtOn!==false),h:+(room.skirtH!=null?room.skirtH:225)||225,src:'room'};
       const custom=!!(wall.skirt&&wall.skirt.mode==='custom');
@@ -6434,11 +6522,98 @@
         sk+='<div class="pn-row"><label>Enabled</label>'+pnSegHtml([['yes','On'],['no','Off']],wall.skirt.on!==false?'yes':'no','pnWallSkirt(\'on\',\'%V\'===\'yes\')')+'</div>'
           +'<div class="pn-row"><label>Height (mm)</label><input type="number" min="0" value="'+Math.round(wall.skirt.h!=null?wall.skirt.h:(+room.skirtH||225))+'" onchange="pnWallSkirt(\'h\',this.value)"></div>';
       }
-      sk+='<div class="pn-hint">now: '+(wsk.on?('skirting '+Math.round(wsk.h)+'mm'):'no skirting')+' · from '+(wsk.src==='wall'?'THIS wall':'room default')+'</div>';
-      return SEC('Skirting (this wall)',sk);
+      sk+='<div class="pn-hint">now: '+(wsk.on?('skirting '+Math.round(wsk.h)+'mm'):'no skirting')+' · from '+(wsk.src==='wall'?'THIS wall':(wsk.src==='panel'?'a PANEL override':'room default'))+' · affects the WHOLE wall (a single panel can override in the Panel tab)</div>';
+      return {t:'Skirting (this wall)',c:(wsk.on?Math.round(wsk.h)+'mm':'off')+(custom?' · wall':''),b:sk};
     })();
-    const notes=SEC('Wall notes',pnNotesUi(wall.notes,'pnNoteAdd','pnNoteSet','pnNoteDel'));
+    const notes={t:'Wall notes',c:((wall.notes||[]).length?((wall.notes||[]).length+''):''),b:pnNotesUi(wall.notes,'pnNoteAdd','pnNoteSet','pnNoteDel')};
     return {onoff:onoff,panel:panel,sides:sides,skirt:skirt,notes:notes};
+  }
+  // ---- Doors-style accordion inside the Panels inspector (2026-07-11) ----
+  // Same structure/behaviour as the Doors editing accordion (.acc classes): collapsible sections with a
+  // header, an optional status chip and an expand arrow. Open/closed state lives in pnAccOpen (session only).
+  let pnAccOpen={},pnAccNow={};
+  function pnAccToggle(id){pnAccOpen[id]=!pnAccNow[id];renderPanels();}
+  function pnAcc(id,title,chip,body,dflt){
+    const open=(pnAccOpen[id]!==undefined)?!!pnAccOpen[id]:!!dflt;pnAccNow[id]=open;
+    return '<div class="acc'+(open?' open':'')+'"><div class="acc-h" onclick="pnAccToggle(\''+id+'\')"><span class="acc-t">'+title+'</span>'
+      +(chip!==''&&chip!=null?'<span class="acc-hint">'+esc(String(chip))+'</span>':'')
+      +'<span class="acc-c">'+(open?'▾':'▸')+'</span></div>'
+      +(open?'<div class="acc-b">'+body+'</div>':'')+'</div>';
+  }
+  // Thickness (Project Standards): 12/18/22 for now — sets the room material thickness (pricing + DXF grouping)
+  // AND, for a drawn room, the plan panel-layer thickness so the corner gap/overlap size always follows it.
+  const PN_TH_OPTS=[12,18,22];
+  function pnSetThickness(v){const r=pnRoomObj();if(!r)return;const th=Math.max(1,Math.round(+v||18));
+    r.mat=/\d+\s*mm/.test(r.mat||'')?String(r.mat).replace(/\d+\s*mm/,th+'mm'):('MDF '+th+'mm');
+    if(r.plan){pnPlanEnsure(r).panelLayer.thickness=th;r.walls=pnPlanCompile(r);}
+    pnRefresh();}
+  function pnStdApplyAll(){const src=pnRoomObj();if(!src)return;
+    if(!confirm('Copy these Project Standards (thickness, frame, shaker target, corner match, door allowance, panel heights) to ALL rooms?'))return;
+    const th=pnThick(src.mat)||18;
+    panelRooms.forEach(r=>{if(r===src)return;
+      r.mat=/\d+\s*mm/.test(r.mat||'')?String(r.mat).replace(/\d+\s*mm/,th+'mm'):('MDF '+th+'mm');
+      r.frame=src.frame;r.target=src.target;r.cornerMatch=!!src.cornerMatch;r.doorAllow=src.doorAllow;
+      r.hPanelH=src.hPanelH;r.vPanelH=src.vPanelH;
+      if(r.plan){pnPlanEnsure(r).panelLayer.thickness=th;r.walls=pnPlanCompile(r);}});
+    pnRefresh();}
+  // per-panel skirting (Panel tab): wall.panelSkirt[pid] = {mode:'custom',on,h} — resolver skirtFor(wi,pid)
+  function pnPanelSkirt(field,val){const w=pnWallObj();if(!w||pnSel.kind!=='piece')return;w.panelSkirt=w.panelSkirt||{};
+    let ps=w.panelSkirt[pnSel.id];
+    if(field==='mode'){
+      if(val==='custom')w.panelSkirt[pnSel.id]={mode:'custom',on:(ps&&ps.on!==undefined)?ps.on:true,h:(ps&&ps.h!=null)?ps.h:(+((pnRoomObj()||{}).skirtH)||225)};
+      else delete w.panelSkirt[pnSel.id];
+    } else {ps=w.panelSkirt[pnSel.id]=ps||{mode:'custom',on:true,h:(+((pnRoomObj()||{}).skirtH)||225)};
+      if(field==='on')ps.on=(val===true||val==='yes');else if(field==='h')ps.h=Math.max(0,pnNum(val));}
+    pnRefresh();}
+  // ---- ROOM category (shared by Front + Top inspectors): Project Standards / Room Setup / Skirting & Sill /
+  // Offsets (Project vs Room scope) / Pricing — Pricing intentionally LAST.
+  function pnRoomTabHtml(room){
+    const th=pnThick(room.mat)||18;
+    const thList=(PN_TH_OPTS.indexOf(th)>=0?PN_TH_OPTS:[th].concat(PN_TH_OPTS));
+    const scope=pnLinesScope(room),lines=pnLinesFor(room),enN=lines.filter(l=>l&&l.en).length;
+    let s='';
+    s+=pnAcc('r_std','Project Standards',th+'mm · frame '+Math.round(+room.frame||80),
+      '<div class="pn-row"><label>Thickness</label><select onchange="pnSetThickness(this.value)">'+thList.map(t=>'<option value="'+t+'"'+(t===th?' selected':'')+'>'+t+'mm</option>').join('')+'</select></div>'
+      +'<div class="pn-hint" style="margin:-2px 0 6px">panel/sheet thickness — drives pricing, the DXF file grouping and the corner gap/overlap size</div>'
+      +pnRowN('Frame (mm)','room','frame',room.frame)
+      +pnRowN('Shaker target','room','target',room.target)
+      +'<div class="pn-row"><label>Match corner shakers</label>'+pnSegHtml([['no','Off'],['yes','On']],room.cornerMatch?'yes':'no','pnSet(\'room\',\'cornerMatch\',\'%V\'===\'yes\')')+'</div>'
+      +pnRowN('Door allowance','room','doorAllow',room.doorAllow)
+      +pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
+      +pnRowN('Vertical panel H','room','vPanelH',room.vPanelH)
+      +'<div class="pn-hint">horizontal band ≤ '+PN_CROSS+' · vertical ≤ '+PN_CAP['10x4']+'</div>'
+      +'<div class="pn-row" style="margin-top:6px"><button class="pn-mini" onclick="pnStdApplyAll()" title="Copy these standards to EVERY room in the project">↧ Apply standards to all rooms</button></div>',true);
+    s+=pnAcc('r_setup','Room Setup',esc(room.name||'Room'),
+      '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(room.name||'')+'" onchange="pnSet(\'room\',\'name\',this.value)"></div>'
+      +'<div class="pn-row"><label>Sheet use</label>'+pnSegHtml([['auto','Auto 8x4/10x4'],['8x4','8x4 only']],room.sheetPref==='8x4'?'8x4':'auto','pnSet(\'room\',\'sheetPref\',\'%V\')')+'</div>'
+      +'<div class="pn-hint">Auto: runs ≤ '+PN_CAP['10x4']+'mm stay one piece on 10x4; longer runs split at frame centrelines with the cheapest 8x4/10x4 mix.</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="pn-mini" onclick="pnDupRoom()">⧉ Duplicate room</button>'
+      +(panelRooms.length>1?'<button class="pn-mini" onclick="pnDelRoom()" style="color:#dc2626">🗑 Delete room</button>':'')+'</div>');
+    s+=pnAcc('r_skirt','Skirting & Sill',(room.skirtOn!==false?Math.round(room.skirtH!=null?room.skirtH:225)+'mm':'off'),
+      '<div class="pn-row"><label>Skirting</label>'+pnSegHtml([['yes','Yes'],['no','No']],room.skirtOn!==false?'yes':'no','pnSet(\'room\',\'skirtOn\',\'%V\'===\'yes\')')+'</div>'
+      +pnRowN('Skirting height','room','skirtH',room.skirtH)
+      +pnRowN('Window sill','room','sillH',room.sillH)
+      +'<div class="pn-hint">room default — a wall (Wall tab) or a single panel (Panel tab) can override it</div>');
+    s+=pnAcc('r_off','Offsets',(scope==='project'?'Project':'Room')+(enN?' · '+enN+' on':''),
+      '<div class="pn-row"><label>Scope</label>'+pnSegHtml([['project','Project'],['room','Room only']],scope,'pnSetLinesScope(\'%V\')')+'</div>'
+      +'<div class="pn-hint" style="margin-bottom:6px">'+(scope==='project'
+        ?'<b>PROJECT</b> offsets — one shared set, the default for every room on Project scope. Editing here changes all of them.'
+        :'<b>ROOM-only</b> offsets — this room keeps its own set and ignores the project default.')+'</div>'
+      +lines.map((l,i)=>{
+        const Lt='ABCDEFG'[i];
+        return '<div class="pn-row"><label><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:'+OFFCOL[Lt]+';margin-right:5px;vertical-align:middle"></span>'+Lt+'</label>'
+          +'<span style="display:flex;gap:4px;align-items:center">'
+          +'<span class="pn-seg"><span class="'+(l.en?'on':'')+'" onclick="pnSetLine('+i+',\'en\')">'+(l.en?'On':'Off')+'</span></span>'
+          +'<input type="number" style="width:56px" value="'+(l.mm||0)+'" onchange="pnSetLine('+i+',\'mm\',this.value)">'
+          +'<span class="pn-seg"><span class="'+(l.rd?'on':'')+'" title="Round corners" onclick="pnSetLine('+i+',\'rd\')">R</span></span>'
+          +'</span></div>';
+      }).join('')
+      +'<div class="pn-hint">drawn inside every shaker cavity · exported to OFFSET_A–G in the Sheet + Wall Layout DXFs</div>');
+    s+=pnAcc('r_price','Pricing (per sheet)','£'+(room.cncCost==null?330:room.cncCost)+' CNC',
+      '<div class="pn-row"><label>Material £/sheet</label><input type="number" value="'+(room.matCost==null?'':room.matCost)+'" placeholder="book" onchange="pnSet(\'room\',\'matCost\',this.value)"></div>'
+      +'<div class="pn-row"><label>CNC £/sheet</label><input type="number" value="'+(room.cncCost==null?330:room.cncCost)+'" onchange="pnSet(\'room\',\'cncCost\',this.value)"></div>'
+      +'<div class="pn-hint">empty material = price book per sheet size · CNC default £330/sheet (panelling rate)</div>');
+    return s;
   }
   // ---- inspector sub-tabs (item 1): Room / Wall / Panel / Corners / Openings / Export ----
   // The SAME organised structure renders in BOTH the Front (elevation) and Top (2D builder) inspectors.
@@ -6457,50 +6632,53 @@
   function pnSetWallEnd(wi,which,val){const room=pnRoomObj();if(!room||!room.plan)return;const w=room.walls[wi];if(!w)return;
     const eid=String(w.id||'').replace(/^pe_/,'');const e=pnPlanEdgeById(room.plan,eid);if(!e)return;
     pnPlanSnapshot();const k=which==='a'?'endA':'endB';if(val==='auto')delete e[k];else e[k]=val;pnPlanApply();renderPanels();}
-  // per-end Auto/Through/Butt/Overlap controls for a plan wall — '' for a non-plan (standalone) wall
-  function pnCornerBlock(room,wi){
-    const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
-    const plan=room&&room.plan;if(!plan)return '';
-    const wall=room.walls[wi];if(!wall)return '';
-    const eid=String(wall.id||'').replace(/^pe_/,'');const e=pnPlanEdgeById(plan,eid);if(!e)return '';
+  // per-end Auto/Through/Butt/Overlap controls for a plan wall — accordion PART {t,c,b} (lives in the WALL tab,
+  // because start/end joins belong to the wall ends); null for a non-plan (standalone) wall.
+  function pnWallEndsPart(room,wi){
+    const plan=room&&room.plan;if(!plan)return null;
+    const wall=room.walls[wi];if(!wall)return null;
+    const eid=String(wall.id||'').replace(/^pe_/,'');const e=pnPlanEdgeById(plan,eid);if(!e)return null;
     const F=pnPlanEdgeFrame(plan,e),ci=wall.cornerInfo;
     const condTxt=side=>{if(!ci)return '';const c=ci[side],nm=side==='l'?'Start':'End';
       if(c.cond==='butt')return nm+' — Butt corner: NORMAL frame '+Math.round(c.allowance)+'mm, panel shortened '+Math.round(c.shorten)+'mm (corner gap '+Math.round(c.gap)+'mm for the through panel)';
       if(c.cond==='through')return nm+' — Through corner: full length, frame + panel = '+Math.round(c.allowance)+'mm allowance';
-      if(c.cond==='overlap')return nm+' — Overlap: panel EXTENDS +'+Math.round(c.extend)+'mm past the wall end (return/external corner)';return nm+' — free end';};
+      if(c.cond==='overlap')return nm+' — Overlap: panel EXTENDS +'+Math.round(c.extend)+'mm past the wall end'+(c.conflict?' — ⚠ CONFLICT: it runs into the neighbouring wall\'s panel':' (return/external corner)');
+      return nm+' — free end';};
     // Overlap can go on any end (incl. a free end). Through/Butt only make sense on a real corner.
     const endCtl=(side,which)=>{const cur=(e[which==='a'?'endA':'endB'])||'auto';const isCorner=ci&&ci[side].cond!=='free';
       const opts=isCorner?[['auto','Auto'],['through','Through'],['butt','Butt'],['overlap','Overlap']]:[['auto','Auto'],['overlap','Overlap']];
       return '<div class="pn-row"><label>'+(side==='l'?'Start':'End')+(isCorner?' corner':' end')+'</label>'+pnSegHtml(opts,cur,'pnSetWallEnd('+wi+',\''+which+'\',\'%V\')')+'</div>';};
+    const conf=ci&&((ci.l&&ci.l.conflict)||(ci.r&&ci.r.conflict));
     const expl=ci?('<div class="pn-hint" style="line-height:1.5">measured '+Math.round(wall.measured||(F?F.L:wall.w))+'mm → <b>panel '+Math.round(wall.w)+'mm</b> (panel '+Math.round(ci.pt)+'mm · frame '+Math.round(ci.frame)+')<br>'+esc(condTxt('l'))+'<br>'+esc(condTxt('r'))+'</div>'):'';
-    return SEC('Wall '+(wi+1)+' ends',expl+endCtl('l','a')+endCtl('r','b'));
+    const chip=ci?((ci.l?ci.l.cond:'—')+' / '+(ci.r?ci.r.cond:'—')+(conf?' ⚠':'')):'';
+    return {t:'Wall ends (corners)',c:chip,b:(conf?'<div class="pn-warn" style="margin-bottom:6px">⚠ overlap conflict — the extended panel runs into the neighbouring wall\'s panel (allowed, shown in red)</div>':'')+expl+endCtl('l','a')+endCtl('r','b')};
   }
-  // whole Corners tab (per-end joins + gap priority + panel side + panel thickness + corner-shaker matching)
+  // CORNERS tab = GLOBAL corner behaviour only (per-end joins live in the Wall tab; thickness in Room →
+  // Project Standards) — no control is duplicated across tabs.
   function pnCornerTabHtml(room,wi){
-    const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
-    if(!room.plan)return SEC('Corners','<div class="pn-hint">Corner joints (Through / Butt / Overlap, gap priority, panel side) come from the <b>2D builder</b>. Open <b>Top view</b> to draw the room and set corners — a standalone wall has no corners.</div>');
-    let s=pnCornerBlock(room,wi);
+    if(!room.plan)return pnAcc('c_info','Corners','',
+      '<div class="pn-hint">Corner joints (Through / Butt / Overlap, gap priority, panel side) come from the <b>2D builder</b>. Open <b>Top view</b> to draw the room and set corners — a standalone wall has no corners.</div>',true);
     const anyCI=(room.walls||[]).map(w=>w.cornerInfo).find(Boolean);
     const wnd=anyCI&&anyCI.winding,wLbl=wnd==='cw'?'clockwise':(wnd==='ccw'?'anticlockwise':'—');
     const cmNow=room.plan.cornerMode==='winding'?'winding':(room.plan.cornerMode==='longgap'?'longgap':'auto');
-    s+=SEC('Corner gap priority',
+    let s='';
+    s+=pnAcc('c_gap','Corner gap priority',cmNow==='auto'?'shorter':(cmNow==='longgap'?'longer':'winding'),
       '<div class="pn-row"><label>Gap on</label>'+pnSegHtml([['auto','Shorter wall'],['longgap','Longer wall'],['winding','Winding']],cmNow,'pnPlanSetCornerMode(\'%V\')')+'</div>'
-      +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Shorter wall</b> (default): the longer wall passes through, the shorter butts / takes the gap. <b>Longer wall</b>: the LONGER wall butts / takes the gap. <b>Winding</b>: uses the draw direction (arriving through, leaving butts). Only the panel gap/side moves — measured length stays. Per-corner Auto/Through/Butt/Overlap above always overrides.</div>');
-    s+=SEC('Panel side',
+      +'<div class="pn-hint">Detected drawing direction: <b>'+wLbl+'</b>. <b>Shorter wall</b> (default): the longer wall passes through, the shorter butts / takes the gap. <b>Longer wall</b>: the LONGER wall butts / takes the gap. <b>Winding</b>: uses the draw direction (arriving through, leaving butts). Only the panel gap/side moves — measured length stays. The per-wall Start/End controls (Wall tab → Wall ends) always override.</div>',true);
+    s+=pnAcc('c_flip','Panel side',room.plan.flipInside?'outside':'inside',
       '<div class="pn-row"><label>Panels</label><span>'+(room.plan.flipInside?'flipped (outside)':'inside the room')+'</span></div>'
       +'<div class="pn-row"><button class="pn-mini" onclick="pnPlanFlipInside()">⇄ Flip panel side</button></div>'
       +'<div class="pn-hint">Panels default to the INSIDE of a closed room automatically, whatever direction you drew the walls. If a wall\'s panel ends up on the wrong face, flip it here.</div>');
-    s+=SEC('Panel thickness',
-      '<div class="pn-row"><label>Thickness</label><input type="number" min="1" value="'+Math.round((room.plan.panelLayer&&room.plan.panelLayer.thickness)||PN_PANEL_T)+'" onchange="pnPlanSetPanelT(this.value)"><span class="sub" style="margin-left:4px">mm</span></div>'
-      +'<div class="pn-hint">Teal panel layer in front of each wall · drives the corner clearance/allowance and the Overlap extension.</div>');
-    s+=SEC('Corner shakers',
+    s+=pnAcc('c_match','Corner shakers',room.cornerMatch?'match on':'off',
       '<div class="pn-row"><label>Match corner shakers</label>'+pnSegHtml([['no','Off'],['yes','On']],room.cornerMatch?'yes':'no','pnSet(\'room\',\'cornerMatch\',\'%V\'===\'yes\')')+'</div>'
       +'<div class="pn-hint">Harmonise shaker widths across all walls so corner-adjacent shakers look consistent (L/U corners too).</div>');
+    s+=pnAcc('c_help','How corners work','',
+      '<div class="pn-hint" style="line-height:1.5"><b>Through</b> = passes through the corner, wider stile (frame + panel thickness). <b>Butt</b> = stops short by the panel thickness (the corner gap). <b>Overlap</b> = extends PAST the wall end by the panel thickness (external/return corner) — if it runs into the neighbour\'s panel it is allowed but shown in RED as an <b>overlap conflict</b>. The wall\'s measured length never changes — only the physical panel. Per-wall Start/End controls: <b>Wall tab → Wall ends</b>. Panel thickness: <b>Room → Project Standards</b>.</div>');
     return s;
   }
   // Export tab — the two DXF types (shared by both views)
   function pnExportTabHtml(room){
-    const SEC=(lab,body)=>'<div class="pn-sec"><div class="lab">'+lab+'</div>'+body+'</div>';
+    const SEC=(lab,body)=>pnAcc('x_dxf',lab||'Export','',body,true);
     const nm=esc(room.name||'room');
     return SEC('Export DXF',
       '<div class="pn-hint" style="margin-bottom:8px">Two DXF types — the same output as the toolbar buttons.</div>'
@@ -6519,72 +6697,42 @@
     if(pnSel.kind==='piece')p=(L?L.pieces:[]).find(x=>x.pid===pnSel.id)||null;
     if(pnSel.kind==='piece'&&!p)pnSel.kind='wall';
 
-    // ---------- ROOM tab: room defaults (always reachable) ----------
-    {
-      const lines=(room.lines&&room.lines.length===7)?room.lines:pnDefaultLines();
-      tabs.room=SEC('Room',
-        '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(room.name||'')+'" onchange="pnSet(\'room\',\'name\',this.value)"></div>'
-        +'<div class="pn-row"><label>Material</label><select onchange="pnSet(\'room\',\'mat\',this.value)">'+matOptionsHtml(room.mat)+'</select></div>'
-        +pnRowN('Frame (mm)','room','frame',room.frame)
-        +pnRowN('Shaker target','room','target',room.target)
-        +'<div class="pn-row"><label>Match corner shakers</label>'+pnSegHtml([['no','Off'],['yes','On']],room.cornerMatch?'yes':'no','pnSet(\'room\',\'cornerMatch\',\'%V\'===\'yes\')')+'</div>'
-        +pnRowN('Door allowance','room','doorAllow',room.doorAllow))
-      +SEC('Heights',
-        pnRowN('Horizontal panel H','room','hPanelH',room.hPanelH)
-        +pnRowN('Vertical panel H','room','vPanelH',room.vPanelH)
-        +'<div class="pn-hint">horizontal band ≤ '+PN_CROSS+' · vertical ≤ '+PN_CAP['10x4']+'</div>')
-      +SEC('Skirting & sill',
-        '<div class="pn-row"><label>Skirting</label>'+pnSegHtml([['yes','Yes'],['no','No']],room.skirtOn!==false?'yes':'no','pnSet(\'room\',\'skirtOn\',\'%V\'===\'yes\')')+'</div>'
-        +pnRowN('Skirting height','room','skirtH',room.skirtH)
-        +pnRowN('Window sill','room','sillH',room.sillH))
-      +SEC('Sheets',
-        '<div class="pn-row"><label>Sheet use</label>'+pnSegHtml([['auto','Auto 8x4/10x4'],['8x4','8x4 only']],room.sheetPref==='8x4'?'8x4':'auto','pnSet(\'room\',\'sheetPref\',\'%V\')')+'</div>'
-        +'<div class="pn-hint">Auto: runs ≤ '+PN_CAP['10x4']+'mm stay one piece on 10x4; longer runs split at frame centrelines with the cheapest 8x4/10x4 mix.</div>')
-      +SEC('Pricing (per sheet)',
-        '<div class="pn-row"><label>Material £/sheet</label><input type="number" value="'+(room.matCost==null?'':room.matCost)+'" placeholder="book" onchange="pnSet(\'room\',\'matCost\',this.value)"></div>'
-        +'<div class="pn-row"><label>CNC £/sheet</label><input type="number" value="'+(room.cncCost==null?330:room.cncCost)+'" onchange="pnSet(\'room\',\'cncCost\',this.value)"></div>'
-        +'<div class="pn-hint">empty material = price book per sheet size · CNC default £330/sheet (panelling rate)</div>')
-      +SEC('Offset lines (A–G)',
-        lines.map((l,i)=>{
-          const Lt='ABCDEFG'[i];
-          return '<div class="pn-row"><label><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:'+OFFCOL[Lt]+';margin-right:5px;vertical-align:middle"></span>'+Lt+'</label>'
-            +'<span style="display:flex;gap:4px;align-items:center">'
-            +'<span class="pn-seg"><span class="'+(l.en?'on':'')+'" onclick="pnSetLine('+i+',\'en\')">'+(l.en?'On':'Off')+'</span></span>'
-            +'<input type="number" style="width:56px" value="'+(l.mm||0)+'" onchange="pnSetLine('+i+',\'mm\',this.value)">'
-            +'<span class="pn-seg"><span class="'+(l.rd?'on':'')+'" title="Round corners" onclick="pnSetLine('+i+',\'rd\')">R</span></span>'
-            +'</span></div>';
-        }).join('')
-        +'<div class="pn-hint">drawn inside every shaker cavity · exported to DXF layers OFFSET_A–G in Phase 2</div>')
-      +SEC('',
-        '<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="pn-mini" onclick="pnDupRoom()">⧉ Duplicate room</button>'
-        +(panelRooms.length>1?'<button class="pn-mini" onclick="pnDelRoom()" style="color:#dc2626">🗑 Delete room</button>':'')+'</div>');
-    }
+    // ---------- ROOM tab: Doors-style accordion — Project Standards / Room Setup / Skirting & Sill /
+    // Offsets (Project vs Room scope) / Pricing (last). Shared with the Top-view inspector. ----------
+    tabs.room=pnRoomTabHtml(room);
 
-    // ---------- WALL tab: this wall's size + panel on/off + sides + skirting + notes ----------
+    // ---------- WALL tab (accordion): Wall Setup / Wall ends (plan) / Panel on-off / Skirting / Notes.
+    // Panel SIDE rules moved to the Panel tab (they shape the panels, not the wall). ----------
     if(wall){
       const wMeasured=(+wall.measured>0?+wall.measured:+wall.w||0),dPanel=Math.round((+wall.w||0)-wMeasured);   // <0 = corner gap (butt), >0 = overlap (item 2)
-      tabs.wall=SEC('Wall',
+      let wtab=pnAcc('w_setup','Wall Setup',Math.round(wMeasured)+' × '+Math.round(wall.h),
         pnRowN('Width (wall)','wall','w',Math.round(wMeasured))
         +(dPanel<-0.5?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (corner gap '+(-dPanel)+'mm)</div>':(dPanel>0.5?'<div class="pn-hint">wall '+Math.round(wMeasured)+'mm → panel '+Math.round(wall.w)+'mm (overlap +'+dPanel+'mm)</div>':''))
         +pnRowN('Height','wall','h',wall.h)
-        +'<div class="pn-row"><label>Direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],wall.dir||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>')
-        +(parts.onoff||'')+(parts.sides||'')+(parts.skirt||'')+(parts.notes||'')
-        +SEC('',(room.walls.length>1?'<button class="pn-mini" onclick="pnDelWall()" style="color:#dc2626">🗑 Delete wall</button>':'<span class="pn-hint">a room keeps at least one wall</span>'));
+        +'<div class="pn-row"><label>Direction</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],wall.dir||'h','pnSet(\'wall\',\'dir\',\'%V\')')+'</div>'
+        +'<div class="pn-row" style="margin-top:8px">'+(room.walls.length>1?'<button class="pn-mini" onclick="pnDelWall()" style="color:#dc2626">🗑 Delete wall</button>':'<span class="pn-hint">a room keeps at least one wall</span>')+'</div>',true);
+      const ends=pnWallEndsPart(room,pnSel.wall);
+      if(ends)wtab+=pnAcc('w_ends',ends.t,ends.c,ends.b);
+      if(parts.onoff)wtab+=pnAcc('w_onoff',parts.onoff.t,parts.onoff.c,parts.onoff.b);
+      if(parts.skirt)wtab+=pnAcc('w_skirt',parts.skirt.t,parts.skirt.c,parts.skirt.b);
+      if(parts.notes)wtab+=pnAcc('w_notes',parts.notes.t,parts.notes.c,parts.notes.b);
+      tabs.wall=wtab;
     }
 
-    // ---------- PANEL tab: shakers/vertical grid + (selected-panel override) ----------
+    // ---------- PANEL tab (accordion): Selected panel (incl. per-panel SIDES with Gap/Overlap + per-panel
+    // skirting + notes) / Shakers (whole run) / Panel sides (this wall — moved here from the Wall tab) ----------
     if(wall){
-      let pt='';
+      let ptab='';
       if(p){
         const ov=(wall.panelOv&&wall.panelOv[p.pid])||{};
         const cnt=p.ovCount||((p.cells||[]).length&&p.dir==='h'?(p.cells||[]).length:Math.max(1,Math.round((p.cells||[]).length/Math.max(1,+wall.vRows||2))));
         const isCustom=!!(ov.count||ov.cols||ov.rows||ov.h||ov.frame||ov.dir||ov.sideL||ov.sideR);
-        const gDirNow=p.ovDir||((p.cells||[]).some((c1,i1)=>(p.cells||[]).some((c2,i2)=>i2>i1&&Math.abs(c1.y-c2.y)>1))?'v':'h');
         const bandsN=(function(){const s={};(p.cells||[]).forEach(c=>s[Math.round(c.y)]=1);return Math.max(1,Object.keys(s).length);})();
         const colsNow=Math.max(1,Math.round((p.cells||[]).length/bandsN));
         const frNow=p.ovFrame||(L?L.D.frame:80);
         const isZone=!!p.isZone;
         let b='<div class="pn-row" style="background:'+((isZone||isCustom)?'#fef3c7':'transparent')+';border-radius:6px;padding:2px 6px"><label style="font-weight:800">Status</label><b style="color:'+((isZone||isCustom)?'#b45309':'#16a34a')+'">'+(isZone?'VERTICAL PANEL (physical)':(isCustom?'CUSTOM (this panel only)':'AUTO (run grid)'))+'</b></div>';
+        if(p.conflict)b+='<div class="pn-warn" style="margin:4px 0">⚠ overlap conflict — this panel physically runs into another panel (shown in red in the view). Allowed, but check it.</div>';
         if(p.ovNote)b+='<div class="pn-warn" style="margin:4px 0">⚠ '+esc(p.ovNote)+'</div>';
         b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],isZone?'v':'h','pnPieceOrient(\'%V\')')+'</div>';
         if(isZone){
@@ -6595,21 +6743,38 @@
           b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1)">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1)">+</button></span></div>';
           b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceOrient(\'h\')" style="font-weight:800">↺ Back to horizontal (remove vertical panel)</button></div>';
         } else {
-          b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints on the WALL to move it">'+Math.round(p.w)+'mm · from joints</span></div>';
+          b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
           b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
           b+='<div class="pn-row"><label>Shaker columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
           b+='<div class="pn-row"><label>Shaker rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';
           b+='<div class="pn-row"><label>Frame</label><input type="number" min="1" value="'+Math.round(frNow)+'" onchange="pnPieceOv(\'frame\',this.value)" title="Internal grid frame for THIS panel (top/bottom margins + gaps between shakers). Joint edges stay 40/40 of the wall frame."><span class="sub" style="margin-left:4px">mm'+(ov.frame?'':' · wall default')+'</span></div>';
-          b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)')+'</div>';
-          b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)')+'</div>';
+          b+='<div class="pn-row"><label>Left side</label>'+pnSideSel(ov.sideL||p.sides.l.rule,'pnPieceOv(\'sideL\',this.value)',true)+'</div>';
+          b+='<div class="pn-row"><label>Right side</label>'+pnSideSel(ov.sideR||p.sides.r.rule,'pnPieceOv(\'sideR\',this.value)',true)+'</div>';
+          b+='<div class="pn-hint">Sides of THIS panel only. <b>Gap</b> pulls this edge back by the panel thickness; <b>Overlap</b> extends it past the boundary by the panel thickness (collisions with another panel are allowed but shown in red).</div>';
           b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceAuto()" style="font-weight:800">↺ Reset this panel to AUTO</button></div>';
         }
-        b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40. Whole-run shakers are below.</div>';
-        pt+=SEC('PANEL SETTINGS — '+esc(p.name),b);
-        pt+=SEC('Panel notes',pnNotesUi((wall.panelNotes&&wall.panelNotes[p.pid])||[],'pnPNoteAdd','pnPNoteSet','pnPNoteDel'));
+        b+='<div class="pn-hint" style="margin-top:6px">Everything here changes ONLY this panel — mix horizontal and vertical panels freely on one wall. Joints stay 40/40.</div>';
+        ptab+=pnAcc('p_sel','Selected panel — '+esc(p.name),Math.round(p.w)+'×'+Math.round(p.h)+(p.conflict?' ⚠':''),b,true);
+        // per-panel SKIRTING (item 6): overrides the wall/room default for THIS panel only (resolver panel > wall > room)
+        ptab+=(function(){
+          const ps=(wall.panelSkirt&&wall.panelSkirt[p.pid])||null;const custom=!!(ps&&ps.mode==='custom');
+          const rsk=L?L.D.skirtFor(pnSel.wall,p.pid):{on:true,h:225,src:'room'};
+          let sb='<div class="pn-row"><label>Source</label>'+pnSegHtml([['default','Wall / room default'],['custom','Custom']],custom?'custom':'default','pnPanelSkirt(\'mode\',\'%V\')')+'</div>';
+          if(custom){
+            sb+='<div class="pn-row"><label>Enabled</label>'+pnSegHtml([['yes','On'],['no','Off']],ps.on!==false?'yes':'no','pnPanelSkirt(\'on\',\'%V\')')+'</div>'
+              +'<div class="pn-row"><label>Height (mm)</label><input type="number" min="0" value="'+Math.round(ps.h!=null?ps.h:225)+'" onchange="pnPanelSkirt(\'h\',this.value)"></div>';
+          }
+          sb+='<div class="pn-hint">now: '+(rsk.on?('skirting '+Math.round(rsk.h)+'mm'):'no skirting')+' · from '+(rsk.src==='panel'?'THIS panel':(rsk.src==='wall'?'the wall':'room default'))+' · only this panel\'s bottom margin moves</div>';
+          return pnAcc('p_skirt','Panel skirting',(rsk.on?Math.round(rsk.h)+'mm':'off')+(custom?' · panel':''),sb);
+        })();
+        ptab+=pnAcc('p_notes','Panel notes',((wall.panelNotes&&wall.panelNotes[p.pid])||[]).length||'',pnNotesUi((wall.panelNotes&&wall.panelNotes[p.pid])||[],'pnPNoteAdd','pnPNoteSet','pnPNoteDel'));
+      } else {
+        ptab+=pnAcc('p_pick','Selected panel','none','<div class="pn-hint">Click a panel in the drawing to edit it — its own sides (incl. Gap / Overlap), grid, skirting and notes appear here.</div>',true);
       }
-      pt+=(parts.panel||(wall.noPanel?SEC('Panel','<div class="pn-hint">Panel is OFF for this wall — turn it back On in the <b>Wall</b> tab to edit shakers.</div>'):''));
-      tabs.panel=pt;
+      if(parts.panel)ptab+=pnAcc('p_grid',parts.panel.t,parts.panel.c,parts.panel.b,!p);
+      if(parts.sides)ptab+=pnAcc('p_sides',parts.sides.t,parts.sides.c,parts.sides.b);
+      if(!parts.panel&&wall.noPanel)ptab+=pnAcc('p_off','Panel','OFF','<div class="pn-hint">Panel is OFF for this wall — turn it back On in the <b>Wall</b> tab to edit shakers.</div>',true);
+      tabs.panel=ptab;
     }
 
     // ---------- CORNERS tab (per-end joins + gap priority + panel side + thickness + corner shakers) ----------
@@ -6629,16 +6794,16 @@
           if(o.type!=='door')b+='<div class="pn-row"><label>'+(o.type==='window'?'Bottom (from floor)':'Base height')+'</label><input type="number" value="'+(o.bottom||0)+'" onchange="pnSetOp(\'bottom\',this.value)"></div>';
           if(o.type!=='window')b+='<div class="pn-row"><label>Top panel</label>'+pnSegHtml([['yes','Yes'],['no','No']],o.topPanel||'yes','pnSetOp(\'topPanel\',\'%V\')')+'</div>';
           b+='<div class="pn-row" style="margin-top:10px"><button class="pn-mini" onclick="pnDelOpening()" style="color:#dc2626">🗑 Remove '+o.type+'</button></div>';
-          opTab+=SEC(o.type.toUpperCase(),b);
-          if(pnOpCollisions(wall,L?L.D.frame:80)[o.id])opTab+='<div class="pn-sec"><div class="pn-warn">⚠ This opening overlaps another one (or is within a frame of it). Openings need at least a frame of panel between them — move or resize it (nothing is moved automatically).</div></div>';
+          if(pnOpCollisions(wall,L?L.D.frame:80)[o.id])b+='<div class="pn-warn" style="margin-top:6px">⚠ This opening overlaps another one (or is within a frame of it). Openings need at least a frame of panel between them — move or resize it (nothing is moved automatically).</div>';
+          opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.w)+'×'+Math.round(o.h),b,true);
         }
       }
       const opsL=((wall&&wall.openings)||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
-      opTab+=SEC('Openings on this wall',(opsL||'<div class="pn-hint">none</div>')
+      opTab+=pnAcc('o_list','Openings on this wall',((wall&&wall.openings)||[]).length||'none',(opsL||'<div class="pn-hint">none</div>')
         +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">'
         +'<button class="pn-mini" onclick="pnAddOpening(\'door\')">+ Door</button>'
         +'<button class="pn-mini" onclick="pnAddOpening(\'window\')">+ Window</button>'
-        +'<button class="pn-mini" onclick="pnAddOpening(\'object\')">+ Object</button></div>');
+        +'<button class="pn-mini" onclick="pnAddOpening(\'object\')">+ Object</button></div>',true);
       tabs.openings=opTab;
     }
 
@@ -6709,9 +6874,26 @@
       status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span></div>';
     }catch(e){status='';}
     const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Sheet DXF for ONLY this room — panels numbered in the visual order shown here">⬇ '+esc(room.name||'room')+' Sheet DXF</button> <button class="pn-mini" onclick="pnDownloadWallLayoutDxf('+pnSel.room+')" title="Wall Layout DXF for ONLY this room — walls in order with panels inside (visual, not for cutting)">⬇ '+esc(room.name||'room')+' Wall DXF</button></div>':'';
+    // AUTO-SCROLL FIX (2026-07-11): renderPanels rebuilds root.innerHTML, which used to reset the inspector's
+    // scroll to the top (toggling an offset On/Off or typing a value made the panel "jump"). Capture the
+    // inspector scroll position AND the focused field (by its index among the inspector's inputs — the same UI
+    // is re-rendered, so the index is stable) and restore both after the rebuild.
+    const oldInsp=root.querySelector('.pn-insp');
+    const inspScroll=oldInsp?oldInsp.scrollTop:0;
+    let focusIdx=-1,selS=null,selE=null;
+    (function(){const ae=document.activeElement;
+      if(oldInsp&&ae&&oldInsp.contains(ae)&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)){
+        focusIdx=[...oldInsp.querySelectorAll('input,select,textarea')].indexOf(ae);
+        try{selS=ae.selectionStart;selE=ae.selectionEnd;}catch(err){}
+      }})();
     root.innerHTML=roomTabs+wallTabs
       +'<div class="pn-layout"><div class="pn-canvas'+(pnView==='sheets'?' scroll':'')+'">'+views+canvas+roomBtn+warnsH+status+'</div>'
       +'<aside class="pn-insp">'+(pnView==='plan'?pnPlanInspectorHtml(room,L):pnInspectorHtml(room,L))+'</aside></div>';
+    (function(){const insp=root.querySelector('.pn-insp');if(!insp)return;
+      insp.scrollTop=inspScroll;
+      if(focusIdx>=0){const el=[...insp.querySelectorAll('input,select,textarea')][focusIdx];
+        if(el){try{el.focus({preventScroll:true});if(selS!=null&&el.setSelectionRange)el.setSelectionRange(selS,selE);}catch(err){}}}
+    })();
     const svg=root.querySelector('.pn-canvas svg');
     if(pnView==='plan'){ if(svg)pnPlanWire(svg); return; }   // builder handles its own interactions
     root.querySelectorAll('.pnk').forEach(g=>{g.onclick=()=>{if(pnMeasureOn||Date.now()-pnSupress<250)return;pnSelPiece(g.dataset.pid,+g.dataset.wi);};});

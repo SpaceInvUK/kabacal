@@ -199,6 +199,37 @@ if (html) {
         must(Math.abs(zoneD.w - 900) < 0.6, 'door-adjacent zone keeps its physical width (only the internal cavity moves) — no too-long/short panel');
         const midZone = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'zm', x: 2000, w: 1000, h: 3000 }] })])).pieces.find(p => p.isZone);
         must(Math.abs(midZone.sides.l.mm - 40) < 0.6 && Math.abs(midZone.sides.r.mm - 40) < 0.6, 'mid-wall zone (no adjacent door) keeps 40/40 joints — no regression');
+        // ---- per-panel side GAP / OVERLAP (2026-07-11): physical, thickness-driven, opt-in ----
+        { // gap pulls the edge back by the ACTUAL panel thickness (material 18mm here, NOT 22)
+          const Lg = api.pnLayoutRoom(room([wall({ w: 3000, panelOv: { w0p1: { sideR: 'gap' } } })]));
+          const pg = Lg.pieces.find(p => p.pid === 'w0p1');
+          must(!!pg && Math.abs(pg.x1 - (3000 - 18)) < 0.6 && Math.abs(pg.w - 2982) < 0.6, 'panel-side GAP must shorten the panel by the material thickness (18 → x1 2982), got ' + (pg && pg.x1));
+          must(Math.abs(pg.sides.r.mm - 80) < 0.6, 'a gap side keeps a NORMAL frame margin (80)');
+          const Lo = api.pnLayoutRoom(room([wall({ w: 3000, panelOv: { w0p1: { sideL: 'overlap' } } })]));
+          const po = Lo.pieces.find(p => p.pid === 'w0p1');
+          must(!!po && Math.abs(po.x0 - (-18)) < 0.6 && Math.abs(po.w - 3018) < 0.6, 'panel-side OVERLAP must extend the panel by the material thickness (18 → w 3018), got ' + (po && po.w));
+          const L22 = api.pnLayoutRoom(room([wall({ w: 3000, panelOv: { w0p1: { sideR: 'gap' } } })], { mat: 'MDF 22mm' }));
+          const p22 = L22.pieces.find(p => p.pid === 'w0p1');
+          must(!!p22 && Math.abs(p22.w - (3000 - 22)) < 0.6, 'gap/overlap must use the ACTUAL thickness (22mm material → −22), got ' + (p22 && p22.w));
+          must(!Lg.pieces.some(p => p.conflict), 'a lone gap/overlap panel raises NO conflict');
+          const Ln = api.pnLayoutRoom(room([wall({ w: 3000 })]));
+          must(!Ln.pieces.some(p => p.ovPhys || p.conflict), 'no override → no phys adjustment, no conflict (byte-identical safety)');
+        }
+        { // overlap CONFLICT: two adjacent pieces on one wall — extending one into the other flags BOTH + warns
+          const base = api.pnLayoutRoom(room([wall({ w: 5000 })]));
+          must(base.pieces.filter(p => p.wi === 0).length >= 2, 'a 5000 wall splits into 2+ pieces (test precondition)');
+          const Lc = api.pnLayoutRoom(room([wall({ w: 5000, panelOv: { w0p1: { sideR: 'overlap' } } })]));
+          const c1 = Lc.pieces.find(p => p.pid === 'w0p1'), c2 = Lc.pieces.find(p => p.pid === 'w0p2');
+          must(!!c1 && !!c2 && c1.conflict === true && c2.conflict === true, 'overlap into the neighbouring panel must flag BOTH pieces as conflict');
+          must(Lc.warns.some(w => /overlap conflict/.test(w)), 'overlap conflict must raise a warning (allowed, never blocked)');
+        }
+        { // per-panel SKIRTING: wall.panelSkirt[pid] moves ONLY that panel's bottom margin (panel > wall > room)
+          const Ls = api.pnLayoutRoom(room([wall({ w: 5000, panelSkirt: { w0p1: { mode: 'custom', on: true, h: 400 } } })]));
+          const s1 = Ls.pieces.find(p => p.pid === 'w0p1'), s2 = Ls.pieces.find(p => p.pid === 'w0p2');
+          must(!!s1 && Math.abs(s1.sides.b - (400 + 80)) < 0.6, 'panel skirting 400 → that panel bottom margin 480, got ' + (s1 && s1.sides.b));
+          must(!!s1 && s1.cells.length && Math.abs(Math.min(...s1.cells.map(c => c.y)) - 480) < 0.6, 'panel-skirt panel cells must start at the new bottom');
+          must(!!s2 && Math.abs(s2.sides.b - (225 + 80)) < 0.6, 'the OTHER panel keeps the room skirting (225+80)');
+        }
         // window (2026-07-08 fix): band notched DOWN TO THE FLOOR at the window column so it never overlaps the
         // separate lower panel (was: only the window rect, so the band covered 0..bottom = the overlap bug).
         const wr = api.pnLayoutRoom(room([wall({ w: 3000, openings: [{ id: 'ow', type: 'window', name: 'W', w: 1200, h: 1100, x: 1200, from: 'L', bottom: 900, topPanel: 'yes' }] })]));
@@ -233,6 +264,19 @@ if (html) {
         const pOp = { nodes: p1.nodes, edges: p1.edges, openings: [{ id: 'o1', edgeId: 'e1', type: 'door', offset: 800, width: 900, height: 2100 }] };
         const wOp = api.pnPlanCompile({ mat: 'MDF 18mm', walls: [], plan: pOp })[0];
         must(wOp.openings.length === 1 && wOp.openings[0].type === 'door' && wOp.openings[0].w === 900 && wOp.openings[0].x === 800, 'plan opening compiles into wall.openings');
+        // ---- wall-END overlap conflict flag (2026-07-11): overlap vs a THROUGH neighbour = conflict; vs BUTT = clean ----
+        {
+          const mkL = (endB, othEnd) => api.pnPlanCompile({ frame: 80, walls: [], plan: { nodes: [{ id: 'n1', x: 0, y: 0 }, { id: 'n2', x: 1000, y: 0 }, { id: 'n3', x: 1000, y: 2000 }],
+            edges: [{ id: 'e1', a: 'n1', b: 'n2', wallThickness: 100, height: 3200, endB: endB }, { id: 'e2', a: 'n2', b: 'n3', wallThickness: 100, height: 3200, endA: othEnd }],
+            openings: [], objects: [], panelLayer: { thickness: 22, side: 'front' } } });
+          const ovT = mkL('overlap', undefined);
+          must(ovT[0].cornerInfo.r.cond === 'overlap' && ovT[0].cornerInfo.r.conflict === true, 'overlap end vs a THROUGH neighbour must flag cornerInfo conflict');
+          must(Math.abs(ovT[0].w - 1022) < 0.6, 'overlap end extends the panel by pt (1000 → 1022)');
+          const ovB = mkL('overlap', 'butt');
+          must(ovB[0].cornerInfo.r.cond === 'overlap' && ovB[0].cornerInfo.r.conflict === false, 'overlap end vs a BUTTING neighbour is clean (no conflict)');
+          const ovN = mkL(undefined, undefined);
+          must(!ovN[0].cornerInfo.r.conflict && !ovN[0].cornerInfo.l.conflict, 'no overlap → conflict flag stays false');
+        }
       }
       { // CONFIRMED corner rule (2026-07-10): THROUGH side = frame+pt allowance; BUTT side = normal frame + pt gap.
         // Wall stays full measured length; only the BUTT panel is physically shortened by pt.
