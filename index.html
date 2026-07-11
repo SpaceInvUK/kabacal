@@ -373,7 +373,9 @@
   .pn-canvas.scroll{display:block;overflow-y:auto}
   .pn-canvas svg{touch-action:none}
   .pn-canvas.grabbing,.pn-canvas.grabbing *{cursor:grabbing!important}
-  .pn-insp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow-y:auto}
+  /* inspector height is PINNED to the drawing area (.pn-canvas) so it can never grow taller than the fixed view
+     and push the page — only the inspector scrolls internally (2026-07-11). */
+  .pn-insp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0;position:sticky;top:10px;height:calc(100vh - 282px);min-height:340px;max-height:calc(100vh - 282px);overflow-y:auto}
   .pn-ihead{padding:10px 12px;display:flex;align-items:center;gap:8px}
   .pn-ihead .t{font-weight:800;font-size:14px;color:var(--ink)}
   .pn-ihead .s{font-size:11px;color:var(--muted)}
@@ -5601,7 +5603,7 @@
   function pnSelWall(i){pnSel={room:pnSel.room,wall:i,kind:'wall',id:null};pnVb=null;pnMeasA=null;pnMeasFix=null;if(pnTab==='room'||pnTab==='export')pnTab='wall';renderPanels();}
   function pnAddWall(){const r=pnRoomObj();if(!r)return;r.walls.push(pnNewWall());pnSel={room:pnSel.room,wall:r.walls.length-1,kind:'wall',id:null};pnVb=null;pnRefresh();}
   function pnDelWall(){const r=pnRoomObj();if(!r||r.walls.length<=1)return;r.walls.splice(pnSel.wall,1);pnSel={room:pnSel.room,wall:Math.max(0,pnSel.wall-1),kind:'wall',id:null};pnRefresh();}
-  function pnSelOpening(id){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id};pnTab='openings';renderPanels();}
+  function pnSelOpening(id){pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id};pnTab='wall';pnAccOpen['o_sel']=true;renderPanels();}   // Openings live in the Wall tab now
   function pnSelPiece(pid,wi){pnSel={room:pnSel.room,wall:(wi!=null?wi:pnSel.wall),kind:'piece',id:pid};pnTab='panel';renderPanels();}
   function pnNum(v){const n=+v;return isNaN(n)?0:n;}
   function pnSet(scope,field,val){
@@ -5631,7 +5633,7 @@
   }
   function pnStepShaker(delta,cur){const w=pnWallObj();if(!w)return;w.shakerCount=Math.max(1,(+w.shakerCount>0?+w.shakerCount:cur)+delta);pnRefresh();}
   function pnShakerAuto(){const w=pnWallObj();if(!w)return;w.shakerCount=0;pnRefresh();}
-  function pnAddOpening(type){const w=pnWallObj();if(!w)return;const o=pnNewOpening(type,w);(w.openings=w.openings||[]).push(o);pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id:o.id};pnRefresh();}
+  function pnAddOpening(type){const w=pnWallObj();if(!w)return;const o=pnNewOpening(type,w);(w.openings=w.openings||[]).push(o);pnSel={room:pnSel.room,wall:pnSel.wall,kind:'opening',id:o.id};pnTab='wall';pnAccOpen['o_sel']=true;pnAccOpen['o_list']=true;pnRefresh();}
   function pnOpObj(){const w=pnWallObj();return w?((w.openings||[]).find(o=>o.id===pnSel.id)||null):null;}
   function pnSetOp(field,val){const o=pnOpObj();if(!o)return;const numeric=['w','h','x','bottom'];o[field]=numeric.indexOf(field)>=0?pnNum(val):val;pnRefresh();}
   function pnDelOpening(){const w=pnWallObj();if(!w)return;w.openings=(w.openings||[]).filter(o=>o.id!==pnSel.id);pnSel={room:pnSel.room,wall:pnSel.wall,kind:'wall',id:null};pnRefresh();}
@@ -6212,7 +6214,7 @@
         const nd=pnPlanSnapNode(plan,p.x,p.y,selThr);
         if(nd){pnPlanDrag={mode:'node',nodeId:nd.id,moved:false};return;}   // click=toggle lock · drag=move (if unlocked)
         const og=e.target&&e.target.closest&&e.target.closest('.pnpo'),oid=og&&og.getAttribute('data-oid');
-        if(oid){pnPlanSel={kind:'op',id:oid};pnPlanDrag={mode:'op',oid:oid};pnTab='openings';renderPanels();return;}
+        if(oid){pnPlanSel={kind:'op',id:oid};pnPlanDrag={mode:'op',oid:oid};pnTab='wall';pnAccOpen['o_sel']=true;renderPanels();return;}
         const eg=e.target&&e.target.closest&&e.target.closest('.pnpe'),eid=eg&&eg.getAttribute('data-eid');
         if(eid){pnPlanSel={kind:'edge',id:eid};if(pnTab==='room'||pnTab==='export'||pnTab==='openings')pnTab='wall';renderPanels();return;}
         pnPlanSel=null;pnPlanMsg='';renderPanels();return;
@@ -6304,7 +6306,7 @@
       if(doors.length){const last=doors[doors.length-1];let x=last.x1+gap;if(x+def.w<=F.L)off=Math.round(x);else{const first=doors[0];x=first.x0-gap-def.w;if(x>=0)off=Math.round(x);}}}
     const rec={id,edgeId:e.id,type,name:type.charAt(0).toUpperCase()+type.slice(1),offset:off,width:def.w,height:def.h,bottom:def.b};
     if(type==='object'){plan.objects=plan.objects||[];plan.objects.push(rec);}else{plan.openings=plan.openings||[];plan.openings.push(rec);}
-    pnPlanSel={kind:'op',id};pnTab='openings';pnPlanApply();renderPanels();}
+    pnPlanSel={kind:'op',id};pnTab='wall';pnAccOpen['o_sel']=true;pnAccOpen['o_list']=true;pnPlanApply();renderPanels();}
   function pnPlanOpObj(){const room=pnRoomObj();if(!room||!room.plan||!pnPlanSel||pnPlanSel.kind!=='op')return null;
     return (room.plan.openings||[]).concat(room.plan.objects||[]).find(o=>o.id===pnPlanSel.id)||null;}
   function pnPlanSetOp(field,val){const o=pnPlanOpObj();if(!o)return;pnPlanSnapshot();const num=['offset','width','height','bottom'];o[field]=num.indexOf(field)>=0?Math.max(0,pnNum(val)):val;pnPlanApply();renderPanels();}
@@ -6317,6 +6319,51 @@
     (plan.openings||[]).slice().forEach(o=>{if(o.edgeId===id)plan.openings=plan.openings.filter(x=>x!==o);});
     (plan.objects||[]).slice().forEach(o=>{if(o.edgeId===id)plan.objects=plan.objects.filter(x=>x!==o);});
     pnPlanSel=null;pnPlanApply();renderPanels();}
+  // ---- Openings accordion (2026-07-11): lives INSIDE the Wall category now (no separate top-level tab).
+  // Returns the "Selected opening" editor (when one is selected) + the "Openings" list/add section, so the
+  // Wall tab of either inspector can drop it in. All the opening functions are unchanged. ----
+  function pnFrontOpeningsAcc(room,wall,L){
+    let opTab='';
+    if(pnSel.kind==='opening'){
+      const o=pnOpObj();
+      if(o){
+        let b='<div class="pn-row"><label>Name</label><input type="text" value="'+esc(o.name||'')+'" onchange="pnSetOp(\'name\',this.value)"></div>'
+          +'<div class="pn-row"><label>Width</label><input type="number" value="'+o.w+'" onchange="pnSetOp(\'w\',this.value)"></div>'
+          +'<div class="pn-row"><label>Height</label><input type="number" value="'+o.h+'" onchange="pnSetOp(\'h\',this.value)"></div>'
+          +'<div class="pn-row"><label>X from '+(o.from==='R'?'right':'left')+'</label><input type="number" value="'+o.x+'" onchange="pnSetOp(\'x\',this.value)"></div>'
+          +'<div class="pn-row"><label>Measure X from</label>'+pnSegHtml([['L','Left'],['R','Right']],o.from||'L','pnSetOp(\'from\',\'%V\')')+'</div>';
+        if(o.type!=='door')b+='<div class="pn-row"><label>'+(o.type==='window'?'Bottom (from floor)':'Base height')+'</label><input type="number" value="'+(o.bottom||0)+'" onchange="pnSetOp(\'bottom\',this.value)"></div>';
+        if(o.type!=='window')b+='<div class="pn-row"><label>Top panel</label>'+pnSegHtml([['yes','Yes'],['no','No']],o.topPanel||'yes','pnSetOp(\'topPanel\',\'%V\')')+'</div>';
+        b+='<div class="pn-row" style="margin-top:10px"><button class="pn-mini" onclick="pnDelOpening()" style="color:#dc2626">🗑 Remove '+o.type+'</button></div>';
+        if(pnOpCollisions(wall,L?L.D.frame:80)[o.id])b+='<div class="pn-warn" style="margin-top:6px">⚠ This opening overlaps another one (or is within a frame of it). Openings need at least a frame of panel between them — move or resize it (nothing is moved automatically).</div>';
+        opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.w)+'×'+Math.round(o.h),b,true);
+      }
+    }
+    const opsL=((wall&&wall.openings)||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
+    opTab+=pnAcc('o_list','Openings',((wall&&wall.openings)||[]).length||'none',(opsL||'<div class="pn-hint">none</div>')
+      +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">'
+      +'<button class="pn-mini" onclick="pnAddOpening(\'door\')">+ Door</button>'
+      +'<button class="pn-mini" onclick="pnAddOpening(\'window\')">+ Window</button>'
+      +'<button class="pn-mini" onclick="pnAddOpening(\'object\')">+ Object</button></div>');
+    return opTab;
+  }
+  function pnPlanOpeningsAcc(room,idx){
+    let opTab='';
+    if(pnPlanSel&&pnPlanSel.kind==='op'){
+      const o=pnPlanOpObj();
+      if(o)opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.width||0)+'×'+Math.round(o.height||0),
+        '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(o.name||'')+'" onchange="pnPlanSetOp(\'name\',this.value)"></div>'
+        +'<div class="pn-row"><label>Width</label><input type="number" value="'+Math.round(o.width||0)+'" onchange="pnPlanSetOp(\'width\',this.value)"></div>'
+        +'<div class="pn-row"><label>Height</label><input type="number" value="'+Math.round(o.height||0)+'" onchange="pnPlanSetOp(\'height\',this.value)"></div>'
+        +'<div class="pn-row"><label>Offset from start</label><input type="number" value="'+Math.round(o.offset||0)+'" onchange="pnPlanSetOp(\'offset\',this.value)"></div>'
+        +(o.type!=='door'?'<div class="pn-row"><label>Bottom</label><input type="number" value="'+Math.round(o.bottom||0)+'" onchange="pnPlanSetOp(\'bottom\',this.value)"></div>':'')
+        +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove this opening</button></div>',true);
+    }
+    opTab+=pnAcc('o_list','Openings',((room.walls[idx]&&room.walls[idx].openings)||[]).length||'',
+      '<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>'
+      +((idx<0&&!(pnPlanSel&&pnPlanSel.kind==='op'))?'<div class="pn-hint" style="margin-top:6px">Select a wall first, then add a door / window / object to it.</div>':''));
+    return opTab;
+  }
   function pnPlanInspectorHtml(room,L){
     const plan=pnPlanEnsure(room);
     const tabs={room:'',wall:'',panel:'',corners:'',openings:'',export:''};
@@ -6345,6 +6392,7 @@
         if(ends)w+=pnAcc('w_ends',ends.t,ends.c,ends.b);
         if(parts.onoff)w+=pnAcc('w_onoff',parts.onoff.t,parts.onoff.c,parts.onoff.b);
         if(parts.skirt)w+=pnAcc('w_skirt',parts.skirt.t,parts.skirt.c,parts.skirt.b);
+        w+=pnPlanOpeningsAcc(room,idx);   // Openings now live inside Wall settings
         if(parts.notes)w+=pnAcc('w_notes',parts.notes.t,parts.notes.c,parts.notes.b);
       } else {
         w+=pnAcc('t_pick','Wall','none','<div class="pn-hint">Select a wall to edit its length, panels, shakers, sides, skirting and corners — or draw a new wall.</div>',true);
@@ -6365,24 +6413,7 @@
     // ---------- CORNERS tab (global corner behaviour only) ----------
     tabs.corners=pnCornerTabHtml(room,idx);
 
-    // ---------- OPENINGS tab ----------
-    {
-      let opTab='';
-      if(pnPlanSel&&pnPlanSel.kind==='op'){
-        const o=pnPlanOpObj();
-        if(o)opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.width||0)+'×'+Math.round(o.height||0),
-          '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(o.name||'')+'" onchange="pnPlanSetOp(\'name\',this.value)"></div>'
-          +'<div class="pn-row"><label>Width</label><input type="number" value="'+Math.round(o.width||0)+'" onchange="pnPlanSetOp(\'width\',this.value)"></div>'
-          +'<div class="pn-row"><label>Height</label><input type="number" value="'+Math.round(o.height||0)+'" onchange="pnPlanSetOp(\'height\',this.value)"></div>'
-          +'<div class="pn-row"><label>Offset from start</label><input type="number" value="'+Math.round(o.offset||0)+'" onchange="pnPlanSetOp(\'offset\',this.value)"></div>'
-          +(o.type!=='door'?'<div class="pn-row"><label>Bottom</label><input type="number" value="'+Math.round(o.bottom||0)+'" onchange="pnPlanSetOp(\'bottom\',this.value)"></div>':'')
-          +'<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPlanDelOp()" style="color:#dc2626">🗑 Remove this opening</button></div>',true);
-      }
-      opTab+=pnAcc('o_list','Openings on this wall','',
-        '<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="pn-mini" onclick="pnPlanAddOpening(\'door\')">+ Door</button><button class="pn-mini" onclick="pnPlanAddOpening(\'window\')">+ Window</button><button class="pn-mini" onclick="pnPlanAddOpening(\'object\')">+ Object</button></div>'
-        +((idx<0&&!(pnPlanSel&&pnPlanSel.kind==='op'))?'<div class="pn-hint" style="margin-top:6px">Select a wall first, then add a door / window / object to it.</div>':''),true);
-      tabs.openings=opTab;
-    }
+    // (Openings now live inside the Wall tab — no separate top-level Openings category.)
 
     // ---------- ROOM tab: same full accordion as the Front view (Project Standards / Room Setup /
     // Skirting & Sill / Offsets / Pricing) — nothing is "only on the other view" any more ----------
@@ -6620,7 +6651,7 @@
   function pnSetTab(t){pnTab=t;renderPanels();}
   // renders the head + tab bar (only tabs with content) + the active tab's body. headHtml already includes .pn-ihead.
   function pnInspTabs(headHtml,tabs){
-    const order=[['room','Room'],['wall','Wall'],['panel','Panel'],['corners','Corners'],['openings','Openings'],['export','Export']];
+    const order=[['room','Room'],['wall','Wall'],['panel','Panel'],['corners','Corners'],['export','Export']];   // Openings folded into Wall (2026-07-11)
     const has=k=>tabs[k]&&String(tabs[k]).trim();
     const avail=order.filter(a=>has(a[0]));
     if(!avail.length)return headHtml;
@@ -6715,6 +6746,7 @@
       if(ends)wtab+=pnAcc('w_ends',ends.t,ends.c,ends.b);
       if(parts.onoff)wtab+=pnAcc('w_onoff',parts.onoff.t,parts.onoff.c,parts.onoff.b);
       if(parts.skirt)wtab+=pnAcc('w_skirt',parts.skirt.t,parts.skirt.c,parts.skirt.b);
+      wtab+=pnFrontOpeningsAcc(room,wall,L);   // Openings now live inside Wall settings
       if(parts.notes)wtab+=pnAcc('w_notes',parts.notes.t,parts.notes.c,parts.notes.b);
       tabs.wall=wtab;
     }
@@ -6780,32 +6812,7 @@
     // ---------- CORNERS tab (per-end joins + gap priority + panel side + thickness + corner shakers) ----------
     if(wall)tabs.corners=pnCornerTabHtml(room,pnSel.wall);
 
-    // ---------- OPENINGS tab: selected opening editor + list + add ----------
-    {
-      let opTab='';
-      if(pnSel.kind==='opening'){
-        const o=pnOpObj();
-        if(o){
-          let b='<div class="pn-row"><label>Name</label><input type="text" value="'+esc(o.name||'')+'" onchange="pnSetOp(\'name\',this.value)"></div>'
-            +'<div class="pn-row"><label>Width</label><input type="number" value="'+o.w+'" onchange="pnSetOp(\'w\',this.value)"></div>'
-            +'<div class="pn-row"><label>Height</label><input type="number" value="'+o.h+'" onchange="pnSetOp(\'h\',this.value)"></div>'
-            +'<div class="pn-row"><label>X from '+(o.from==='R'?'right':'left')+'</label><input type="number" value="'+o.x+'" onchange="pnSetOp(\'x\',this.value)"></div>'
-            +'<div class="pn-row"><label>Measure X from</label>'+pnSegHtml([['L','Left'],['R','Right']],o.from||'L','pnSetOp(\'from\',\'%V\')')+'</div>';
-          if(o.type!=='door')b+='<div class="pn-row"><label>'+(o.type==='window'?'Bottom (from floor)':'Base height')+'</label><input type="number" value="'+(o.bottom||0)+'" onchange="pnSetOp(\'bottom\',this.value)"></div>';
-          if(o.type!=='window')b+='<div class="pn-row"><label>Top panel</label>'+pnSegHtml([['yes','Yes'],['no','No']],o.topPanel||'yes','pnSetOp(\'topPanel\',\'%V\')')+'</div>';
-          b+='<div class="pn-row" style="margin-top:10px"><button class="pn-mini" onclick="pnDelOpening()" style="color:#dc2626">🗑 Remove '+o.type+'</button></div>';
-          if(pnOpCollisions(wall,L?L.D.frame:80)[o.id])b+='<div class="pn-warn" style="margin-top:6px">⚠ This opening overlaps another one (or is within a frame of it). Openings need at least a frame of panel between them — move or resize it (nothing is moved automatically).</div>';
-          opTab+=pnAcc('o_sel','Selected — '+esc(o.name||o.type),Math.round(o.w)+'×'+Math.round(o.h),b,true);
-        }
-      }
-      const opsL=((wall&&wall.openings)||[]).map(o=>'<div class="pn-row"><label style="cursor:pointer;color:#2563eb" onclick="pnSelOpening(\''+o.id+'\')">'+esc(o.name||o.type)+' · '+Math.round(o.w)+'×'+Math.round(o.h)+'</label><button class="pn-mini" onclick="pnSelOpening(\''+o.id+'\')">edit</button></div>').join('');
-      opTab+=pnAcc('o_list','Openings on this wall',((wall&&wall.openings)||[]).length||'none',(opsL||'<div class="pn-hint">none</div>')
-        +'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">'
-        +'<button class="pn-mini" onclick="pnAddOpening(\'door\')">+ Door</button>'
-        +'<button class="pn-mini" onclick="pnAddOpening(\'window\')">+ Window</button>'
-        +'<button class="pn-mini" onclick="pnAddOpening(\'object\')">+ Object</button></div>',true);
-      tabs.openings=opTab;
-    }
+    // (Openings now live inside the Wall tab — no separate top-level Openings category.)
 
     // ---------- EXPORT tab ----------
     tabs.export=pnExportTabHtml(room);
