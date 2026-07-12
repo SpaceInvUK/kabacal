@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (jj) — Fase 4 CONFIRMADA pelo Ednei (assinou/pagou/cancelou) + e-mails do Stripe ligados
+
+Ednei rodou o loop 4242 ele mesmo: **assinou (Starter) → pagamento aceito → plano mudou → cancelou** — cadeia inteira validada em modo teste (app→função→Checkout→webhook→`accounts.plan/status`→portal). Cliente Stripe da assinatura = `edneilacerda@gmail.com` (ele logado como ele mesmo; a função mapeia o e-mail certo).
+
+- **Pergunta dele: "não recebi e-mail nenhum"** → esperado, por DOIS motivos: (1) os toggles de e-mail do Stripe vêm desligados — liguei via o Chrome dele: Customer emails → "Successful payments"; Billing → Subscriptions and emails → "upcoming renewals" + "card payments fail". (2) **Modo TEST/sandbox do Stripe não entrega e-mails de cliente para caixas reais** (recibos/faturas só no painel) — então mesmo configurado, o Gmail só recebe em modo LIVE. Em produção, os assinantes passam a receber recibo + avisos de renovação/falha.
+- **Recibo do pagamento já feito**: tentei reenviar pelo cliente `cus_Us5G72…`, mas o painel do Stripe entrou em erro nas páginas de detalhe (aviso "browser incompatível" com o navegador automatizado + incidente). Ficou para o Ednei (2 cliques no cliente → Invoices → Send) OU simplesmente não é necessário — o comportamento está correto.
+- **Confirmação de marca Kabacal** (e-mail "você está no plano X" nosso, não recibo Stripe) = webhook + SMTP próprio, MESMA dependência dos magic-links de login (adiada junto).
+- Repo: só docs (SAAS.md §Phase 4 live E2E, STATUS, ROADMAP). Nenhum código tocado; `check.mjs` verde. Nenhum pagamento executado nem segredo lido pelo agente.
+
+### Testado (jj)
+Loop de pagamento confirmado pelo Ednei (assinar/cobrar/cancelar) ✓ · cliente da assinatura = edneilacerda@gmail.com (função mapeia e-mail certo) ✓ · toggles de e-mail do Stripe ligados (Customer emails + Subscriptions) ✓ · reenvio de recibo bloqueado por erro do painel Stripe (não-crítico) · sem mudança de código.
+
 ## 2026-07-12 (ii) — Fase 4 PROVADA: chave corrigida → checkout Stripe real (HTTP 200 + página de assinatura)
 
 Ednei recolou a Secret key da conta certa ("Colei"). Verificação definitiva sem depender do painel (que seguiu degradado — editores SQL/funções não hidratam, "Deploy status unavailable"):

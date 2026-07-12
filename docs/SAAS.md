@@ -124,6 +124,14 @@ Everything buildable without a Stripe account is done and on the hosted project:
 - Plans: Beta (free, invited) · Starter · Workshop · Pro — amounts = **D5, still open**. Limits (job counts, members) enforced in RLS/Edge when they exist — never front-end-only.
 - Stripe costs: no monthly fee on the standard plan — per-transaction only (~1.5% + 20p UK cards); **test mode is free forever**, so the whole flow gets E2E'd with test cards before any real money moves.
 
+### Phase 4 — live E2E confirmed (2026-07-12)
+
+Ednei ran the real test-card loop himself: subscribe (Starter, 4242) → **payment accepted → plan flipped → cancel worked**. So the whole chain (app → Edge Function → Stripe Checkout → webhook → `accounts.plan/status` → portal cancel) is validated end-to-end in test mode. Stripe customer for his subscription = `edneilacerda@gmail.com` (he subscribed while signed in as himself), confirming the checkout function maps the right email.
+
+**Customer emails:** he got no email — expected, for TWO reasons: (1) Stripe's customer-email toggles are OFF by default — now enabled: Settings → Customer emails → "Successful payments"; Settings → Billing → Subscriptions and emails → "upcoming renewals" + "card payments fail". (2) **More fundamentally, Stripe TEST/sandbox mode does not deliver customer emails to external inboxes** (receipts/invoices are viewable in the dashboard only) — so even fully configured, a real Gmail won't receive them until LIVE mode. In live mode, subscribers then get the receipt + renewal/failure notices automatically.
+
+**Kabacal-branded confirmation** (a "you're on the Starter plan" e-mail from us, not a Stripe receipt) would come from the `stripe-webhook` function sending via our own mailer — the SAME custom-SMTP dependency already flagged for the auth magic-links. Deferred with that.
+
 ## Private beta (3–5 shops)
 
 - **Access:** signups disabled; Ednei invites by email from the dashboard (magic link). Each shop = one account, `plan='beta'`. Admin = the Supabase dashboard (no in-app admin during beta).
