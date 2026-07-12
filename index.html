@@ -743,7 +743,7 @@
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
       panels:Math.max(1,Math.round(+extra.panels||1)),midFrame:(extra.midFrame===''||extra.midFrame==null)?'':Math.max(0,+extra.midFrame||0),panelSize:(extra.panelSize===''||extra.panelSize==null)?'':Math.max(1,+extra.panelSize||0),
-      offsetName:extra.offsetName||'Custom'};
+      offsetName:normPresetName(extra.offsetName||'Custom')};
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
   function cavityOf(it){const f=resolveFrame(it);return {w:Math.max(1,(+it.w||0)-f.l-f.r),h:Math.max(1,(+it.h||0)-f.t-f.b)};}
@@ -886,14 +886,25 @@
   }
 
   // ---- offset profiles (reusable line sets) ----
+  // Factory Ogee moulding preset — offsets + section measured from Ednei's "Ogee OFFSETS + Profile.dxf"
+  // (OFFSET_A = frame = 0; B..F = spacing inward from A; OUT ignored). The PROFILE polyline is the real
+  // 20.94 x 8mm moulding section (118 pts, normalised to local origin), drawn once per sheet in the DXF.
+  const OGEE_PTS=[20.937,2.035,20.894,1.957,20.781,1.782,20.692,1.662,20.579,1.525,20.439,1.371,20.27,1.204,20.128,1.077,19.98,0.954,19.825,0.837,19.665,0.725,19.5,0.62,19.33,0.522,19.156,0.431,18.978,0.347,18.797,0.271,18.613,0.204,18.427,0.145,18.239,0.096,18.049,0.056,17.859,0.027,17.669,0.008,17.478,0,17.214,0.003,16.95,0.017,16.686,0.043,16.423,0.08,16.162,0.127,15.903,0.185,15.647,0.254,15.395,0.332,15.102,0.438,14.851,0.544,14.641,0.645,14.47,0.739,14.239,0.886,14.145,0.955,13.856,1.161,13.577,1.381,13.311,1.617,13.062,1.869,12.824,2.132,12.711,2.268,12.603,2.409,12.405,2.707,12.242,2.994,12.11,3.264,12.004,3.517,11.847,3.953,11.785,4.131,11.728,4.277,11.588,4.55,11.437,4.817,11.297,5.091,11.225,5.227,11.145,5.357,11.048,5.487,10.943,5.611,10.728,5.855,10.527,6.111,10.424,6.236,10.312,6.354,10.193,6.455,10.068,6.547,9.812,6.727,9.561,6.912,9.4,7.022,9.213,7.141,8.999,7.265,8.758,7.392,8.487,7.518,8.187,7.641,7.918,7.736,7.664,7.814,7.423,7.875,7.196,7.923,6.984,7.957,6.786,7.981,6.438,8,6.155,7.992,5.941,7.97,5.797,7.946,5.728,7.932,5.514,7.889,5.302,7.836,5.091,7.773,4.884,7.701,4.68,7.618,4.482,7.525,4.289,7.422,4.103,7.309,3.885,7.16,3.687,7.012,3.508,6.867,3.347,6.724,3.203,6.586,3.076,6.452,2.868,6.206,2.715,5.994,2.611,5.824,2.52,5.648,2.389,5.38,2.323,5.192,2.243,5.011,2.148,4.838,2.041,4.674,1.922,4.519,1.792,4.373,1.65,4.239,1.498,4.116,1.337,4.004,1.167,3.906,0.989,3.82,0.803,3.749,0.611,3.692,0.412,3.651,0.209,3.626,0,3.617];
+  const OGEE_PROFILE=(function(){const a=[];for(let i=0;i<OGEE_PTS.length;i+=2)a.push({x:OGEE_PTS[i],y:OGEE_PTS[i+1]});return {pts:a,w:20.94,h:8};})();
+  const BUILTIN_PRESETS=['None','Plain Shaker','Ogee'];
   let profiles={
     'None':{side:'front',lines:mkLines(null)},
-    'Shaker':{side:'front',lines:mkLines({A:{mm:0}})},
-    'All offsets':{side:'front-back',lines:mkLines({A:{mm:0},B:{mm:10},C:{mm:20},D:{mm:30},E:{mm:40},F:{mm:50},G:{mm:60}})}
+    'Plain Shaker':{side:'front',lines:mkLines({A:{mm:0}})},
+    'Ogee':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4.5},C:{mm:6.5},D:{mm:17.5},E:{mm:23.5},F:{mm:27}}),profile:OGEE_PROFILE}
   };
-  // user presets persist on this computer (kab_profiles); the 3 built-ins are never saved
-  (function(){try{const s=JSON.parse(localStorage.getItem('kab_profiles'));if(s&&typeof s==='object')profiles=Object.assign({},profiles,s);}catch(e){}})();
-  function saveProfiles(){try{const o={};Object.keys(profiles).forEach(k=>{if(k!=='None'&&k!=='Shaker'&&k!=='All offsets')o[k]=profiles[k];});localStorage.setItem('kab_profiles',JSON.stringify(o));}catch(e){}}
+  // 2026-07-12: 'Shaker' renamed 'Plain Shaker'; 'All offsets' (example-only) removed. Old files/settings may
+  // still carry those keys — external preset sets are sanitised (legacy keys dropped, factory names never
+  // overridden) and legacy names on items map forward, so old .fastcnc files keep loading unchanged.
+  function extProfiles(s){const o={};Object.keys(s||{}).forEach(k=>{if(BUILTIN_PRESETS.indexOf(k)<0&&k!=='Shaker'&&k!=='All offsets')o[k]=s[k];});return o;}
+  function normPresetName(n){return n==='Shaker'?'Plain Shaker':(n==='All offsets'?'Custom':n);}
+  // user presets persist on this computer (kab_profiles); the factory built-ins are never saved
+  (function(){try{const s=JSON.parse(localStorage.getItem('kab_profiles'));if(s&&typeof s==='object')profiles=Object.assign({},profiles,extProfiles(s));}catch(e){}})();
+  function saveProfiles(){try{const o={};Object.keys(profiles).forEach(k=>{if(BUILTIN_PRESETS.indexOf(k)<0)o[k]=profiles[k];});localStorage.setItem('kab_profiles',JSON.stringify(o));}catch(e){}}
   function applyProfile(i,name){const p=profiles[name];if(!p)return;const it=items[i];it.lines=JSON.parse(JSON.stringify(p.lines));it.pocketSide=p.side||'front';if(p.frame){it.frame=JSON.parse(JSON.stringify(p.frame));it.frameLink=(p.frame.t===p.frame.r&&p.frame.r===p.frame.b&&p.frame.b===p.frame.l);}it.offsetName=name;render();}
   function applyPresetSel(i){const s=event.target;applyProfile(i,s.value);}
   // ---- Offset PRESETS imported from a DXF (Ogee etc.) ------------------------------------------------
@@ -962,14 +973,14 @@
   let items=[];                 // starts EMPTY (user request 2026-07-07) — seedTemplates() kept below only as a reference
   function seedTemplates(){
     return [
-      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Hinge',{on:true},{offsetName:'Shaker'}),
-      mkItem('flush',900,600,1,M,'8x4',F50,{A:{mm:0}},'Insert Flushback',{on:true},{offsetName:'Shaker'}),
-      mkItem('trad',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Insert Traditional',{on:false},{offsetName:'Shaker'}),
-      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Grain ON',{on:false},{grain:true,offsetName:'Shaker'}),
-      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0},B:{mm:10},C:{mm:20},D:{mm:30},E:{mm:40},F:{mm:50},G:{mm:60}},'All Ofsets ON',{on:false},{side:'front-back',offsetName:'All offsets'}),
+      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Hinge',{on:true},{offsetName:'Plain Shaker'}),
+      mkItem('flush',900,600,1,M,'8x4',F50,{A:{mm:0}},'Insert Flushback',{on:true},{offsetName:'Plain Shaker'}),
+      mkItem('trad',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Insert Traditional',{on:false},{offsetName:'Plain Shaker'}),
+      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Grain ON',{on:false},{grain:true,offsetName:'Plain Shaker'}),
+      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0},B:{mm:10},C:{mm:20},D:{mm:30},E:{mm:40},F:{mm:50},G:{mm:60}},'All Ofsets ON',{on:false},{side:'front-back',offsetName:'Custom'}),
       mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0,rd:true},B:{mm:10,rd:true},C:{mm:20,rd:true},D:{mm:30,rd:true},E:{mm:40,rd:true},F:{mm:50,rd:true},G:{mm:60,rd:true}},'All Round corners ON',{on:false},{side:'front-back',round:true,offsetName:'Custom'}),
-      mkItem('reeded',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Reeded',{on:false},{offsetName:'Shaker'}),
-      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Flat',{on:false},{offsetName:'Shaker'}),
+      mkItem('reeded',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Reeded',{on:false},{offsetName:'Plain Shaker'}),
+      mkItem('flat',1000,600,1,M,'8x4',F50,{A:{mm:0}},'Flat',{on:false},{offsetName:'Plain Shaker'}),
       mkItem('flat',1000,600,1,M,'8x4',{t:60,r:70,b:80,l:50},{A:{mm:0}},'Flat',{on:false},{offsetName:'Custom'})
     ];
   }
@@ -1138,7 +1149,7 @@
       if(typeof kq.vatOn==='boolean')vatOn=kq.vatOn;
       if(kq.nestMargin!=null&&!isNaN(+kq.nestMargin)){nestMargin=Math.max(0,+kq.nestMargin);const mi=document.getElementById('nestMarginIn');if(mi)mi.value=nestMargin;}
       if(kq.sheetPriceOv&&typeof kq.sheetPriceOv==='object'){sheetPriceOv=JSON.parse(JSON.stringify(kq.sheetPriceOv));keepSheetOv=true;}
-      if(kq.profiles&&typeof kq.profiles==='object'){profiles=Object.assign({},profiles,kq.profiles);saveProfiles();}   // keep built-ins, add saved presets (and keep them after reload)
+      if(kq.profiles&&typeof kq.profiles==='object'){profiles=Object.assign({},profiles,extProfiles(kq.profiles));saveProfiles();}   // keep built-ins, add saved presets (legacy keys sanitised; kept after reload)
       if(kq.matSizeDef&&typeof kq.matSizeDef==='object')matSizeDef=JSON.parse(JSON.stringify(kq.matSizeDef));   // per-material default sheet size
       if(kq.camJob&&typeof kq.camJob==='object')camJob=Object.assign({zZero:'bed',datum:'ll',rapidGap:20,approach:5,orient:'portrait'},kq.camJob);
       if(Array.isArray(kq.camPaths)){camPaths=JSON.parse(JSON.stringify(kq.camPaths));tpSeq=camPaths.length+1;}
@@ -1629,7 +1640,7 @@
   function setHingeOffset(i,v){v=(''+v).trim();const x=Math.round(+v);items[i].hinges.offset=(v===''||isNaN(x)||x<0)?100:x;delete items[i].hinges.custom;render();}   // changing the end distance re-spreads evenly
   function newProfile(){const n=prompt('New offset profile name:');if(n){profiles[n]={side:'front',lines:mkLines({A:{mm:0}})};saveProfiles();render();}}
   function saveAsProfile(i){const n=(prompt('Save these frame + offset settings as a reusable preset — name:')||'').trim();if(n){profiles[n]={side:items[i].pocketSide,lines:JSON.parse(JSON.stringify(items[i].lines)),frame:JSON.parse(JSON.stringify(resolveFrame(items[i])))};items[i].offsetName=n;saveProfiles();render();}}
-  function delProfile(name){if(['None'].indexOf(name)>=0)return;if(!confirm('Delete the preset "'+name+'"?'))return;delete profiles[name];items.forEach(it=>{if(it.offsetName===name)it.offsetName='Custom';});saveProfiles();render();}
+  function delProfile(name){if(BUILTIN_PRESETS.indexOf(name)>=0)return;if(!confirm('Delete the preset "'+name+'"?'))return;delete profiles[name];items.forEach(it=>{if(it.offsetName===name)it.offsetName='Custom';});saveProfiles();render();}
 
   // ---- chips / labels ----
   function frameLabel(it){
@@ -1843,7 +1854,7 @@
   function secDoorType(i,it){
     const presets=Object.keys(profiles).filter(n=>n!=='None');
     return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
-      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Saved presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span></button>`).join('')}</div><div class="sub" style="margin-top:3px">Save presets from the <b>Offset</b> section (＋ Save).</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
+      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Offset</b> section.</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
   }
   function secParts(i,it){const M=selSet.size>1;const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);return `
     <div style="display:flex;gap:8px">
@@ -1980,10 +1991,10 @@
     <div class="sub" style="margin:-4px 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>
     <div style="max-width:130px;margin:0 auto 10px">${offsetPreview(it)}</div>
     <div class="prof-pick">
-      <span class="sub" style="font-weight:700">Profile:</span>
+      <span class="sub" style="font-weight:700">Preset:</span>
       <select onchange="applyProfile(${i},this.value)">${Object.keys(profiles).map(p=>`<option ${p===it.offsetName?'selected':''}>${p}</option>`).join('')}${profiles[it.offsetName]?'':`<option selected>${esc(it.offsetName)}</option>`}</select>
-      <span class="link" onclick="saveAsProfile(${i})">＋ Save</span>
-      <span class="link" onclick="importOffsetForItem(${i})" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a reusable preset">⬆ Import DXF</span>
+      <button class="btn ghost tiny" onclick="saveAsProfile(${i})" title="Save this frame + offset setup as a reusable preset">${ic('plus',12)} Save</button>
+      <button class="btn ghost tiny" onclick="importOffsetForItem(${i})" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a reusable preset">${ic('open',12)} Import DXF</button>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
       <label class="tg" style="font-size:12px"><input type="checkbox" ${it.pocketRound==='Yes'?'checked':''} onchange="roundAll(${i},this.checked)"> round all</label>
@@ -2880,7 +2891,8 @@
       const it=mkItem(typeKey,+p.width,+p.height,Math.max(1,+p.quantity||1),p.mat||orderMaterial,nestSize,p.frame||{t:0,r:0,b:0,l:0},null,p.text||'',p.hinges||{on:false},{offsetName:p.offsetName||'None'});
       if(p.grain)it.grain=(p.grain===true?'long':p.grain);
       if(p.hinges&&Array.isArray(p.hinges.custom)&&p.hinges.custom.length)it.hinges.custom=p.hinges.custom.slice();
-      if(p.offsetName&&profiles[p.offsetName]){it.lines=JSON.parse(JSON.stringify(profiles[p.offsetName].lines));it.pocketSide=profiles[p.offsetName].side||'front';it.offsetName=p.offsetName;}
+      const tkPreset=normPresetName(p.offsetName);
+      if(tkPreset&&profiles[tkPreset]){it.lines=JSON.parse(JSON.stringify(profiles[tkPreset].lines));it.pocketSide=profiles[tkPreset].side||'front';it.offsetName=tkPreset;}
       items.push(it);
     });
     resetSel(items.length-1);render();
@@ -4697,7 +4709,7 @@
       if(s.pricingCfg&&typeof s.pricingCfg==='object'){pricingCfg={method:(s.pricingCfg.method==='formula')?'formula':'production',formula:Object.assign({fixed:25,rate:139,min:20},s.pricingCfg.formula||{})};savePricingCfg();}
       if(s.companyCfg&&typeof s.companyCfg==='object'){companyCfg=Object.assign(companyCfg,s.companyCfg);localStorage.setItem('kab_company',JSON.stringify(companyCfg));}
       if(Array.isArray(s.hiddenMats)){hiddenMats=new Set(s.hiddenMats);saveHiddenMats();}
-      if(s.profiles&&typeof s.profiles==='object'){profiles=Object.assign({},profiles,s.profiles);saveProfiles();}
+      if(s.profiles&&typeof s.profiles==='object'){profiles=Object.assign({},profiles,extProfiles(s.profiles));saveProfiles();}
       closeModal();openPricing();render();alert('Settings loaded — and saved on this computer (no need to load them again next time).');
     }catch(e){alert('Invalid settings file: '+e.message);}};
     r.readAsText(f);ev.target.value='';
@@ -6775,9 +6787,9 @@
       +pnRowN('Window sill','room','sillH',room.sillH)
       +'<div class="pn-hint">room default — a wall (Wall tab) or a single panel (Panel tab) can override it</div>');
     s+=pnAcc('r_off','Offsets',(scope==='project'?'Project':'Room')+' · '+esc(offName)+(enN?' · '+enN+' on':''),
-      '<div class="pn-row"><label>Profile</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+      '<div class="pn-row"><label>Preset</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
         +'<select onchange="pnApplyProfile(this.value)">'+Object.keys(profiles).map(p=>'<option'+(p===offName?' selected':'')+'>'+esc(p)+'</option>').join('')+(profiles[offName]?'':'<option selected>'+esc(offName)+'</option>')+'</select>'
-        +'<span class="link" onclick="pnImportProfile()" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a preset">⬆ Import DXF</span></span></div>'
+        +'<button class="pn-mini" onclick="pnImportProfile()" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a preset">⬆ Import DXF</button></span></div>'
       +'<div class="pn-row"><label>Scope</label>'+pnSegHtml([['project','Project'],['room','Room only']],scope,'pnSetLinesScope(\'%V\')')+'</div>'
       +'<div class="pn-hint" style="margin-bottom:6px">'+(scope==='project'
         ?'<b>PROJECT</b> offsets — one shared set, the default for every room on Project scope. Editing here changes all of them.'

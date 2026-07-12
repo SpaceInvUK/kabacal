@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (ll) — Preset polish: Ogee de fábrica + "Plain Shaker" + label "Preset" + botões
+
+Refinamento pedido pelo Ednei em cima do *kk*: a UI agora diz "**Preset**" (não "Profile"), o **Ogee é built-in de fábrica** (A0/B4.5/C6.5/D17.5/E23.5/F27 + seção 20.94×8mm/118pts embutida — funciona sem importar), "Shaker" virou "**Plain Shaker**" e "All offsets" (só exemplo) foi **removido**. Save/Import viraram botões (`btn ghost tiny` no Doors, `pn-mini` no Panels); chips de preset não mostram ✕ nos de fábrica.
+
+- **Compatibilidade de legado** (persistência aditiva intacta): `extProfiles` sanitiza conjuntos externos (arquivo `.fastcnc`/settings antigos) descartando as chaves legadas `Shaker`/`All offsets` e nunca deixando arquivo sobrescrever preset de fábrica; `normPresetName` mapeia nomes em itens (Shaker→Plain Shaker, All offsets→Custom) no `mkItem` e no takeoff. Arquivo velho carrega igual.
+- Built-ins (`BUILTIN_PRESETS`) nunca salvos no `kab_profiles` e não deletáveis (`delProfile` guard).
+
+### Testado (ll)
+`node tools/check.mjs` verde ✓ · **14/14 goldens regenerados pelas receitas oficiais em contexto limpo e byte-idênticos** (G18 + RICH×4 + PANELS + WALL_LAYOUT + NC ll/c + TPL×2 + QUOTE std/rich/mixed) ✓ · app real (fresh, localStorage limpo): lista = None/Plain Shaker/Ogee; **Ogee de fábrica aplicado num item → DXF com OFFSET_A..F + PROFILE 1 polilinha/118 vértices SEM import** ✓ · sanitização provada no app: `extProfiles({Shaker,All offsets,Keep Me}) → {Keep Me}`; `normPresetName` Shaker→Plain Shaker/All offsets→Custom ✓ · built-ins fora do `kab_profiles` (`{}`) e `delProfile('Ogee')` bloqueado ✓ · UI verificada com screenshot: Doors "Preset: Ogee" + chip OGEE + linhas 0/4.5/6.5/17.5/23.5/27 ON; Panels "Offsets · PROJECT · OGEE · 6 ON" + botão ⬆ Import DXF ✓. Só `index.html` + docs.
+
 ## 2026-07-12 (kk) — Offset presets por import de DXF (Ogee) + layer PROFILE por chapa
 
 Sistema de **preset de offset** escolhível na área Offsets, para **Doors e Panels**, com import de DXF (a parte de toolpath vem depois, casada pelo mesmo nome). Aproveita o registro `profiles` que já existia no Doors (dropdown "Profile", `applyProfile`, `it.offsetName`) e estende para os Panels.
