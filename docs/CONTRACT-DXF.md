@@ -25,6 +25,7 @@ The exported DXFs feed the **VCarve gadgets** (in the `CNC App` repo: "Fast CNC 
 | `OUT` | 150 | part outer contour (through cut) |
 | `IN` / `INSIDE` | 5 | through inner cuts (trad cavity / glass opening / panels window) |
 | `OFFSET_A`…`OFFSET_G` | 30/1/5/210/94/30/32 | the 7 production offset lines (A = Frame). Active line replaces the base: with NO active line the cavity itself goes out on `OFFSET_A` (Doors and Panels both) |
+| `PROFILE` | 177 | moulding cross-section from an imported offset preset (Ogee etc.). Drawn ONCE per sheet (top-left, actual size, `dxfSheetProfiles`) for each profile-carrying preset used on that sheet — Doors + Panels. A **reference** for the VCarve moulding toolpath, NOT a cut. Added by the offset-preset importer (`offsetPresetFromDxf`); `OFFSET_A`=frame-zero, B–G = inward spacing read from the DXF, `OUT` ignored |
 | `GROOVE` | 211 | groove lines |
 | `LED_CHANNEL` | 30 | LED channel inside a groove |
 | `REEDED` | 132 | reeded insert pattern |

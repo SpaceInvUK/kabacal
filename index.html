@@ -896,6 +896,65 @@
   function saveProfiles(){try{const o={};Object.keys(profiles).forEach(k=>{if(k!=='None'&&k!=='Shaker'&&k!=='All offsets')o[k]=profiles[k];});localStorage.setItem('kab_profiles',JSON.stringify(o));}catch(e){}}
   function applyProfile(i,name){const p=profiles[name];if(!p)return;const it=items[i];it.lines=JSON.parse(JSON.stringify(p.lines));it.pocketSide=p.side||'front';if(p.frame){it.frame=JSON.parse(JSON.stringify(p.frame));it.frameLink=(p.frame.t===p.frame.r&&p.frame.r===p.frame.b&&p.frame.b===p.frame.l);}it.offsetName=name;render();}
   function applyPresetSel(i){const s=event.target;applyProfile(i,s.value);}
+  // ---- Offset PRESETS imported from a DXF (Ogee etc.) ------------------------------------------------
+  // A preset DXF carries OFFSET_A..OFFSET_G rectangles + one PROFILE polyline (the moulding section).
+  // OFFSET_A is the FRAME line = zero; B..G are read as their spacing INWARD from A (never the OUT->A
+  // distance — OUT is ignored, it never changes). The profile is kept as a normalised polyline and drawn
+  // once per exported sheet on layer PROFILE. The preset NAME (it.offsetName) later matches its toolpath.
+  function dxfPresetPolyline(text,wantLayer){
+    const P=dxfReadPairs(text),n=P.length;let start=0;
+    for(let k=0;k<n;k++){if(P[k][0]==='2'&&(P[k][1]||'').trim().toUpperCase()==='ENTITIES'){start=k+1;break;}}
+    const want=String(wantLayer||'').toUpperCase(),polys=[];let cur=null,sub=null,inV=false;
+    const flush=()=>{if(cur&&cur.pts.length>1)polys.push(cur);cur=null;sub=null;inV=false;};
+    for(let k=start;k<n;k++){const code=P[k][0],val=(P[k][1]==null?'':P[k][1]).trim();
+      if(code==='0'){const t=val.toUpperCase();
+        if(t==='ENDSEC'){flush();break;}
+        if(t==='VERTEX'){if(cur&&sub==='pl')inV=true;continue;}
+        if(t==='SEQEND')continue;
+        flush();
+        if(t==='LWPOLYLINE'){cur={layer:'0',pts:[]};sub='lw';}
+        else if(t==='POLYLINE'){cur={layer:'0',pts:[]};sub='pl';inV=false;}
+        continue;}
+      if(!cur)continue;
+      if(code==='8'){cur.layer=val;continue;}
+      const x=parseFloat(val);if(isNaN(x))continue;
+      if(code==='10'){if(sub==='pl'){if(inV)cur.pts.push({x:x,y:null});}else cur.pts.push({x:x,y:null});continue;}
+      if(code==='20'){const last=cur.pts[cur.pts.length-1];if(last&&last.y===null)last.y=x;continue;}
+    }
+    const cand=polys.filter(pl=>String(pl.layer||'').toUpperCase()===want).map(pl=>pl.pts.filter(p=>p.y!=null))
+      .filter(pts=>pts.length>1).sort((a,b)=>b.length-a.length);
+    const pts=cand[0]||[];if(!pts.length)return null;
+    let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;pts.forEach(p=>{mnx=Math.min(mnx,p.x);mny=Math.min(mny,p.y);mxx=Math.max(mxx,p.x);mxy=Math.max(mxy,p.y);});
+    return {pts:pts.map(p=>({x:+(p.x-mnx).toFixed(3),y:+(p.y-mny).toFixed(3)})),w:+(mxx-mnx).toFixed(2),h:+(mxy-mny).toFixed(2)};
+  }
+  // Derive {side,lines,profile} from a preset DXF. Throws on a DXF without OFFSET_A.
+  function offsetPresetFromDxf(text){
+    const ents=readDxfEntities(text),byL={};
+    ents.forEach(e=>{const L=String(e.layer||'').toUpperCase();(byL[L]=byL[L]||[]).push(e);});
+    const uni=arr=>{let a=1e9,b=-1e9,c=1e9,d=-1e9;arr.forEach(e=>{a=Math.min(a,e.minX);b=Math.max(b,e.maxX);c=Math.min(c,e.minY);d=Math.max(d,e.maxY);});return {minX:a,maxX:b,minY:c,maxY:d};};
+    const A=(byL['OFFSET_A']&&byL['OFFSET_A'].length)?uni(byL['OFFSET_A']):null;
+    if(!A)throw new Error('This DXF has no OFFSET_A layer. OFFSET_A is the frame line (zero) and the other OFFSET_* layers are measured inward from it.');
+    const cfg={A:{mm:0}};
+    ['B','C','D','E','F','G'].forEach(Lt=>{const g=byL['OFFSET_'+Lt];if(g&&g.length){const u=uni(g);
+      const mm=((u.minX-A.minX)+(A.maxX-u.maxX)+(u.minY-A.minY)+(A.maxY-u.maxY))/4;
+      if(mm>0.01)cfg[Lt]={mm:+mm.toFixed(2)};}});
+    return {side:'front',lines:mkLines(cfg),profile:dxfPresetPolyline(text,'PROFILE')};
+  }
+  // File picker -> parse -> name -> store in `profiles`; onDone(name) applies it to the caller's scope.
+  function importOffsetPreset(onDone){
+    const inp=document.createElement('input');inp.type='file';inp.accept='.dxf,.txt';
+    inp.onchange=()=>{const f=inp.files&&inp.files[0];if(!f)return;const rd=new FileReader();
+      rd.onload=()=>{let preset;try{preset=offsetPresetFromDxf(String(rd.result||''));}catch(e){alert('Could not read this preset DXF:\n'+((e&&e.message)||e));return;}
+        const base=(f.name||'Preset').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim()||'Preset';
+        const nm=(prompt('Name this offset preset (used later to match its toolpath):',base)||'').trim();if(!nm)return;
+        profiles[nm]={side:preset.side,lines:preset.lines};if(preset.profile)profiles[nm].profile=preset.profile;
+        saveProfiles();const nOn=preset.lines.filter(l=>l&&l.en).length;
+        alert('Preset "'+nm+'" imported: '+nOn+' offset line(s)'+(preset.profile?' + PROFILE section '+preset.profile.w+' x '+preset.profile.h+'mm':' (no PROFILE layer found)')+'.');
+        if(onDone)onDone(nm);};
+      rd.readAsText(f);};
+    inp.click();
+  }
+  function importOffsetForItem(i){importOffsetPreset(nm=>applyProfile(i,nm));}
 
   let orderMaterial='MDF Hidrofugo Plus 18mm';
   let rawDoc=null;           // last imported .fastcnc.json (kept for 100% round-trip)
@@ -1041,6 +1100,7 @@
     // Panels mode: restore the additive panelRooms field, or import legacy panel-mode blocks
     const pr=Array.isArray(doc.panelRooms)?JSON.parse(JSON.stringify(doc.panelRooms)):pnImportLegacy(doc);
     if(doc.panelProject&&Array.isArray(doc.panelProject.lines)&&doc.panelProject.lines.length===7)pnProjLines=JSON.parse(JSON.stringify(doc.panelProject.lines));   // additive: project offset defaults
+    if(doc.panelProject&&doc.panelProject.offsetName)pnProjOffsetName=doc.panelProject.offsetName;   // additive: project offset preset name
     if(pr&&pr.length){panelRooms=pr;pnSel={room:0,wall:0,kind:'room',id:null};pnSave();}
     if(!out.length){
       if(pr&&pr.length){
@@ -1121,7 +1181,7 @@
     const base=rawDoc?JSON.parse(JSON.stringify(rawDoc)):{app:'FAST CNC Quote Calculator',fileType:'fast-cnc-quote',version:1,activeCalculatorMode:'doors',customDoorTemplates:[],customOffcutTemplates:[],materialPriceOverrides:{},client:{name:'',contact:''},services:{designHours:'0',cuttingListHours:'0',assemblyHours:'0'},spray:{enabled:false,profiles:{},addons:{},prepRate:0}};
     base.savedAt=new Date().toISOString();
     base.panelRooms=JSON.parse(JSON.stringify(panelRooms||[]));   // Panels mode payload (additive — old readers ignore it)
-    base.panelProject={lines:JSON.parse(JSON.stringify(pnProjLines))};   // project-wide offset defaults (additive)
+    base.panelProject={lines:JSON.parse(JSON.stringify(pnProjLines)),offsetName:pnProjOffsetName};   // project-wide offset defaults + preset name (additive)
     // group items by material+size, preserving first-seen order
     const groups=new Map();
     items.forEach((it,idx)=>{const key=it.mat+'|'+it.size;if(!groups.has(key))groups.set(key,[]);groups.get(key).push({it,idx});});
@@ -1204,7 +1264,7 @@
   function downloadFastCnc(name){const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){const n=prompt('Save as — file name:','ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1,'PROFILE':177};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -1287,6 +1347,18 @@
   function dxfPoly(layer,pts,closed){let s='0\nPOLYLINE\n8\n'+layer+'\n66\n1\n70\n'+(closed?1:0)+'\n';pts.forEach(p=>{s+='0\nVERTEX\n8\n'+layer+'\n10\n'+fnum(p.x)+'\n20\n'+fnum(p.y)+'\n30\n0\n';if(p.b)s+='42\n'+p.b+'\n';});s+='0\nSEQEND\n8\n'+layer+'\n';return s;}
   function dxfRect(layer,x,y,w,h){return dxfPoly(layer,[{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}],true);}
   function dxfRoundRect(layer,x,y,w,h,r){r=Math.min(r,w/2-0.1,h/2-0.1);if(r<=0)return dxfRect(layer,x,y,w,h);const k=0.41421356;return dxfPoly(layer,[{x:x+r,y:y},{x:x+w-r,y:y,b:k},{x:x+w,y:y+r},{x:x+w,y:y+h-r,b:k},{x:x+w-r,y:y+h},{x:x+r,y:y+h,b:k},{x:x,y:y+h-r},{x:x,y:y+r,b:k}],true);}
+  // Draw the moulding PROFILE section(s) used on a sheet, ONCE, in the sheet's top-left (inside the SHEET
+  // box, under the caption) at actual size on layer PROFILE. `names` = offset-preset names present on the
+  // sheet; only presets that carry a profile draw. topY = sheet top edge; sections stack downward.
+  function dxfSheetProfiles(names,ox,topY,layersSet){
+    let body='',y=topY;const seen={};
+    names.forEach(nm=>{const pr=nm&&profiles[nm]&&profiles[nm].profile;if(!pr||!pr.pts||pr.pts.length<2||seen[nm])return;seen[nm]=1;
+      layersSet.add('PROFILE');
+      body+=dxfPoly('PROFILE',pr.pts.map(p=>({x:ox+p.x,y:y-pr.h+p.y})),false);
+      body+=dxfText('text',ox,y-pr.h-6,6,String(nm).toUpperCase()+' PROFILE',false);
+      y-=pr.h+22;});
+    return body;
+  }
   function hingeCenters(p,bx,by){
     const h=p.hinge,out=[],inset=22.5;
     const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
@@ -1411,6 +1483,9 @@
         var ofit=fitDxfPartText(o.label,'OFFCUT',Math.max(1,oM.vertical?oM.contentH:oM.contentW),Math.max(1,oM.vertical?oM.contentW:oM.contentH));
         if(ofit&&ofit.lines.length)ofit.lines.forEach((lt,li)=>{var ltx=oM.vertical?oM.contentX+ofit.font+li*ofit.linePitch:oM.contentX,lty=oM.vertical?oM.contentY:oM.contentY+ofit.font+li*ofit.linePitch;body+=dxfText('OFFCUT_TEXT',ltx,lty,ofit.font,lt,false,oM.rotation);});
       }
+      // moulding PROFILE section: one per sheet (top-left) for any offset preset used here that carries one
+      { const profNames=new Set();sh.parts.forEach(p=>{if(p.offsetName&&profiles[p.offsetName]&&profiles[p.offsetName].profile)profNames.add(p.offsetName);});
+        if(profNames.size)body+=dxfSheetProfiles(profNames,12,oy+Hp-46,layers); }
       yOrigin+=Hp+SHEETGAP;
     });
     const layerArr=Array.from(layers);
@@ -1908,6 +1983,7 @@
       <span class="sub" style="font-weight:700">Profile:</span>
       <select onchange="applyProfile(${i},this.value)">${Object.keys(profiles).map(p=>`<option ${p===it.offsetName?'selected':''}>${p}</option>`).join('')}${profiles[it.offsetName]?'':`<option selected>${esc(it.offsetName)}</option>`}</select>
       <span class="link" onclick="saveAsProfile(${i})">＋ Save</span>
+      <span class="link" onclick="importOffsetForItem(${i})" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a reusable preset">⬆ Import DXF</span>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
       <label class="tg" style="font-size:12px"><input type="checkbox" ${it.pocketRound==='Yes'?'checked':''} onchange="roundAll(${i},this.checked)"> round all</label>
@@ -2202,7 +2278,7 @@
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0;n<(+it.q||0);n++){
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
@@ -5361,12 +5437,13 @@
     return {id:'po'+(++pnUid)+'_'+Date.now(),type,name:type==='door'?'Door':(type==='window'?'Window':'Object'),
       w:d.w,h:d.h,x:x,from:'L',bottom:d.bottom,topPanel:'yes'};
   }
-  function pnSave(){pnLayoutMemo.clear();try{localStorage.setItem('kab_panels',JSON.stringify({rooms:panelRooms,proj:{lines:pnProjLines}}));}catch(e){}}
+  function pnSave(){pnLayoutMemo.clear();try{localStorage.setItem('kab_panels',JSON.stringify({rooms:panelRooms,proj:{lines:pnProjLines,offsetName:pnProjOffsetName}}));}catch(e){}}
   // ---- offset lines scope (2026-07-11): PROJECT (shared default) vs ROOM-only override ----
   // pnProjLines = the project-wide A–G set. A room with linesScope 'project' follows it; 'room' uses its own
   // room.lines. Legacy rooms (no linesScope) keep behaving: any enabled room line ⇒ 'room', else 'project' —
   // so old files/goldens render byte-identical. All persistence is additive (kab_panels.proj / doc.panelProject).
   let pnProjLines=pnDefaultLines();
+  let pnProjOffsetName='None';   // active offset preset name for Project scope (Room scope uses room.offsetName)
   function pnLinesScope(room){if(room&&(room.linesScope==='room'||room.linesScope==='project'))return room.linesScope;
     return (room&&(room.lines||[]).some(l=>l&&l.en))?'room':'project';}
   function pnLinesFor(room){return pnLinesScope(room)==='room'?((room.lines&&room.lines.length===7)?room.lines:pnDefaultLines()):pnProjLines;}
@@ -5491,6 +5568,8 @@
           body+=dxfText('text',ltx,lty,fit.font,lt,false,M.rotation);
         });
       });
+      // moulding PROFILE section: one per sheet (top-left) when this room's offset preset carries one
+      if(entry.offsetName&&profiles[entry.offsetName]&&profiles[entry.offsetName].profile)body+=dxfSheetProfiles(new Set([entry.offsetName]),12,oy+Hp-46,layers);
       yOrigin+=Hp+SHEETGAP;
     });
     const layerArr=Array.from(layers);
@@ -5512,7 +5591,8 @@
       const nest=pnNestRoom(room,L.pieces);
       if(!byTh.has(th))byTh.set(th,[]);
       const lines=pnLinesFor(room);   // scope-aware (Project vs Room offsets)
-      nest.sheets.forEach(sh=>byTh.get(th).push({mat:room.mat,room:room.name||'',lines,sh}));
+      const offName=pnOffsetName(room);
+      nest.sheets.forEach(sh=>byTh.get(th).push({mat:room.mat,room:room.name||'',lines,offsetName:offName,sh}));
     });
     const files={};byTh.forEach((list,th)=>{files['PANELS_'+th]=pnDxfForThickness(th,list);});
     return files;
@@ -5651,7 +5731,7 @@
   }
   function pnInit(){
     try{const s=JSON.parse(localStorage.getItem('kab_panels')||'null');if(s&&Array.isArray(s.rooms))panelRooms=s.rooms;
-      if(s&&s.proj&&Array.isArray(s.proj.lines)&&s.proj.lines.length===7)pnProjLines=s.proj.lines;}catch(e){}
+      if(s&&s.proj){if(Array.isArray(s.proj.lines)&&s.proj.lines.length===7)pnProjLines=s.proj.lines;if(s.proj.offsetName)pnProjOffsetName=s.proj.offsetName;}}catch(e){}
     // Doors is ALWAYS the default mode on open (user rule 2026-07-07). Panels stays one click away
     // in the header; the last-used mode is deliberately NOT restored.
   }
@@ -5771,7 +5851,15 @@
     else{r.lines=r.lines&&r.lines.length===7?r.lines:pnDefaultLines();arr=r.lines;}
     const l=arr[i];if(!l)return;
     if(field==='en')l.en=!l.en;else if(field==='rd')l.rd=!l.rd;else l.mm=Math.max(0,pnNum(val));
+    if(pnLinesScope(r)==='project')pnProjOffsetName='Custom';else r.offsetName='Custom';   // manual edit drops the preset name
     pnRefresh();}
+  // active preset name for the room's offset scope (Project shares pnProjOffsetName; Room uses room.offsetName)
+  function pnOffsetName(room){return pnLinesScope(room)==='room'?((room&&room.offsetName)||'Custom'):pnProjOffsetName;}
+  function pnApplyProfile(name){const p=profiles[name];if(!p)return;const r=pnRoomObj();if(!r)return;
+    if(pnLinesScope(r)==='project'){pnProjLines=JSON.parse(JSON.stringify(p.lines));pnProjOffsetName=name;}
+    else{r.lines=JSON.parse(JSON.stringify(p.lines));r.offsetName=name;}
+    pnRefresh();}
+  function pnImportProfile(){importOffsetPreset(nm=>pnApplyProfile(nm));}
   function pnSetView(v){pnView=v;pnVb=null;renderPanels();}
   // openings collide if their rects overlap OR sit within a FRAME of each other horizontally (there must be at
   // least a frame of panel between two openings). `gap` = the frame margin (0 = plain rect overlap).
@@ -6662,7 +6750,7 @@
   function pnRoomTabHtml(room){
     const th=pnThick(room.mat)||18;
     const thList=(PN_TH_OPTS.indexOf(th)>=0?PN_TH_OPTS:[th].concat(PN_TH_OPTS));
-    const scope=pnLinesScope(room),lines=pnLinesFor(room),enN=lines.filter(l=>l&&l.en).length;
+    const scope=pnLinesScope(room),lines=pnLinesFor(room),enN=lines.filter(l=>l&&l.en).length,offName=pnOffsetName(room);
     let s='';
     s+=pnAcc('r_std','Project Standards',th+'mm · frame '+Math.round(+room.frame||80),
       '<div class="pn-row"><label>Thickness</label><select onchange="pnSetThickness(this.value)">'+thList.map(t=>'<option value="'+t+'"'+(t===th?' selected':'')+'>'+t+'mm</option>').join('')+'</select></div>'
@@ -6686,8 +6774,11 @@
       +pnRowN('Skirting height','room','skirtH',room.skirtH)
       +pnRowN('Window sill','room','sillH',room.sillH)
       +'<div class="pn-hint">room default — a wall (Wall tab) or a single panel (Panel tab) can override it</div>');
-    s+=pnAcc('r_off','Offsets',(scope==='project'?'Project':'Room')+(enN?' · '+enN+' on':''),
-      '<div class="pn-row"><label>Scope</label>'+pnSegHtml([['project','Project'],['room','Room only']],scope,'pnSetLinesScope(\'%V\')')+'</div>'
+    s+=pnAcc('r_off','Offsets',(scope==='project'?'Project':'Room')+' · '+esc(offName)+(enN?' · '+enN+' on':''),
+      '<div class="pn-row"><label>Profile</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        +'<select onchange="pnApplyProfile(this.value)">'+Object.keys(profiles).map(p=>'<option'+(p===offName?' selected':'')+'>'+esc(p)+'</option>').join('')+(profiles[offName]?'':'<option selected>'+esc(offName)+'</option>')+'</select>'
+        +'<span class="link" onclick="pnImportProfile()" title="Import an OFFSETS+PROFILE DXF (Ogee etc.) as a preset">⬆ Import DXF</span></span></div>'
+      +'<div class="pn-row"><label>Scope</label>'+pnSegHtml([['project','Project'],['room','Room only']],scope,'pnSetLinesScope(\'%V\')')+'</div>'
       +'<div class="pn-hint" style="margin-bottom:6px">'+(scope==='project'
         ?'<b>PROJECT</b> offsets — one shared set, the default for every room on Project scope. Editing here changes all of them.'
         :'<b>ROOM-only</b> offsets — this room keeps its own set and ignores the project default.')+'</div>'

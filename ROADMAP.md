@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (kk) — Offset presets por import de DXF (Ogee) + layer PROFILE por chapa
+
+Sistema de **preset de offset** escolhível na área Offsets, para **Doors e Panels**, com import de DXF (a parte de toolpath vem depois, casada pelo mesmo nome). Aproveita o registro `profiles` que já existia no Doors (dropdown "Profile", `applyProfile`, `it.offsetName`) e estende para os Panels.
+
+- **⬆ Import DXF** (`offsetPresetFromDxf`): lê `OFFSET_A..OFFSET_G` (+ `PROFILE`) de um DXF e cria um preset nomeado. **`OFFSET_A` = frame = ZERO**; B..G = espaçamento **para dentro relativo a A** (média das 4 folgas dos bboxes), **nunca** a distância `OUT→A`; **`OUT` ignorado, nunca muda** (Frame=70 ⇒ A começa 70mm para dentro do OUT — o frame é a config da peça). `PROFILE` = polilinha da seção normalizada.
+- **Layer `PROFILE`** (cor 177, aditivo em `DXF_LAYERS`): a seção da moldura é desenhada **UMA vez por chapa** (canto sup-esq, tamanho real, `dxfSheetProfiles`) em Doors (`dxfForThickness`) e Panels (`pnDxfForThickness`), só quando o preset usado tem perfil. Referência do toolpath de moldura, não corte. `OUT`/`OFFSET_*` inalterados.
+- **Panels**: novo dropdown "Profile" + ⬆ Import no acordeão Offsets; nome guardado em `pnProjOffsetName` (Project) / `room.offsetName` (Room). Editar linha à mão volta para `Custom`.
+- **Persistência aditiva** (nada renomeado): `kab_profiles` (com `.profile`), `.fastcnc` `kabacalQuote.profiles` + `panelProject.offsetName` + `room.offsetName`.
+- **Ogee** (preset lido do DXF do Ednei): A0/B4.5/C6.5/D17.5/E23.5/F27 mm + seção 20.94×8mm (118 pts).
+
+### Testado (kk)
+`node tools/check.mjs` verde (compila + invariantes + PN engine) ✓ · **8 goldens byte-idênticos** (nenhum job golden usa preset com perfil → saída inalterada; código novo só emite com `profiles[nome].profile`) ✓ · derivação rodada nos DXF REAIS do Ednei (Node + no app, resultado idêntico): `A0 B4.5 C6.5 D17.5 E23.5 F27`, perfil `20.94×8mm/118pts` ✓ · **export Doors real** (via app): DXF 22mm com `OFFSET_A..F` + layer `PROFILE`(177) + **1 polilinha/118 vértices por chapa** + label "OGEE PROFILE" ✓ · **export Panels real**: `PANELS_18mm` com `OFFSET_A..F` + `PROFILE` + **2 polilinhas/236 vértices (1 por chapa, 2 chapas)** + `panelProject.offsetName=Ogee` ✓ · UI: dropdown "Profile" com Ogee selecionado + ⬆ Import DXF (Doors) e acordeão "Offsets · PROJECT · OGEE · 6 ON" (Panels) ✓. Só `index.html` + docs mudaram. Revisão de zona guardada: mudança aditiva (layer novo, nada renomeado), goldens byte-idênticos.
+
 ## 2026-07-12 (jj) — Fase 4 CONFIRMADA pelo Ednei (assinou/pagou/cancelou) + e-mails do Stripe ligados
 
 Ednei rodou o loop 4242 ele mesmo: **assinou (Starter) → pagamento aceito → plano mudou → cancelou** — cadeia inteira validada em modo teste (app→função→Checkout→webhook→`accounts.plan/status`→portal). Cliente Stripe da assinatura = `edneilacerda@gmail.com` (ele logado como ele mesmo; a função mapeia o e-mail certo).

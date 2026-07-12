@@ -57,6 +57,18 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
 
 - Mesmo modelo do Doors ({en, mm, round}) no room, desenhadas dentro de CADA cavidade de shaker no preview e EXPORTADAS no DXF: linha ativa = retângulo recuado `mm` dentro de cada cavidade na layer `OFFSET_X` (round corners r2.5 como Doors); **sem nenhuma linha ativa, a própria cavidade sai em `OFFSET_A`** — exatamente a disciplina do Doors (linha ativa substitui a base).
 
+### Offset presets (Profile) + import de DXF (Ogee — 2026-07-12)
+
+- **Preset de offset** = um nome + as 7 linhas A–G + (opcional) uma **seção de moldura** guardada como polilinha normalizada. Registro global `profiles` (`kab_profiles`). Doors: dropdown "Profile" na aba Offsets + `it.offsetName`. Panels: dropdown "Profile" no acordeão Offsets, guardado em `pnProjOffsetName` (escopo Project) ou `room.offsetName` (escopo Room). Editar uma linha à mão volta o nome para `Custom`.
+- **⬆ Import DXF** (`importOffsetPreset` → `offsetPresetFromDxf`): lê um DXF com layers `OFFSET_A..OFFSET_G` (+ opcional `PROFILE`) e cria o preset. Regras de leitura, **confirmadas pelo Ednei**:
+  - **`OFFSET_A` = a linha do FRAME = ZERO.** As demais (`OFFSET_B..G`) entram como o **espaçamento PARA DENTRO relativo a A** (média das 4 folgas dos bounding boxes de cada layer vs. A), **nunca** a distância `OUT→A`.
+  - **`OUT` é ignorado e NUNCA muda.** O frame é a config da própria peça: Frame=70 ⇒ A começa 70mm para dentro do `OUT` (A com mm=0 já é a borda da cavidade, que já está dentro do frame). Não redimensionar/reinterpretar as linhas — respeitar o espaçamento do DXF.
+  - `PROFILE` = a polilinha da seção da moldura, normalizada para origem local (guardada em `profiles[nome].profile = {pts,w,h}`).
+- **Layer `PROFILE` no DXF** (cor 177, aditivo): desenhado **UMA vez por chapa** (canto superior-esquerdo, tamanho real) para cada preset com perfil usado naquela chapa — tanto Doors (`dxfForThickness`) quanto Panels (`pnDxfForThickness`), via `dxfSheetProfiles`. **Não é corte** — é a referência da seção para o toolpath de moldura (Ogee) no VCarve. O contorno da peça (`OUT`) e as linhas `OFFSET_*` seguem inalterados.
+- O **mesmo nome** (`offsetName`) fica guardado para casar depois com o template de toolpath (a parte de toolpath vem a seguir).
+- Persistência **aditiva** (nada renomeado): `kab_profiles` (presets, incl. `.profile`), `.fastcnc` → `kabacalQuote.profiles` + `panelProject.offsetName` + `room.offsetName`.
+- **Ogee** (primeiro preset, lido do DXF do Ednei): A=0 / B=4.5 / C=6.5 / D=17.5 / E=23.5 / F=27 mm + seção 20.94×8mm (118 pts).
+
 ### DXF dos painéis (confirmado/entregue 2026-07-07)
 
 - Botão DXF do header (modo Panels) e botão ⬇ DXF do canvas exportam `PANELS_<espessura>.dxf` (um arquivo por espessura, rooms juntos).
