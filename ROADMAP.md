@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (uu) — Editor multi-painel de portas: frame externo + rail interno + painel juntos num só lugar
+
+Pedido do Ednei: no editor de portas com 2+ painéis, controlar separadamente (1) o frame externo, (2) o rail interno entre painéis, (3) o tamanho dos painéis — e que mexer no rail ou redimensionar o painel de baixo **não** altere os valores de frame/rail já editados; altura do painel medida a partir de **baixo** da peça.
+
+**Descoberta (testado ANTES de mexer)**: o modelo JÁ fazia tudo isso. `frame:{t,r,b,l}` (frame externo por lado, com link/unlink), `midFrame` (rail interno, independente, `''` = igual ao topo), `panelSize` (opening de baixo em retrato, `''` = divide igual). `panelSegs`/`cavsFor` já são **referenciados por baixo**: subi a altura da porta 2000→2200 → painel de baixo ficou fixo em 700 e o de cima absorveu; com frame b=305 o opening de baixo encosta exatamente no frame de baixo (y+h = 2000−305). DXF == preview (`placedCavs`==`doorCavities`). O problema era só de **descoberta**: os controles estavam espalhados — frame na seção *Offset*, rail+painel na seção *Part*.
+
+**Mudança (só UI — Ednei escolheu "consolidar num editor só")**: `secParts`, para portas multi-painel, mostra tudo junto — heading **Outer frame** com os 4 lados T/B/L/R (ou single quando *link*), **Internal rail (mm)** e **Bottom/Right panel (mm)** com a nota *measured from the bottom*. Reusa os setters existentes (`setFrame`/`setFrameSide`/`setMidFrame`/`setPanelSize`) → **zero mudança de geometria**. Porta de 1 painel inalterada (frame segue só na Offset). O `it.frame` aqui é o MESMO editado na Offset (sincronizado pelo `render()`). Código morto `tabPart` não tocado. **Gaps honestos não pedidos agora**: 3+ painéis só permitem dimensionar o de baixo (os do meio dividem igual); rail único entre todos os pares.
+
+### Testado (uu)
+`node tools/check.mjs` verde ✓ · **goldens byte-idênticos** (GOLDEN_18mm.dxf 4517, GOLDEN_S1_18mm_datum-ll.nc 8358, QUOTE_standard.json 940 — mudança é UI pura) ✓ · editor montado no DOM real (`#inspector`): Outer frame + T/B/L/R + Internal rail + Bottom panel + nota "from bottom" ✓ · editar frame de baixo 305→350 mantém **rail=100 e painel=500 intactos**, só `b` muda, e o opening de baixo passa a encostar em 2000−350=1650 ✓ · *link* toggle colapsa pro single (comportamento antigo preservado) ✓ · porta de 1 painel NÃO mostra o bloco de frame ✓ · sem erros no console ✓. Screenshots seguem travando no ambiente (verificado por DOM + saída da função). Só `index.html` + docs.
+
 ## 2026-07-13 (tt) — Revisão Paneling: offsets no Room Front View + inversão esquerda/direita em peça rotacionada
 
 Revisão pedida pelo Ednei ("não é 100% certo, investiga e testa direito antes de assumir o bug"). Dois problemas, **ambos confirmados por teste numérico + E2E ANTES de mexer**:

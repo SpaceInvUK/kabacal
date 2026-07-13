@@ -1871,18 +1871,33 @@
     return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
       ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Offset</b> section.</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
   }
-  function secParts(i,it){const M=selSet.size>1;const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);return `
+  function secParts(i,it){const M=selSet.size>1;const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);const f=resolveFrame(it);
+    // Multi-panel editor (2026-07-13): outer frame (T/B/L/R) + internal rail + bottom-referenced panel size, all in
+    // one place. Pure UI — reuses the existing setters (setFrame/setFrameSide/setMidFrame/setPanelSize), so the
+    // cavity geometry, DXF export and goldens are byte-identical. The outer frame here is the SAME it.frame edited
+    // in the Offset section (kept in sync by render()); the internal rail (it.midFrame) and panel size never touch it.
+    const frameBox=it.frameLink
+      ?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm all round</span>`
+      :['t','b','l','r'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('');
+    const multi=n>1?`
+    <div class="sub" style="font-weight:700;margin-top:8px">Outer frame <span style="font-weight:400">— stays fixed when you resize a panel or rail</span></div>
+    <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px">
+      ${frameBox}
+      <label class="tg" style="font-size:12px"><input type="checkbox" ${it.frameLink?'checked':''} onchange="toggleFrameLink(${i})"> link</label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <div class="ed-field" style="flex:1"><label>Internal rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${f.t}" onchange="setMidFrame(${i},this.value)" title="The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)"></div>
+      <div class="ed-field" style="flex:1"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Height of the ${portrait?'bottom':'right-hand'} opening, measured from the ${portrait?'bottom':'right'} of the part — the other openings share the rest (empty = equal split)"></div>
+    </div>
+    <div class="sub" style="margin-top:6px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' opening is measured from the '+side+' of the part and stays fixed — resizing it or the door re-splits the others, never the frame or rail.';})()}</div>`:'';
+    return `
     <div style="display:flex;gap:8px">
       <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
       <div class="ed-field" style="flex:1"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
+      <div class="ed-field" style="flex:0 0 96px"><label>Panels</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
     </div>
-    <div style="display:flex;gap:8px;margin-top:2px">
-      <div class="ed-field" style="flex:1"><label>Panels (openings)</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
-      ${n>1?`<div class="ed-field" style="flex:1"><label>Middle rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${resolveFrame(it).t}" onchange="setMidFrame(${i},this.value)" title="The frame BETWEEN panels — can differ from the outer frame (empty = same as frame)"></div>
-      <div class="ed-field" style="flex:1"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Size of the ${portrait?'bottom':'right-hand'} opening — the others share the rest (empty = equal split)"></div>`:''}
-    </div>
-    ${n>1?`<div class="sub" style="margin-top:2px">${(function(){const cs=doorCavities(it);return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+(portrait?'tall':'wide')+' · rail '+midFrameOf(it)+'mm';})()}</div>`:''}
-    <div class="ed-field"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
+    ${multi}
+    <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row.</div>`;}
   function secGrain(i,it){const g=grainOf(it);return `
     <div class="seg3">
