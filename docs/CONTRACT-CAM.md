@@ -30,6 +30,15 @@
 - Machining order default narrow-first; the ring is a CCW 8-anchor loop starting at the chosen anchor.
 - **Per-piece templates** (`tpl*`): a flushback door gets TWO templates — body 18mm (rough 17 LIVE → pockets/shadow ops OFF by default → FINISH 18 LIVE, releasing the piece LAST) and insert 12mm. `params.role` (`body`/`insert`) is **MANDATORY** — without it a body op would cut the 12mm insert sheet 6mm into the spoilboard (proven collision: part keys `3_0`/`3_0_i` under `parseInt`). VCarve `.ToolpathTemplate` binaries store the op tree **REVERSED** — always invert when converting (rule in KABACAL_RULES.md).
 
+## Op kinds beyond profile-on-OUT (2026-07-12, Ogee Moulding 22mm)
+
+- **Geometry resolver `tpOpRects`**: OUT / any non-OFFSET layer = the part outline (legacy — SHADOW etc. unchanged); `OFFSET_A..G` = the part's **cavities** inset by that line's mm (DXF-writer maths). Template ops on offset lines go LIVE only when a target part actually has that line enabled (`tplApply` hasGeo check) — flushback's off-by-default pocket ops stay off.
+- **Profile extras (all additive params, absent = exact legacy behaviour)**: `depthList` (explicit Z ladder, e.g. OUT 10.5/21/22 with the 1mm last step) · `feed`/`plunge` per-op overrides (match a reference NC over the tool DB) · `vbit:{deg}` = effective radius `cutDepth·tan(deg/2)` (V flank meets the surface ON the line; 90°@9.5 → r9.5) · `cornerSharpen` (V-bit runs OUT to the layer-line corner rising to the surface at each corner, ramp + ramp-recover kept).
+- **`kind:'pocket'`** (T12 50.8 skim): per depth level (`depths:[5.75,11.5]`), there-and-back ramp on the first raster line, serpentine raster (`stepover` 25.4 = 50%), then the boundary ring at `r+allowance`; `rasterInset` (default r·0.2) matches the VCarve grid inset.
+- **`kind:'sweep'`** (T11 ball 5mm): rings stepped OUTWARD from the op's layer ring (rails, OFFSET_E), Z follows the offset preset's PROFILE section (`params.profile` copied from `profiles[name].profile` at apply time) with **ball-nose tip projection** (max over ±r window; never above topZ), constant arc step (`stepover` 0.75). **Deliberate exception to rapid rule 1**: between rings the tool lifts `G0 Z(prev+liftZ)` INSIDE the just-cut groove (pure-Z up, XY moves at feed) — exactly what the VCarve reference NC does; XY rapids below appZ remain forbidden.
+- **Template gating**: `appliesTo.offsetName` (with `th`) restricts a template to parts carrying that offset preset; the template list shows blocked templates greyed with the reason (`tplBlockReason`: "needs 22mm material" / "needs the Ogee offset preset").
+- Machine tools confirmed by Ednei 2026-07-12: **T11 = ball nose 5mm (S15000 F10000/5000)**, **T12 = 50.8 skimming (S12000 F9000/3000)** — added to the factory toolDb (ids `t11ball5`/`t12skim508`; note: re-running the xlsx pipeline must re-add them).
+
 ## Safety checklist (apply to every CAM diff)
 
 1. Rapids (`G0`) only at `safeZ`/`appZ` — never at or below material top. Plunges/ramps at tool plunge feed; laps at tool feed.

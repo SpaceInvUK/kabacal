@@ -44,6 +44,11 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 | `QUOTE_mixed.json` (2774) | Rich doors + panels rooms combined (panels £2390 / 6 sheets, total £3665) |
 | `GOLDEN_WALL_LAYOUT.dxf` (3428) | **Wall Layout DXF** (2026-07-10, regenerated for the **horizontal/panoramic** layout) — the non-cutting, front-view export: walls placed LEFT→RIGHT in app order, each full measured outline with its panels inside; wall label shows the measured wall size, panel labels the physical panel size. Layers `WALL`/`WALL_GAP`/`OUT`/`OFFSET_A`/`INSIDE`/`text`, no `SHEET`/`PART_NUMBER`. |
 
+**Ogee Moulding 22mm** — the preset-gated toolpath template (2026-07-12):
+| File | What |
+|---|---|
+| `GOLDEN_OGEE_S1_22mm.nc` (38246) | One 735×1720 22mm flat door, frame 50, **4 internal panels**, offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5) → T1(S18000 ring 11.8) → T6(S16000 V 9.5 + corner sharpen) → T11(S15000 ogee sweep ~37 rings 14.0↔22.0) → T1(OUT 10.5/21/22). Structure-validated against the VCarve reference `Ogee Moulding 22mm.nc` (ring sizes 581/588/600/530.2/575/629.88 exact; Z/feeds/spindles exact) |
+
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
 `.gitattributes` marks everything in this folder `-text`: NC is CRLF by machine contract; nothing here may be EOL-normalised by git.
@@ -137,6 +142,18 @@ const wl = pnWallLayoutDxf();                 // -> GOLDEN_WALL_LAYOUT.dxf (3428
 // "Wall 1  wall 2600 x 3200", "Wall 2  wall 1600 x 3200"; panel labels "panel 800 x 1030" etc; layers
 // WALL/OUT/OFFSET_A/INSIDE, NO SHEET. (This room has no room offset lines, so no OFFSET_B–G here — those only
 // appear when room.lines are enabled; the writer now insets them inside each cavity like the Sheet DXF.)
+```
+
+### Ogee Moulding 22mm (GOLDEN_OGEE_S1_22mm.nc)
+
+```js
+items.length=0;clearSel();
+items.push(mkItem('flat',735,1720,1,'MDF 22mm','8x4',{t:50,r:50,b:50,l:50},null,'OGEE TEST',{on:false},{offsetName:'None',panels:4}));
+applyProfile(0,'Ogee');render();
+camPaths.length=0;camJob.zZero='bed';camJob.datum='ll';camJob.rapidGap=20;camJob.approach=5;camJob.orient='portrait';
+tplApply('tpl_ogee22',true);                  // 5 ops, all live
+const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));   // -> GOLDEN_OGEE_S1_22mm.nc (38246, CRLF)
+// expect: T12M6/S12000, T1M06/S18000, T6M06/S16000, T11M06/S15000, T1M06/S18000; z floor 0 only on the OUT
 ```
 
 ### Getting bytes out of the browser

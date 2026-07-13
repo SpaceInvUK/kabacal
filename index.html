@@ -3517,7 +3517,9 @@
   {"id":"v41501ff6","grp":"Ball Nose","name":"Ball Nose (1mm)TOOL 6","num":7,"type":"ballnose","dia":1,"angle":null,"flutes":2,"passDepth":10,"stepover":0.1,"stepoverPct":10,"rpm":18000,"feed":5000,"plunge":2000},
   {"id":"v7df52c2b","grp":"Ball Nose","name":"Ball Nose (2mm)TOOL 12","num":6,"type":"ballnose","dia":2,"angle":null,"flutes":2,"passDepth":50,"stepover":0.6,"stepoverPct":30,"rpm":18000,"feed":8000,"plunge":2000},
   {"id":"v76d6bde8","grp":"Ball Nose","name":"Ball Nose (22mm)TOOL 5","num":6,"type":"ballnose","dia":22,"angle":null,"flutes":2,"passDepth":3,"stepover":2.2,"stepoverPct":10,"rpm":15000,"feed":6000,"plunge":5000},
-  {"id":"v5a85dc2c","grp":"New Group","name":"8mm cutter","num":11,"type":"endmill","dia":8,"angle":null,"flutes":3,"passDepth":10,"stepover":3.2,"stepoverPct":40,"rpm":18000,"feed":4000,"plunge":3000}
+  {"id":"v5a85dc2c","grp":"New Group","name":"8mm cutter","num":11,"type":"endmill","dia":8,"angle":null,"flutes":3,"passDepth":10,"stepover":3.2,"stepoverPct":40,"rpm":18000,"feed":4000,"plunge":3000},
+  {"id":"t11ball5","grp":"Ball Nose","name":"Ball Nose (5mm) — T11 Ogee sweep","num":11,"type":"ballnose","dia":5,"angle":null,"flutes":2,"passDepth":10,"stepover":0.75,"stepoverPct":15,"rpm":15000,"feed":10000,"plunge":5000},
+  {"id":"t12skim508","grp":"Skimming Tools","name":"50.8mm SKIMMING (pocket clear) — T12","num":12,"type":"endmill","dia":50.8,"angle":null,"flutes":2,"passDepth":5.75,"stepover":25.4,"stepoverPct":50,"rpm":12000,"feed":9000,"plunge":3000}
  ]}/*TOOLDB_END*/;
   function factoryTools(){return TOOL_FACTORY?JSON.parse(JSON.stringify(TOOL_FACTORY.tools)):[];}
   function migrateToolDb(arr){
@@ -3595,38 +3597,79 @@
     emitLapFrom(mv,W,rampD,W.per,z,feed,tabs,tabTop);
     emitLapFrom(mv,W,0,rampD,z,undefined,tabs,tabTop);
   }
-  // full profile move-set for ONE part (rough passes at +lastPass allowance, optional exact final pass — production pattern)
+  // which rectangles an op cuts on this part. OUT / any non-OFFSET layer = the part outline (legacy —
+  // SHADOW etc. keep cutting the part ring exactly as before). OFFSET_A..G = the part's CAVITIES inset
+  // by that line's mm (one ring per cavity — the exact DXF-writer maths), so template ops on offset
+  // lines cut real geometry for parts whose offset preset enables that line (Ogee etc.).
+  function tpOpRects(p,P){
+    const L=(P&&P.layer)||'OUT';
+    if(!/^OFFSET_[A-G]$/.test(L))return [{x:p.x,y:p.y,w:p.w,h:p.h}];
+    const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
+    if(!ln)return [];
+    const mm=Math.max(0,+ln.mm||0),f=p.frame||{t:0,r:0,b:0,l:0};
+    const cavs=(typeof cavsFor==='function')?cavsFor(p.w,p.h,f,p.pnl):[];
+    return cavs.map(c=>({x:p.x+c.x+mm,y:p.y+c.y+mm,w:c.w-2*mm,h:c.h-2*mm})).filter(rc=>rc.w>1&&rc.h>1);
+  }
+  // V-bit lap with CORNER SHARPEN (reference "Ogee Moulding 22mm.nc"): ramp in along the first side,
+  // then at each true corner run OUT to the layer-line corner rising to the surface (the V point reaches
+  // the drawn corner) and back down, closing the loop and re-covering the ramp span.
+  function emitSharpLap(mv,rect,S,d,z,topZ,rampD,plunge,feed){
+    const mY=y=>S.h-y;
+    const cor=dd=>({ll:[rect.x-dd,mY(rect.y+rect.h+dd)],lr:[rect.x+rect.w+dd,mY(rect.y+rect.h+dd)],ur:[rect.x+rect.w+dd,mY(rect.y-dd)],ul:[rect.x-dd,mY(rect.y-dd)]});
+    const B=cor(d),Ln=cor(0),seq=['lr','ur','ul'];
+    const P0=B.ll;
+    rampD=Math.max(5,Math.min(+rampD||100,Math.abs(B.lr[0]-B.ll[0])*0.9));
+    const rp=[+(P0[0]+rampD).toFixed(3),+P0[1].toFixed(3)];
+    mv.push({x:rp[0],y:rp[1],z:z,f:plunge});                                          // ramp along the bottom side
+    const sharp=k=>{mv.push({x:+Ln[k][0].toFixed(3),y:+Ln[k][1].toFixed(3),z:topZ});mv.push({x:+B[k][0].toFixed(3),y:+B[k][1].toFixed(3),z:z});};
+    let f=feed;
+    seq.forEach(k=>{mv.push({x:+B[k][0].toFixed(3),y:+B[k][1].toFixed(3),f:f});f=undefined;sharp(k);});
+    mv.push({x:+P0[0].toFixed(3),y:+P0[1].toFixed(3)});sharp('ll');
+    mv.push({x:rp[0],y:rp[1]});                                                       // re-cover the ramp span
+  }
+  // full profile move-set for ONE part (rough passes at +lastPass allowance, optional exact final pass — production
+  // pattern). Geometry comes from tpOpRects (part outline or per-cavity offset rings). Optional additive params:
+  // P.depthList (explicit Z ladder, e.g. Ogee OUT 10.5/21/22) · P.feed/P.plunge overrides (match a reference NC)
+  // · P.vbit{deg} (effective radius = depth·tan(deg/2)) · P.cornerSharpen (V into each corner at the surface).
   function tpPartMoves(mv,p,S,P,tool,th){
     const topZ=(camJob.zZero==='bed')?th:0;
-    const cutD=(P.cutDepth==null?th:+P.cutDepth)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
+    let cutD=(P.cutDepth==null?th:+P.cutDepth)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
+    if(Array.isArray(P.depthList)&&P.depthList.length)cutD=(+P.depthList[P.depthList.length-1]||0)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
     const startZ=+(topZ-(+P.startDepth||0)).toFixed(3),finalZ=+(topZ-cutD).toFixed(3);
     const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
-    const r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
+    const fCut=(+P.feed>0)?+P.feed:tool.feed,fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
+    let r=tool.dia/2;
+    if(P.vbit&&+P.vbit.deg>0)r=+(cutD*Math.tan(((+P.vbit.deg)*Math.PI/180)/2)).toFixed(3);   // V-bit: radius where the flank meets the surface
+    const sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
     const allow=+P.allowance||0,lastA=(P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0;
     const dRough=sgn*r+sgn*(allow+lastA),dFinal=sgn*r+sgn*allow;
     const total=startZ-finalZ,pd=Math.max(0.1,+P.passDepth||1);
     const nP=(P.passes!=null&&P.passes>0)?Math.round(P.passes):Math.max(1,Math.ceil(total/pd));
-    const zs=[];for(let k=1;k<=nP;k++)zs.push(+(startZ-total*k/nP).toFixed(3));
+    let zs=[];for(let k=1;k<=nP;k++)zs.push(+(startZ-total*k/nP).toFixed(3));
+    if(Array.isArray(P.depthList)&&P.depthList.length)zs=P.depthList.map(d=>+(topZ-(+d||0)).toFixed(3));
     const tabTop=+(finalZ+((P.tabs&&P.tabs.on)?Math.max(0.5,+P.tabs.th||3):0)).toFixed(3);
     const mkTabs=W=>{if(!(P.tabs&&P.tabs.on))return null;const n=Math.max(1,Math.round(P.tabs.n||4)),h=Math.max(1,(+P.tabs.len||10)/2);
       const out=[];for(let k=0;k<n;k++){const c=(k+0.5)*W.per/n;out.push({s:Math.max(0.5,c-h),e:Math.min(W.per-0.5,c+h)});}return out;};
-    const WR=ringWalker(ringPts(p,S,dRough,P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);
-    mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
-    zs.forEach(z=>{
-      mv.push({r:1,z:appZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
-      mv.push({z:startZ,f:tool.plunge});                                             // feed to material top (production pattern)
-      const uT=(tabsR&&z<tabTop-1e-6)?tabsR:null;
-      if(P.ramp&&P.ramp.on)emitRampThenLap(mv,WR,startZ,z,P.ramp.dist,tool.plunge,tool.feed,uT,tabTop);
-      else{mv.push({z:z,f:tool.plunge});emitLapFrom(mv,WR,0,WR.per,z,tool.feed,uT,tabTop);}
-    });
-    mv.push({r:1,z:safeZ});
-    if(lastA>0){                                                                      // separate last pass: exact offset, vertical plunge, full depth
-      const WF=ringWalker(ringPts(p,S,dFinal,P.startAt)),tabsF=mkTabs(WF),sf=WF.at(0);
-      mv.push({r:1,x:+sf[0].toFixed(3),y:+sf[1].toFixed(3)});mv.push({r:1,z:appZ});
-      mv.push({z:finalZ,f:tool.plunge});
-      emitLapFrom(mv,WF,0,WF.per,finalZ,tool.feed,(tabsF&&finalZ<tabTop-1e-6)?tabsF:null,tabTop);
+    tpOpRects(p,P).forEach(rc=>{
+      const WR=ringWalker(ringPts(rc,S,dRough,P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);
+      mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
+      zs.forEach(z=>{
+        mv.push({r:1,z:appZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
+        mv.push({z:startZ,f:fPl});                                             // feed to material top (production pattern)
+        const uT=(tabsR&&z<tabTop-1e-6)?tabsR:null;
+        if(P.cornerSharpen&&sgn<0)emitSharpLap(mv,rc,S,dRough,z,startZ,(P.ramp&&P.ramp.on)?P.ramp.dist:5,fPl,fCut);
+        else if(P.ramp&&P.ramp.on)emitRampThenLap(mv,WR,startZ,z,P.ramp.dist,fPl,fCut,uT,tabTop);
+        else{mv.push({z:z,f:fPl});emitLapFrom(mv,WR,0,WR.per,z,fCut,uT,tabTop);}
+      });
       mv.push({r:1,z:safeZ});
-    }
+      if(lastA>0){                                                                      // separate last pass: exact offset, vertical plunge, full depth
+        const WF=ringWalker(ringPts(rc,S,dFinal,P.startAt)),tabsF=mkTabs(WF),sf=WF.at(0);
+        mv.push({r:1,x:+sf[0].toFixed(3),y:+sf[1].toFixed(3)});mv.push({r:1,z:appZ});
+        mv.push({z:finalZ,f:fPl});
+        emitLapFrom(mv,WF,0,WF.per,finalZ,fCut,(tabsF&&finalZ<tabTop-1e-6)?tabsF:null,tabTop);
+        mv.push({r:1,z:safeZ});
+      }
+    });
   }
   function tpOrderParts(parts,S,order){const mY=p=>S.h-(p.y+p.h);const a=parts.slice();
     if(order==='narrow')a.sort((x,y)=>Math.min(x.w,x.h)-Math.min(y.w,y.h));
@@ -3645,8 +3688,86 @@
     else if(P.role==='body')parts=parts.filter(p=>!p.isInsert&&!p.isBeading);
     if(P.scope&&P.scope.items&&P.scope.items.length)parts=parts.filter(p=>P.scope.items.indexOf(parseInt(p.key,10))>=0);
     return tpOrderParts(parts,f.sh.S,P.order||'narrow');}
-  function tpPathMovesForSheet(f,pp,tool){const mv=[];if(pp.kind!=='profile')return mv;
-    tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
+  // POCKET (reference "50.8mm Pocket 11.5 Deep"): per depth level, a there-and-back ramp along the first
+  // raster line, a serpentine raster (stepover = 50% default) inside the layer ring, then the boundary
+  // ring. rasterInset (default r·0.2 = 5.08 on the 50.8 tool) matches the reference grid inset.
+  function tpPocketMoves(mv,rc,S,P,tool,th){
+    const topZ=(camJob.zZero==='bed')?th:0;
+    const fCut=(+P.feed>0)?+P.feed:tool.feed,fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
+    const r=tool.dia/2,allow=+P.allowance||0;
+    const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
+    const depths=(Array.isArray(P.depths)&&P.depths.length?P.depths:[+P.cutDepth||th]).map(d=>+(topZ-(+d||0)).toFixed(3));
+    const b={x:rc.x+r+allow,y:rc.y+r+allow,w:rc.w-2*(r+allow),h:rc.h-2*(r+allow)};   // boundary ring rect
+    if(b.w<1||b.h<1)return;
+    const g=(P.rasterInset!=null)?+P.rasterInset:+(r*0.2).toFixed(3);
+    const rr={x:b.x+g,y:b.y+g,w:Math.max(0.1,b.w-2*g),h:Math.max(0.1,b.h-2*g)};      // raster grid region
+    const step=Math.max(1,+P.stepover||tool.stepover||r);
+    const mY=y=>S.h-y;
+    const xs=[];for(let x=rr.x;x<rr.x+rr.w-0.01;x+=step)xs.push(+x.toFixed(3));
+    xs.push(+(rr.x+rr.w).toFixed(3));
+    const yLo=+mY(rr.y+rr.h).toFixed(3),yHi=+mY(rr.y).toFixed(3);
+    mv.push({r:1,z:safeZ});mv.push({r:1,x:xs[0],y:yLo});mv.push({r:1,z:appZ});
+    let curZ=topZ;
+    const WB=ringWalker(ringPts(rc,S,-(r+allow),P.startAt)),bs=WB.at(0);
+    depths.forEach(z=>{
+      mv.push({z:+curZ.toFixed(3),f:fPl});
+      const rd=Math.min(100,(yHi-yLo)*0.9);                                          // there-and-back ramp on the first line
+      mv.push({x:xs[0],y:+(yLo+rd).toFixed(3),z:+((curZ+z)/2).toFixed(3)});
+      mv.push({x:xs[0],y:yLo,z:z});
+      let f=fCut;
+      xs.forEach((x,i)=>{
+        if(i>0)mv.push({x:x});
+        mv.push({x:x,y:(i%2===0)?yHi:yLo,f:f});f=undefined;
+      });
+      mv.push({x:+bs[0].toFixed(3),y:+bs[1].toFixed(3)});                            // boundary ring pass
+      emitLapFrom(mv,WB,0,WB.per,z,undefined,null,0);
+      mv.push({x:xs[0],y:yLo});                                                      // back to the ramp anchor for the next level
+      curZ=z;
+    });
+    mv.push({r:1,z:safeZ});
+  }
+  // profile height y(x) lookup for the swept moulding (pts run from the RAILS end x=w to the outer end x=0)
+  function tpProfY(pts,x){
+    const x0=pts[0].x,xn=pts[pts.length-1].x;
+    if(x>=Math.max(x0,xn)-1e-9)return (x0>=xn)?pts[0].y:pts[pts.length-1].y;   // clamp to the NEAREST end
+    if(x<=Math.min(x0,xn)+1e-9)return (x0<=xn)?pts[0].y:pts[pts.length-1].y;
+    for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1];
+      if((x<=a.x+1e-9&&x>=b.x-1e-9)||(x>=a.x-1e-9&&x<=b.x+1e-9)){const dx=b.x-a.x;if(Math.abs(dx)<1e-9)return Math.min(a.y,b.y);return a.y+(b.y-a.y)*((x-a.x)/dx);}}
+    return pts[pts.length-1].y;
+  }
+  // SWEPT MOULDING (reference "5mm Ball Nose Swept"): rings stepped OUTWARD from the rails ring (the op's
+  // layer line), Z following the preset's PROFILE section with ball-nose tip projection; constant step
+  // along the section's arc (stepover, default 0.75) — ~30 rings on the 20.94mm Ogee.
+  function tpSweepMoves(mv,rc,S,P,tool,th){
+    const prof=P.profile;if(!prof||!Array.isArray(prof.pts)||prof.pts.length<2)return;
+    const topZ=(camJob.zZero==='bed')?th:0;
+    const fCut=(+P.feed>0)?+P.feed:tool.feed,fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
+    const rb=tool.dia/2,lift=(+P.liftZ>0)?+P.liftZ:0.75,stepA=Math.max(0.1,+P.stepover||0.75);
+    const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
+    const pts=prof.pts,h=+prof.h||Math.max.apply(null,pts.map(q=>q.y));
+    const dense=[];for(let x=0;x<=prof.w+1e-9;x+=0.05)dense.push({x:x,z:topZ-(h-tpProfY(pts,x))});
+    dense.push({x:prof.w,z:topZ-(h-tpProfY(pts,prof.w))});   // exact edge sample (the first ring sits right on it)
+    const tipZ=x=>{let best=-1e9;dense.forEach(q=>{const dx=q.x-x;if(Math.abs(dx)<=rb)best=Math.max(best,q.z+Math.sqrt(Math.max(0,rb*rb-dx*dx))-rb);});return +Math.min(topZ+((+P.allowTop>0)?+P.allowTop:0),best).toFixed(3);};
+    const samples=[];{let acc=0;samples.push({x:pts[0].x});
+      for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],L=Math.hypot(b.x-a.x,b.y-a.y);let d=stepA-acc;
+        while(d<=L){const t=d/L;samples.push({x:a.x+(b.x-a.x)*t});d+=stepA;}acc=(acc+L)%stepA;}
+      if(Math.abs(samples[samples.length-1].x-pts[pts.length-1].x)>0.05)samples.push({x:pts[pts.length-1].x});}
+    let prevZ=null;
+    samples.forEach((sm,k)=>{
+      const o=Math.max(0,prof.w-sm.x),z=tipZ(sm.x);
+      const W=ringWalker(ringPts(rc,S,o,P.startAt)),st=W.at(0);
+      if(k===0){mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});mv.push({r:1,z:appZ});mv.push({z:z,f:fPl});}
+      else{mv.push({r:1,z:+(prevZ+lift).toFixed(3)});mv.push({x:+st[0].toFixed(3),y:+st[1].toFixed(3),f:fCut});mv.push({z:z,f:fPl});}
+      emitLapFrom(mv,W,0,W.per,z,fCut,null,0);
+      prevZ=z;
+    });
+    mv.push({r:1,z:safeZ});
+  }
+  function tpPathMovesForSheet(f,pp,tool){const mv=[];const kind=pp.kind||'profile';
+    if(kind==='profile'){tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
+    if(kind==='pocket'){tpPathParts(f,pp).forEach(p=>tpOpRects(p,pp.params).forEach(rc=>tpPocketMoves(mv,rc,f.sh.S,pp.params,tool,f.th)));return mv;}
+    if(kind==='sweep'){tpPathParts(f,pp).forEach(p=>tpOpRects(p,pp.params).forEach(rc=>tpSweepMoves(mv,rc,f.sh.S,pp.params,tool,f.th)));return mv;}
+    return mv;}
   // machine-frame dims: portrait swaps the sheet (X = short side, like the Pegasus); landscape = as nested
   function tpOrientDims(S){return (camJob.orient==='landscape')?{W:S.w,H:S.h}:{W:S.h,H:S.w};}
   function tpDatumOff(D){switch(camJob.datum){case 'lr':return [D.W,0];case 'c':return [D.W/2,D.H/2];case 'ul':return [0,D.H];case 'ur':return [D.W,D.H];default:return [0,0];}}
@@ -3886,11 +4007,11 @@
         <button class="btn ghost tiny" onclick="tplExport()">${ic('save',12)} Export</button>
         <input id="tplImp" type="file" accept=".json" style="display:none" onchange="tplImport(event)">
       </div>
-      ${tpTemplates.length?tpTemplates.map(t=>{const ids=tplTargets(),m=tplMatchInfo(t,ids);
-        return `<div class="tp-row"><span class="dot" style="background:${m.full?'#16a34a':(m.matched?'#d97706':'#94a3b8')}" title="${m.matched}/${m.total} operations match the ${((typeof selSet!=='undefined'&&selSet.size)?'selected':'job')} parts' layers"></span>
+      ${tpTemplates.length?tpTemplates.map(t=>{const ids=tplTargets(),m=tplMatchInfo(t,ids),blk=tplBlockReason(t,ids);
+        return `<div class="tp-row"${blk?' style="opacity:.62"':''}><span class="dot" style="background:${blk?'#dc2626':(m.full?'#16a34a':(m.matched?'#d97706':'#94a3b8'))}" title="${blk?esc(blk):m.matched+'/'+m.total+' operations match the '+((typeof selSet!=='undefined'&&selSet.size)?'selected':'job')+' part layers'}"></span>
         <span class="nm">${esc(t.name)}${t.auto?' <span style="color:#7c3aed;font-weight:800;font-size:10px">AUTO</span>':''}</span>
-        <span class="sub2">${t.appliesTo?esc((t.appliesTo.type||'any')+' · '+(t.appliesTo.th?t.appliesTo.th+'mm ':'')+(t.appliesTo.part||'body'))+' · ':''}${(t.ops||[]).length} ops · ${m.matched}/${m.total} match</span>
-        <button class="btn ghost tiny" onclick="tplApply('${t.id}')">Apply</button>
+        <span class="sub2">${t.appliesTo?esc((t.appliesTo.type||'any')+' · '+(t.appliesTo.th?t.appliesTo.th+'mm ':'')+(t.appliesTo.offsetName?t.appliesTo.offsetName+' ':'')+(t.appliesTo.part||'body'))+' · ':''}${(t.ops||[]).length} ops · ${blk?'<b style="color:#dc2626">⛔ '+esc(blk)+'</b>':m.matched+'/'+m.total+' match'}</span>
+        <button class="btn ghost tiny" ${blk?'disabled title="'+esc(blk)+'"':''} onclick="tplApply('${t.id}')">Apply</button>
         <button class="iconbtn" style="width:22px;height:22px" onclick="tplDel('${t.id}')">${ic('trash',11)}</button></div>`;}).join('')
       :`<div class="tp-empty" style="padding:10px">No templates yet. Import a template .json — it lists the operations <b>in your order</b> (layers + tools); Kabacal applies it to the selected parts (or all) and never invents the sequence.</div>`}
     </div>
@@ -4218,6 +4339,19 @@
    {id:'tpl_flushins12',name:'Flushback 12mm Insert',auto:true,appliesTo:{part:'insert',type:'flush',th:12},src:'12mm Flushback Insert.ToolpathTemplate (2026-07-07, reversed to list order)',ops:[
     {name:'4mm Pocket 5.5mm',layer:'OFFSET_5MM',kind:'profile',tool:{num:4,dia:4},side:'inside',params:{cutDepth:5.5,passes:1}},
     {name:'6mm Out Insert 12mm',layer:'OUT_INSERT_15MM',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:12,passes:1,ramp:{on:true,dist:100}}}
+   ]},
+   // Ogee Moulding 22mm — converted from "Ogee Moulding 22mm.ToolpathTemplate" (2026-07-12, tree reversed
+   // to real cutting order) and validated against the reference "Ogee Moulding 22mm.nc". ONLY for parts on
+   // 22mm material whose OFFSET PRESET is 'Ogee' (appliesTo.offsetName): pocket rough (T12 50.8 skim) →
+   // pocket wall finish (T1) → V-crease with corner sharpen (T6, on OFFSET_D at 9.5 = flank meets the
+   // surface ON the line) → ball-nose swept ogee (T11 5mm, rails OFFSET_E, section = the preset's PROFILE)
+   // → OUT through 10.5/21/22. Feeds pinned to the reference NC (db V-bit feed differs — override wins).
+   {id:'tpl_ogee22',name:'Ogee Moulding 22mm',auto:true,appliesTo:{part:'body',th:22,offsetName:'Ogee'},src:'Ogee Moulding 22mm.ToolpathTemplate + Ogee Moulding 22mm.nc (2026-07-12, reversed to list order)',ops:[
+    {name:'50.8mm Pocket 11.5 Deep',layer:'OFFSET_F',kind:'pocket',tool:{id:'t12skim508',num:12,dia:50.8},side:'inside',params:{depths:[5.75,11.5],stepover:25.4,rasterInset:5.08,feed:9000,plunge:3000}},
+    {name:'6mm Pocket Finish 11.8mm Deep',layer:'OFFSET_F',kind:'profile',tool:{num:1,dia:6},side:'inside',params:{cutDepth:11.8,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
+    {name:'V-Bit 9.5mm Deep',layer:'OFFSET_D',kind:'profile',tool:{num:6,dia:38.3},side:'inside',params:{cutDepth:9.5,passes:1,vbit:{deg:90},cornerSharpen:true,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:9000,plunge:3000}},
+    {name:'5mm Ball Nose Swept',layer:'OFFSET_E',kind:'sweep',tool:{id:'t11ball5',num:11,dia:5},side:'on',params:{stepover:0.75,liftZ:0.75,feed:10000,plunge:5000}},
+    {name:'6mm OUT 22mm Deep',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{depthList:[10.5,21,22],allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
    ]}];
   // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
   let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();
@@ -4255,9 +4389,21 @@
     }
     if(A.type&&it.type!==A.type)return null;
     if(A.th&&thicknessOf(it.mat)!==+A.th)return null;
+    if(A.offsetName&&(it.offsetName||'')!==A.offsetName)return null;   // preset-gated template (Ogee etc.)
     return itemLayers(it);
   }
   function tplOpItems(op,ids,tpl){const L=op.layer||'OUT';return ids.filter(i=>{const s=tplRoleLayers(items[i],tpl);return !!s&&s.has(L);});}
+  // why a gated template can't run on the current parts — shown on the template row ("visible but blocked")
+  function tplBlockReason(t,ids){
+    const A=t.appliesTo||{};
+    if(!ids.length)return 'no parts in the job';
+    if(ids.some(i=>!!tplRoleLayers(items[i],t)))return null;
+    if(A.part==='insert')return 'needs a '+(A.type?A.type+' ':'')+'insert part'+(A.th?' on '+A.th+'mm':'');
+    if(A.type&&!ids.some(i=>items[i].type===A.type))return 'needs a '+A.type+' part';
+    if(A.th&&!ids.some(i=>thicknessOf(items[i].mat)===+A.th&&(!A.type||items[i].type===A.type)))return 'needs '+A.th+'mm material';
+    if(A.offsetName&&!ids.some(i=>(items[i].offsetName||'')===A.offsetName))return 'needs the '+A.offsetName+' offset preset';
+    return 'no matching part';
+  }
   function tplMatchInfo(tpl,ids){const ops=tpl.ops||[];let m=0;ops.forEach(op=>{if(tplOpItems(op,ids,tpl).length)m++;});return {matched:m,total:ops.length,full:m===ops.length&&ops.length>0};}
   function tplApply(id,quiet){
     const tpl=tpTemplates.find(t=>t.id===id);if(!tpl)return null;
@@ -4270,14 +4416,22 @@
       if(!its.length){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): no matching part has this layer — skipped');return;}
       const tool=tplResolveTool(op.tool);
       if(!tool){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): tool '+JSON.stringify(op.tool)+' not in the Tool Database — skipped');return;}
-      // engine-cuttable today: profile on the piece OUTLINE — 'OUT' for bodies, 'OUT_INSERT_15MM' for
-      // inserts (mapped to the internal OUT layer + role filter). Everything else lands DISABLED in order.
+      // engine-cuttable: profile on the piece OUTLINE ('OUT' for bodies, 'OUT_INSERT_15MM' for inserts) —
+      // and, since 2026-07-12, profile/pocket on OFFSET_A..G rings and 'sweep' (moulding) WHEN the target
+      // parts actually carry that offset line (Ogee preset etc.). Anything else lands DISABLED in order.
       let engLayer=op.layer||'OUT',live=false;
-      if((op.kind||'profile')==='profile'){
+      const kind=op.kind||'profile';
+      const hasGeo=/^OFFSET_[A-G]$/.test(engLayer)&&its.some(i=>enabledLines(items[i]).some(l=>('OFFSET_'+l.L)===engLayer));
+      const sweepProf=(kind==='sweep'&&tpl.appliesTo&&tpl.appliesTo.offsetName&&profiles[tpl.appliesTo.offsetName]&&profiles[tpl.appliesTo.offsetName].profile)||null;
+      if(kind==='profile'){
         if(role==='insert'&&engLayer==='OUT_INSERT_15MM'){engLayer='OUT';live=true;}
         else if(role==='body'&&engLayer==='OUT')live=true;
+        else if(role==='body'&&hasGeo)live=true;
       }
+      else if(kind==='pocket'&&role==='body'&&hasGeo)live=true;
+      else if(kind==='sweep'&&role==='body'&&hasGeo&&sweepProf)live=true;
       const params=Object.assign(tpDefaults(tool),{layer:engLayer,refLayer:op.layer||'OUT',role:role,scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
+      if(kind==='sweep'&&sweepProf)params.profile=JSON.parse(JSON.stringify(sweepProf));   // the moulding section travels with the op
       camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
         name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:tpScopeSig(its)});
       tpSeq++;made++;

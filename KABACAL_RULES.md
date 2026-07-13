@@ -66,9 +66,18 @@ Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`pane
   - **`OUT` é ignorado e NUNCA muda.** O frame é a config da própria peça: Frame=70 ⇒ A começa 70mm para dentro do `OUT` (A com mm=0 já é a borda da cavidade, que já está dentro do frame). Não redimensionar/reinterpretar as linhas — respeitar o espaçamento do DXF.
   - `PROFILE` = a polilinha da seção da moldura, normalizada para origem local (guardada em `profiles[nome].profile = {pts,w,h}`).
 - **Layer `PROFILE` no DXF** (cor 177, aditivo): desenhado **UMA vez por chapa** (canto superior-esquerdo, tamanho real) para cada preset com perfil usado naquela chapa — tanto Doors (`dxfForThickness`) quanto Panels (`pnDxfForThickness`), via `dxfSheetProfiles`. **Não é corte** — é a referência da seção para o toolpath de moldura (Ogee) no VCarve. O contorno da peça (`OUT`) e as linhas `OFFSET_*` seguem inalterados.
-- O **mesmo nome** (`offsetName`) fica guardado para casar depois com o template de toolpath (a parte de toolpath vem a seguir).
+- O **mesmo nome** (`offsetName`) fica guardado para casar com o template de toolpath (abaixo).
 - Persistência **aditiva** (nada renomeado): `kab_profiles` (presets, incl. `.profile`), `.fastcnc` → `kabacalQuote.profiles` + `panelProject.offsetName` + `room.offsetName`.
 - **Ogee** (primeiro preset, lido do DXF do Ednei): A=0 / B=4.5 / C=6.5 / D=17.5 / E=23.5 / F=27 mm + seção 20.94×8mm (118 pts).
+
+### Toolpath template "Ogee Moulding 22mm" (2026-07-12 — casado ao preset pelo NOME)
+
+- Template de fábrica `tpl_ogee22`, convertido do `Ogee Moulding 22mm.ToolpathTemplate` do Ednei (árvore invertida, regra padrão) e validado contra o NC de referência `Ogee Moulding 22mm.nc`.
+- **Gating (confirmado)**: só vale para **espessura 22mm** (material indiferente) **E** peças com o preset de offset **`Ogee`** (`appliesTo:{th:22, offsetName:'Ogee'}`). Fora disso o template aparece **visível mas bloqueado** com o motivo ("needs 22mm material" / "needs the Ogee offset preset"). O gating é genérico — preset novo = nova entrada de dados.
+- **Ordem real de corte (5 ops por peça, cavidade a cavidade)**: ① `OFFSET_F` pocket raster T12 50.8 skim (níveis 5.75/11.5, stepover 25.4, S12000 F9000) → ② `OFFSET_F` anel de acabamento T1 6mm a 11.8 (S18000 F8000) → ③ `OFFSET_D` V-bit 90° a 9.5 **na linha** (raio efetivo = profundidade) com **corner sharpen** (sobe à superfície na quina, T6 S16000 F9000) → ④ **sweep Ogee** T11 ball 5mm: anéis para FORA a partir de `OFFSET_E` (rails), Z segue a seção PROFILE do preset com compensação da esfera, passo 0.75 (~37 anéis, S15000 F10000) → ⑤ `OUT` passante T1 em 10.5/21/22 (último passe 1mm).
+- **Ferramentas da máquina (Ednei confirmou 2026-07-12)**: T11 = ball nose 5mm, T12 = 50.8 skimming (o nome interno do template VCarve chamava a ball de "TOOL 12" — o NC pós-processado é a verdade). A/B/C não são usinadas por este template (desenho/limite).
+- **NUNCA cortar material real sem o protocolo de air-cut** (STATUS risco 1): o NC do Kabacal inteiro ainda não cortou madeira; este template adiciona op 3D nova. Air-cut + sobra antes de produção.
+- Golden: `GOLDEN_OGEE_S1_22mm.nc` (receita em tests/golden/README.md). Panels: CAM de Panels ainda não existe (Fase 2) — Ednei PRECISA do Ogee nos Panels; é o próximo trabalho grande (ponte panels→toolpath), o gating por preset já está pronto para isso.
 
 ### DXF dos painéis (confirmado/entregue 2026-07-07)
 

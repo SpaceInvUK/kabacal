@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (mm) — Toolpath template "Ogee Moulding 22mm" (pocket raster + sweep 3D + gating por preset)
+
+Parte 2 do sistema Ogee: o template de toolpath casado ao preset pelo NOME, convertido do `Ogee Moulding 22mm.ToolpathTemplate` + validado contra o `Ogee Moulding 22mm.nc` de referência do VCarve. Decisões do Ednei: **T11=ball 5mm / T12=50.8 skim** (NC é a verdade, não o nome no template), **visível-mas-bloqueado** com motivo, **construir já + air-cut antes de cortar**, e **Panels também** (CAM de Panels não existe → próxima etapa grande; feito Doors primeiro porque a referência É uma peça com 4 cavidades).
+
+- **Engine (CAM markers, tudo aditivo)**: `tpOpRects` (OUT/legado = contorno da peça; `OFFSET_A..G` = cavidades inset pela linha — a matemática do DXF writer); profile ganhou `depthList`, overrides `feed`/`plunge`, `vbit{deg}` (raio efetivo = prof·tan(θ/2)) e `cornerSharpen` (`emitSharpLap` com ramp+recover); **`kind:'pocket'`** (ramp vai-e-volta + serpentina 50% + anel de contorno por nível) e **`kind:'sweep'`** (anéis para fora dos rails, Z = seção PROFILE com projeção da ponta esférica, passo por arco 0.75, lift G0 0.75 entre anéis — igual ao NC de referência; exceção documentada no CONTRACT-CAM).
+- **Gating genérico**: `appliesTo.offsetName` em `tplRoleLayers` + `tplBlockReason` (linha do template cinza + ⛔ motivo + Apply desabilitado). Ops em OFFSET_* só ficam LIVE quando a peça alvo tem a linha ativa (flushback continua exatamente como era — pockets off por default).
+- **Ferramentas**: `t11ball5` (S15000 F10000/5000) e `t12skim508` (S12000 F9000/3000, passDepth 5.75, stepover 25.4) adicionadas ao bloco TOOLDB de fábrica (pipeline xlsx precisa readicioná-las se regenerar).
+- **Template `tpl_ogee22`** (auto): ①50.8 pocket 5.75/11.5 → ②T1 anel 11.8 → ③T6 V 9.5 corner-sharpen → ④T11 sweep Ogee → ⑤OUT 10.5/21/22 — feeds pinados ao NC de referência (V-bit F9000 sobrepõe o F4000 do db).
+
+### Testado (mm)
+`node tools/check.mjs` verde (harness CAM legado intacto) ✓ · **14/14 goldens byte-idênticos** re-regenerados pelas receitas oficiais (incl. os 2 NC de template que exercitam tplApply) ✓ · **validação numérica vs o NC de referência** (harness node com o engine real + cavsFor + peça sintética cavidade 635×354.5): anéis F/E/D = 581×300.5 / 588×307.5 / 600×319.5, boundary pocket 530.2, anel T1 575.0, corner-sharpen alcança 600.0 na quina a Z22, sweep Zfirst 16.035 / Zmin 14.009 / Zmax 21.999 / Zlast 17.622 / largura 629.88, OUT 11.5/1/0 — tudo igual à referência ✓ · **E2E no app real** (contexto limpo): porta 735×1720 22mm Ogee 4 cavidades → `tplApply('tpl_ogee22')` = 5 ops LIVE → NC com segmentos T12/S12000 → T1/S18000 → T6/S16000 → T11/S15000 → T1/S18000, feeds {3000,5000,8000,9000,10000}, F4000 do db ausente (override venceu), Z floor 0 só no OUT ✓ · **gating provado**: 18mm → "needs 22mm material"; sem preset → "needs the Ogee offset preset"; 22mm+Ogee → disponível ✓ · **golden novo `GOLDEN_OGEE_S1_22mm.nc`** (38246 bytes CRLF) capturado com receita determinística ✓. **NÃO cortado em material real — air-cut obrigatório antes (risco 1).** Panels CAM = próxima etapa.
+
 ## 2026-07-12 (ll) — Preset polish: Ogee de fábrica + "Plain Shaker" + label "Preset" + botões
 
 Refinamento pedido pelo Ednei em cima do *kk*: a UI agora diz "**Preset**" (não "Profile"), o **Ogee é built-in de fábrica** (A0/B4.5/C6.5/D17.5/E23.5/F27 + seção 20.94×8mm/118pts embutida — funciona sem importar), "Shaker" virou "**Plain Shaker**" e "All offsets" (só exemplo) foi **removido**. Save/Import viraram botões (`btn ghost tiny` no Doors, `pn-mini` no Panels); chips de preset não mostram ✕ nos de fábrica.
