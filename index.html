@@ -1667,7 +1667,9 @@
     // only show a frame when it's actually active: offset line A on, OR an insert type (frame defines the cavity)
     const active=(it.lines&&it.lines[0]&&it.lines[0].en)||it.type==='trad'||it.type==='flush'||it.type==='reeded';
     if(!active)return '';
-    const f=resolveFrame(it);if(f.t===f.r&&f.r===f.b&&f.b===f.l)return f.t>0?'frame '+f.t+'mm':'';return 'frame T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l;}
+    const f=resolveFrame(it);const mr=(panelsOf(it)>1)?' · MR'+midFrameOf(it):'';   // MR = the rail between internal panels (2026-07-13)
+    if(f.t===f.r&&f.r===f.b&&f.b===f.l)return (f.t>0||mr)?'frame '+f.t+'mm'+mr:'';
+    return 'frame T'+f.t+' B'+f.b+' L'+f.l+' R'+f.r+mr;}   // TBLR order (matches the frame editor) + MR
   function offsetChip(it){const e=enabledLines(it);if(!e.length)return '';const letters=e.map(l=>l.L).join('');const side=it.pocketSide==='front-back'?' ⇄F+B':'';const rd=e.some(l=>l.rd)?' ◜round':'';return 'offset '+letters+side+rd;}
   function hingeChip(it){const h=hingeInfo(it);if(!h.on)return '';return 'hinges '+h.side+' ×'+h.count+(h.auto?' (auto)':'');}
 
@@ -2364,7 +2366,7 @@
     bin.free=mrPrune(nf);
     return {x:placed.x,y:placed.y,w:pw,h:ph,rot:bRot};
   }
-  function mrNewBin(mat,idx){const m=sheetMeta(mat,idx),g=m.g,M=m.margin,W=(m.S.w-2*M)+g,H=((m.S.uh||m.S.h)-2*M)+g;return {idx,m,g,margin:M,W,H,free:[{x:0,y:0,w:W,h:H}],parts:[]};}
+  function mrNewBin(mat,idx,szOv){const m=szOv?{sz:szOv,S:sheetDef(szOv),g:nestGap,margin:nestMargin}:sheetMeta(mat,idx),g=m.g,M=m.margin,W=(m.S.w-2*M)+g,H=((m.S.uh||m.S.h)-2*M)+g;return {idx,m,g,margin:M,W,H,free:[{x:0,y:0,w:W,h:H}],parts:[]};}
   function mrPartDims(p){if(grainActive(p)){const o=rigidOrient(p);return {w:o.w,h:o.h,rot:false};}return {w:p.w,h:p.h,rot:true};}
   function mrEmit(bin,p,r){const rw=r.w-bin.g,rh=r.h-bin.g;bin.parts.push(Object.assign({},p,{x:bin.margin+r.x,y:bin.margin+r.y,w:rw,h:rh,rot:(rw!==p.w)?90:0}));
     if(isHost(p)){const f=p.frame||{t:0,r:0,b:0,l:0};let fl=f.l,fr=f.r,ft=f.t,fb=f.b;if(rw!==p.w){fl=f.t;fr=f.b;ft=f.l;fb=f.r;}
@@ -2372,11 +2374,11 @@
   // a part that is narrow (short side < 120mm) wobbles when cut on a sheet edge -> pull it toward the middle;
   // bigger parts go to the outside so they keep a supported base. Best-effort only (tie-break inside mrInsert).
   function partCenterPref(p){return Math.min(p.w,p.h)<120?'center':'edge';}
-  function mrPackBins(mat,items,bias){
-    const bins=[mrNewBin(mat,0)];
+  function mrPackBins(mat,items,bias,szOv){
+    const bins=[mrNewBin(mat,0,szOv)];
     items.forEach(p=>{const d=mrPartDims(p),pref=bias?partCenterPref(p):null;let r=null,bin=null;
       for(const b of bins){r=mrInsert(b,d.w+b.g,d.h+b.g,d.rot,pref);if(r){bin=b;break;}}
-      if(!r){bin=mrNewBin(mat,bins.length);bins.push(bin);r=mrInsert(bin,d.w+bin.g,d.h+bin.g,d.rot,pref);}
+      if(!r){bin=mrNewBin(mat,bins.length,szOv);bins.push(bin);r=mrInsert(bin,d.w+bin.g,d.h+bin.g,d.rot,pref);}
       if(!r){bin.parts.push(Object.assign({},p,{x:bin.margin,y:bin.margin,w:p.w,h:p.h,rot:0}));return;}  // oversize -> keep (don't drop)
       mrEmit(bin,p,r);
     });
@@ -2385,14 +2387,33 @@
   function binsArea(bins){let a=0;bins.forEach(b=>b.parts.forEach(p=>a+=p.w*p.h));return a;}
   // try several sort heuristics, keep the layout with the fewest sheets; among equal-sheet layouts prefer the
   // centre-biased one (thin parts toward the middle), so the bias never costs an extra sheet.
+  // smallest available sheet size (any orientation) that fits a part, preferring the given default. Lets an oversize
+  // part (e.g. a 2850mm frame vs an 8x4=2440 sheet) auto-land on a big-enough sheet instead of overflowing the sheet
+  // at the corner. Returns defSz when the default fits or nothing bigger fits (truly-oversize parts still surface).
+  function fitSheetSize(p,defSz){
+    const fitsSz=sz=>{const S=sheetDef(sz),uW=S.w-2*nestMargin,uH=(S.uh||S.h)-2*nestMargin;return (p.w<=uW+0.01&&p.h<=uH+0.01)||(p.h<=uW+0.01&&p.w<=uH+0.01);};
+    if(fitsSz(defSz))return defSz;
+    const cand=Object.keys(SHEETS).filter(fitsSz).sort((a,b)=>{const A=SHEETS[a],B=SHEETS[b];return (A.w*(A.uh||A.h))-(B.w*(B.uh||B.h));});
+    return cand.length?cand[0]:defSz;
+  }
   function autoPack(mat,parts){
     const sorts=[(a,b)=>(b.w*b.h)-(a.w*a.h),(a,b)=>Math.max(b.w,b.h)-Math.max(a.w,a.h),(a,b)=>b.h-a.h,(a,b)=>b.w-a.w,(a,b)=>(b.w+b.h)-(a.w+a.h)];
-    let best=null,bestBiased=false;
-    for(const bias of [false,true])for(const cmp of sorts){
-      const bins=mrPackBins(mat,parts.slice().sort(cmp),bias);
-      if(!best||bins.length<best.length||(bins.length===best.length&&bias&&!bestBiased)){best=bins;bestBiased=bias;}
-    }
-    return best.map(b=>({sz:b.m.sz,S:b.m.S,g:b.g,margin:b.margin,parts:b.parts}));
+    const defSz=matSizeDef[mat]||nestSize;
+    // Group parts by the sheet size they NEED (default when it fits, else the smallest sheet that does), then nest each
+    // group on its own size. Uniform jobs = ONE group at the default size with szOv=null => byte-identical to before.
+    const bySize=new Map();
+    parts.forEach(p=>{const sz=fitSheetSize(p,defSz);if(!bySize.has(sz))bySize.set(sz,[]);bySize.get(sz).push(p);});
+    const out=[];
+    bySize.forEach((grp,sz)=>{
+      const szOv=(sz===defSz)?null:sz;   // default group keeps sheetMeta (overrides honoured); upsized group forces its size
+      let best=null,bestBiased=false;
+      for(const bias of [false,true])for(const cmp of sorts){
+        const bins=mrPackBins(mat,grp.slice().sort(cmp),bias,szOv);
+        if(!best||bins.length<best.length||(bins.length===best.length&&bias&&!bestBiased)){best=bins;bestBiased=bias;}
+      }
+      best.forEach(b=>out.push({sz:b.m.sz,S:b.m.S,g:b.g,margin:b.margin,parts:b.parts}));
+    });
+    return out;
   }
   function packInto(m,parts){   // re-pack a fixed set into ONE sheet (re-nest keeps sheet membership)
     const g=m.g,M=m.margin,W=(m.S.w-2*M)+g,H=((m.S.uh||m.S.h)-2*M)+g,bin={idx:0,m,g,margin:M,W,H,free:[{x:0,y:0,w:W,h:H}],parts:[]};
@@ -2406,7 +2427,7 @@
   /*NEST_ENGINE_END*/
   function materialize(){
     if(placements)return;placements={};
-    genParts().forEach((parts,mat)=>{autoPack(mat,parts).forEach((sh,s)=>sh.parts.forEach(p=>{placements[p.key]={g:mat,s:s,x:p.x,y:p.y,rot:p.rot||0};}));});
+    genParts().forEach((parts,mat)=>{autoPack(mat,parts).forEach((sh,s)=>sh.parts.forEach(p=>{placements[p.key]={g:mat,s:s,sz:sh.sz,x:p.x,y:p.y,rot:p.rot||0};}));});
   }
   // returns Map(material -> [sheets]). Uses manual placements when present, else auto-packs.
   function buildSheetGroups(){
@@ -2417,7 +2438,9 @@
         const orphans=parts.filter(p=>!(placements[p.key]&&placements[p.key].g===mat));
         let maxS=0;mine.forEach(p=>maxS=Math.max(maxS,placements[p.key].s));
         const sheets=[];for(let s=0;s<=maxS;s++){const m=sheetMeta(mat,s);sheets.push({sz:m.sz,S:m.S,g:m.g,margin:m.margin,parts:[]});}
-        mine.forEach(p=>{const pl=placements[p.key];const w=pl.rot?p.h:p.w,h=pl.rot?p.w:p.h;const m=sheetMeta(mat,pl.s);const c=clampPos(m,{x:pl.x,y:pl.y,w,h});sheets[pl.s].parts.push(Object.assign({},p,{x:c.x,y:c.y,w,h,rot:pl.rot}));});
+        // honour an auto-upsized sheet size remembered on the placement (a manual size override, if any, still wins)
+        mine.forEach(p=>{const pl=placements[p.key];if(pl.sz&&!((mat+'#'+pl.s) in sheetSizeOv)&&sheets[pl.s]&&sheets[pl.s].sz!==pl.sz){sheets[pl.s].sz=pl.sz;sheets[pl.s].S=sheetDef(pl.sz);}});
+        mine.forEach(p=>{const pl=placements[p.key];const w=pl.rot?p.h:p.w,h=pl.rot?p.w:p.h;const sh=sheets[pl.s];const c=clampPos({S:sh.S,margin:sh.margin},{x:pl.x,y:pl.y,w,h});sh.parts.push(Object.assign({},p,{x:c.x,y:c.y,w,h,rot:pl.rot}));});
         if(orphans.length) autoPack(mat,orphans).forEach(sh=>sheets.push(sh));
         out.set(mat,sheets);
       } else out.set(mat,autoPack(mat,parts));

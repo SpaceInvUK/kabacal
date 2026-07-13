@@ -404,10 +404,12 @@ if (html) {
   // 7a. MaxRects nesting: conservation, bounds, no overlaps, sheet count for the standard job
   if (nestSrc) {
     try {
-      const api = new Function('sheetMeta', 'grainActive', 'rigidOrient', 'isHost',
-        nestSrc + ';return {mrInsert, mrNewBin, mrPackBins, autoPack, packInto};')(
+      const SH = { '8x4': { w: 2440, h: 1220 }, '10x4': { w: 3050, h: 1220 }, '10x5': { w: 3050, h: 1525 }, jumbo: { w: 2800, h: 2070, uh: 2050 } };
+      const api = new Function('sheetMeta', 'grainActive', 'rigidOrient', 'isHost', 'matSizeDef', 'nestSize', 'SHEETS', 'sheetDef', 'nestMargin', 'nestGap',
+        nestSrc + ';return {mrInsert, mrNewBin, mrPackBins, autoPack, packInto, fitSheetSize};')(
         () => ({ sz: '8x4', S: { w: 2440, h: 1220 }, g: 7, margin: 7 }),   // stub: default 8x4, 7mm margin/gap
-        () => false, p => ({ w: p.w, h: p.h }), () => false);
+        () => false, p => ({ w: p.w, h: p.h }), () => false,
+        {}, '8x4', SH, sz => SH[sz] || SH['8x4'], 7, 7);                    // matSizeDef / nestSize / SHEETS / sheetDef / nestMargin / nestGap
       const parts = []; let k = 0;
       const mk = (w, h, n) => { for (let i = 0; i < n; i++) parts.push({ key: String(k++), w, h }); };
       mk(600, 400, 6); mk(715, 495, 2); mk(300, 300, 4);                    // the standard job
@@ -422,6 +424,13 @@ if (html) {
       }));
       must(api.packInto({ sz: '8x4', S: { w: 2440, h: 1220 }, g: 7, margin: 7 }, parts.slice(0, 5)).length === 5,
         'nest: packInto must keep all parts (sheet membership repack)');
+      // an oversize part (longer than the default 8x4 sheet) must AUTO-UPSIZE to a fitting sheet, never overflow
+      const big = api.autoPack('MDF 18mm', [{ key: 'big', w: 295, h: 2850 }]);   // 2850 > 8x4 length 2440 -> 10x4 (3050)
+      must(big.length === 1 && big[0].sz === '10x4', `nest: oversize part must upsize to 10x4 (got ${big.map(b => b.sz).join(',')})`);
+      must(big[0].parts.length === 1, 'nest: oversize part must not be dropped');
+      const bp = big[0].parts[0], bS = big[0].S;
+      must(bp.x >= 6.99 && bp.y >= 6.99 && bp.x + bp.w <= bS.w - 6.99 && bp.y + bp.h <= (bS.uh || bS.h) - 6.99, 'nest: upsized part must sit inside its sheet');
+      must(api.fitSheetSize({ w: 600, h: 400 }, '8x4') === '8x4', 'nest: a part that fits the default keeps the default size');
     } catch (e) { failures.push('nest engine runtime check failed: ' + (e && e.message || e)); }
   }
 

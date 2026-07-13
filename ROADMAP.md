@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (ww) — Nesting: peça maior que a chapa padrão sobe de tamanho sozinha (+ frame TBLR+MR no chip da peça)
+
+Ednei abriu "James Frame DOORS + TOP Window.fastcnc" (do Drive) — o nesting saiu **uma bagunça**. Causa-raiz: o nesting agrupava por MATERIAL só e usava UMA chapa por material (`sheetMeta` = `sheetSizeOv || matSizeDef || nestSize`), ignorando o tamanho de chapa atribuído por peça. As molduras de janela (2463/2762/2850mm de comprimento) são MAIORES que uma 8x4 (2440mm), então não cabiam em nenhuma orientação e caíam no canto da chapa (fallback "oversize → keep"), estourando pra fora — **6 chapas, 5 com uma peça pra fora**.
+
+Fix (zona guardada NEST_ENGINE, com evidência): `autoPack` agora agrupa as peças de cada material pela chapa que ELAS PRECISAM — a padrão quando cabe, senão a menor chapa que serve (novo `fitSheetSize`) — e nesta cada grupo no seu tamanho. **Job uniforme = UM grupo na chapa padrão (`szOv=null`) = byte-idêntico ao anterior.** `materialize`/`buildSheetGroups` gravam e honram o tamanho auto-escolhido na placement (override manual de tamanho ainda vence), então o layout continua certo após interação manual. **Resultado no James: 6→3 chapas, 0 overflow, 0 overlap, 10/10 peças** — pequenas na 8x4, molduras na 10x4 (exatamente o que ele tinha atribuído). Pricing é por-chapa (`priceForSheet(mat,s.sz)`), então tamanhos mistos já cotam certo (`uniform:false`).
+
+Extra pedido: `frameLabel` (chip debaixo do tamanho na lista de peças) agora mostra **T B L R** (era T R B L) + **MR** (mid rail) pra portas multi-painel — ex. "frame T92 B295 L70 R70 · MR92".
+
+### Testado (ww)
+`node tools/check.mjs` verde + **novo teste de nesting** (peça 295×2850 sobe pra 10x4, não some, cabe dentro; peça que cabe mantém a padrão) ✓ · **goldens byte-idênticos** (GOLDEN_18mm.dxf 4517, GOLDEN_S1_18mm_datum-ll.nc 8358, GOLDEN_RICH_18mm.dxf 10893, QUOTE_standard 940, QUOTE_rich 2205 — job uniforme inalterado) ✓ · **James**: overflow 5→0, overlap 0, **10/10 peças**, **6→3 chapas** (8x4×1 + 10x4×2), quote `uniform:false` ✓ · path de placements (após `materialize`, = interação manual) também **0 overflow**, tamanhos mantidos ✓ · chip **T B L R + MR** conferido nas 7 peças ✓ · sem erros no console ✓. `index.html` + `tools/check.mjs` + docs.
+
 ## 2026-07-13 (vv) — Campos do frame (T/B/L/R) rótulados e maiores (Offset + Parts)
 
 Ednei: os campos do frame — na seção *Offset* e no editor multi-painel (*Parts*) — estavam apertados/bagunçados, difícil ver onde digitar e onde clicar. Causa: o `.frame-ctl` inline usava inputs de **44px** precedidos por letrinhas minúsculas t/b/l/r que embolavam com `flex-wrap`. Trocado por um editor **compartilhado** `frameEditor(i,it,withApply)` que renderiza campos `.ed-field` rótulados **Top / Bottom / Left / Right** (ou "Frame · all sides" quando *link* ligado), do mesmo estilo de Width/Height, dentro de um `.frame-ed` (linha limpa, 4 campos de ~66×31px, gap 8px, toggle "link all sides" em linha própria; botão apply-to-all preservado na Offset). Usado nos DOIS lugares → consistente e sem duplicação de markup. Só UI, mesmos setters (`setFrame`/`setFrameSide`/`toggleFrameLink`) → geometria/DXF inalterados.
