@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (pp) — Grupos de toolpath + preview fiel (linhas DXF reais, cores por ferramenta, pocket pintado)
+
+Blocos 1+2 do pedido do Ednei. **Grupos**: cada `tplApply` vira um GRUPO (`pp.grp` aditivo — id/tpl/nome "#2" no reapply); lista agrupada com cabeçalho colorido (checkbox liga/desliga o grupo inteiro, contagem, lixeira apaga o grupo com confirm), membros indentados na cor do grupo; caminhos manuais viram "Manual toolpaths" (visual antigo preservado quando não há grupos). **Preview fiel** (`tpSheetSvg`): peça-alvo destacada na COR DO GRUPO do toolpath selecionado; cada peça mostra as linhas de offset REAIS (inset por cavidade, cores `OFFCOL` por layer) + a seção `PROFILE` no canto da chapa (tamanho real, igual ao DXF); toolpaths desenhados com **uma cor fixa por FERRAMENTA** (`tpToolCol`: T1 azul/T6 âmbar/T11 roxo/T12 verde) usando a geometria REAL (`tpOpRects`): pocket = área PINTADA + anel de contorno, sweep = banda rails→fora na largura da seção, anéis de offset no inset verdadeiro; branches legados (flushback OFFSET_A/POKET_INSERT/SHADOW/OFFSET_5MM) intactos; paths STALE não desenham.
+
+### Testado (pp)
+check.mjs verde ✓ · app real (limpo): 2 applies → 2 grupos com cores distintas ("Ogee Moulding 22mm"/"#2") ✓ toggle de grupo (g2 off → NC com 5 segmentos e **byte-idêntico ao GOLDEN_OGEE** — grupos não alteram NC) ✓ delete de grupo 10→5 ✓ SVG contém: highlight na cor do grupo, linhas verdadeiras (B 4.5/D 17.5/F 27), curva PROFILE, pocket `fill-opacity`, banda evenodd do sweep ✓ · screenshots da lista agrupada e do zoom (pockets verdes pintados, anéis âmbar do V, banda roxa do sweep) ✓ · goldens NC/DXF não tocados (mudança é UI/SVG).
+
 ## 2026-07-12 (oo) — Correções de exatidão VCarve no Ogee toolpath + bug real de ferramenta
 
 Ednei rodou o template no app dele ("Ogee Kabacal.nc") e mandou o par de referência ("Ogee Vcarve.nc", job 600×400). A comparação expôs **1 bug grave + 3 divergências**, todas corrigidas:

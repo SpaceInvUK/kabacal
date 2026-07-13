@@ -3858,37 +3858,73 @@
       try{const cavs=doorCavities(Object.assign({},p,{w:p.rot?p.h:p.w,h:p.rot?p.w:p.h}));
         return cavs.map(c=>p.rot?{x:p.x+c.y,y:p.y+c.x,w:c.h,h:c.w}:{x:p.x+c.x,y:p.y+c.y,w:c.w,h:c.h});}catch(e){return [];}
     };
-    (f.sh.parts||[]).forEach(p=>{if(p.isBack)return;
-      const k=parseInt(p.key,10),isSel=selSet.has(k);
-      // each part's OUT outline is a selectable cut line — click to select, Ctrl+click to add
-      s+=`<g class="npart${isSel?' sel':''}" data-key="${k}"><rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="${isSel?'#3b82f625':'#0f172a0a'}" stroke="${isSel?'#2563eb':'#94a3b8'}" stroke-width="${isSel?0.6:0.25}"><title>${esc(p.name)} ${p.w}×${p.h} — OUT line · click to select for cutting</title></rect>`;
-      // faint real geometry so a part is never a blank rectangle: its cavity/opening outlines
-      partCavs(p).forEach(c=>{s+=`<rect x="${(c.x/10).toFixed(2)}" y="${(c.y/10).toFixed(2)}" width="${(c.w/10).toFixed(2)}" height="${(c.h/10).toFixed(2)}" fill="none" stroke="#64748b" stroke-width="0.22" stroke-dasharray="1.4 1.1" opacity="0.75"/>`;});
-      s+='</g>';});
     const sheetKey=f.mat+'#'+f.i;
-    camPaths.forEach((pp,ci)=>{if(!pp.on||pp.kind!=='profile')return;
+    // group-colour highlight: the SELECTED toolpath's group paints its target parts in the group colour
+    const selPp=camPaths.find(x=>x.id===tpUI.sel);
+    const selGcol=selPp?tpGrpCol(tpGrpOf(selPp)):null;
+    let selKeys=null;try{selKeys=selPp?new Set(tpPathParts(f,selPp).map(q=>String(q.key))):null;}catch(e){selKeys=null;}
+    (f.sh.parts||[]).forEach(p=>{if(p.isBack)return;
+      const k=parseInt(p.key,10),isSel=selSet.has(k),inGrp=!!(selKeys&&selKeys.has(String(p.key)));
+      const stroke=inGrp?selGcol:(isSel?'#2563eb':'#94a3b8'),fill=inGrp?selGcol+'22':(isSel?'#3b82f625':'#0f172a0a');
+      // each part's OUT outline is a selectable cut line — click to select, Ctrl+click to add
+      s+=`<g class="npart${isSel?' sel':''}" data-key="${k}"><rect x="${(p.x/10).toFixed(1)}" y="${(p.y/10).toFixed(1)}" width="${(p.w/10).toFixed(1)}" height="${(p.h/10).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${(isSel||inGrp)?0.6:0.25}"><title>${esc(p.name)} ${p.w}×${p.h} — OUT line · click to select for cutting</title></rect>`;
+      // the part's TRUE drawing: every enabled offset line at its real inset, in its DXF layer colour
+      const lines=(p.lines||[]).filter(l=>l&&l.en!==false&&l.L);
+      if(lines.length){
+        partCavs(p).forEach(c=>{lines.forEach(l=>{const m=Math.max(0,+l.mm||0);
+          if(c.w-2*m<1||c.h-2*m<1)return;
+          s+=`<rect x="${((c.x+m)/10).toFixed(2)}" y="${((c.y+m)/10).toFixed(2)}" width="${((c.w-2*m)/10).toFixed(2)}" height="${((c.h-2*m)/10).toFixed(2)}" fill="none" stroke="${OFFCOL[l.L]||'#64748b'}" stroke-width="0.26" opacity="0.95"><title>OFFSET_${l.L} · ${l.mm}mm — ${esc(p.name)}</title></rect>`;});});
+      } else {
+        // faint cavity so a part is never a blank rectangle (flushback etc.)
+        partCavs(p).forEach(c=>{s+=`<rect x="${(c.x/10).toFixed(2)}" y="${(c.y/10).toFixed(2)}" width="${(c.w/10).toFixed(2)}" height="${(c.h/10).toFixed(2)}" fill="none" stroke="#64748b" stroke-width="0.22" stroke-dasharray="1.4 1.1" opacity="0.75"/>`;});
+      }
+      s+='</g>';});
+    // PROFILE sections used on this sheet (top-left, actual size — same as the exported DXF)
+    {let px=1.2;const seen=new Set();
+     (f.sh.parts||[]).forEach(p=>{const nm=p.offsetName;
+       if(!nm||seen.has(nm)||!(typeof profiles!=='undefined'&&profiles[nm]&&profiles[nm].profile))return;seen.add(nm);
+       const pr=profiles[nm].profile,y0=1.0+pr.h/10;
+       const pts=pr.pts.map(q=>((px+q.x/10).toFixed(2))+','+((y0-q.y/10).toFixed(2))).join(' ');
+       s+=`<polyline points="${pts}" fill="none" stroke="#0e7490" stroke-width="0.24" opacity="0.95"><title>PROFILE — ${esc(nm)} section ${pr.w}×${pr.h}mm (reference, not a cut)</title></polyline>`;
+       px+=pr.w/10+1.2;});}
+    camPaths.forEach(pp=>{if(!pp.on)return;
       const sc=pp.params.scope;
       if(sc&&sc.sheets&&sc.sheets.length&&sc.sheets.indexOf(sheetKey)<0)return;   // preview matches the NC: sheet not in scope = not drawn
+      if(tpIsStale(pp))return;
       const tool=toolById(pp.toolId);if(!tool)return;
-      const col=TP_COLORS[ci%TP_COLORS.length],P=pp.params,r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
+      const col=tpToolCol(tool.num),P=pp.params,kind=pp.kind||'profile',r=tool.dia/2,sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
       const dF=sgn*r+sgn*(+P.allowance||0),dR=dF+sgn*((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
       tpPathParts(f,pp).forEach((p,seq)=>{
         const cutD=(P.cutDepth==null?f.th:+P.cutDepth);
         const L=P.layer||P.refLayer||'OUT';
-        const tip=`${esc(pp.name)} · ${esc(tool.name)} — kerf Ø${tool.dia}mm · ${P.side} · ${cutD}mm deep · layer ${esc(L)}`;
+        const tip=`${esc(pp.name)} · T${tool.num} ${esc(tool.name)} — Ø${tool.dia}mm · ${kind}${P.side?' · '+P.side:''} · ${cutD}mm deep · ${esc(L)}`;
         const rect=(d,sw,op,dash)=>`<rect x="${((p.x-d)/10).toFixed(2)}" y="${((p.y-d)/10).toFixed(2)}" width="${((p.w+2*d)/10).toFixed(2)}" height="${((p.h+2*d)/10).toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}" opacity="${op}"${dash?' stroke-dasharray="2 1.6"':''}><title>${tip}</title></rect>`;
         const rrect=(r,sw,op)=>`<rect x="${(r.x/10).toFixed(2)}" y="${(r.y/10).toFixed(2)}" width="${(r.w/10).toFixed(2)}" height="${(r.h/10).toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}" opacity="${op}"><title>${tip}</title></rect>`;
-        const band=(a,b)=>`<path d="M${(a.x/10).toFixed(2)} ${(a.y/10).toFixed(2)}h${(a.w/10).toFixed(2)}v${(a.h/10).toFixed(2)}h-${(a.w/10).toFixed(2)}z M${(b.x/10).toFixed(2)} ${(b.y/10).toFixed(2)}h${(b.w/10).toFixed(2)}v${(b.h/10).toFixed(2)}h-${(b.w/10).toFixed(2)}z" fill-rule="evenodd" fill="${col}" opacity="0.22"><title>${tip}</title></path>`;
+        const band=(a,b)=>`<path d="M${(a.x/10).toFixed(2)} ${(a.y/10).toFixed(2)}h${(a.w/10).toFixed(2)}v${(a.h/10).toFixed(2)}h-${(a.w/10).toFixed(2)}z M${(b.x/10).toFixed(2)} ${(b.y/10).toFixed(2)}h${(b.w/10).toFixed(2)}v${(b.h/10).toFixed(2)}h-${(b.w/10).toFixed(2)}z" fill-rule="evenodd" fill="${col}" opacity="0.25"><title>${tip}</title></path>`;
         const grow=(r,d)=>({x:r.x-d,y:r.y-d,w:r.w+2*d,h:r.h+2*d});
+        const shrink=(r,d)=>({x:r.x+d,y:r.y+d,w:r.w-2*d,h:r.h-2*d});
+        const fillr=(r,op)=>`<rect x="${(r.x/10).toFixed(2)}" y="${(r.y/10).toFixed(2)}" width="${(r.w/10).toFixed(2)}" height="${(r.h/10).toFixed(2)}" fill="${col}" fill-opacity="${op}" stroke="none"><title>${tip}</title></rect>`;
         const edge=o=>({x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o});
+        const opRects=(typeof tpOpRects==='function')?tpOpRects(p,P):[];
         s+=`<g class="npart" data-key="${parseInt(p.key,10)}">`;         // clicking the kerf ring also selects the line/part
-        if(L==='OUT'){                                                   // outer profile: kerf band + roughing skin + centreline (as before)
+        if(kind==='pocket'){                                             // POCKET: paint the whole cleared area (Ednei) + boundary centreline
+          const allow=+P.allowance||0;
+          opRects.forEach(rc=>{const b=shrink(rc,r+allow);if(b.w<1||b.h<1)return;
+            s+=fillr(shrink(rc,allow),0.28)+rrect(b,0.3,0.95)+rrect(shrink(rc,allow),0.24,0.8);});
+        } else if(kind==='sweep'){                                        // MOULDING: band from the rails ring outward across the section width
+          const wOut=(P.profile&&+P.profile.w>0)?+P.profile.w:20;
+          opRects.forEach(rc=>{s+=band(grow(rc,wOut),rc)+rrect(rc,0.3,0.95)+rrect(grow(rc,wOut),0.24,0.8);});
+        } else if(L==='OUT'){                                             // outer profile: kerf band + roughing skin + centreline (as before)
           s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false);
           if(Math.abs(dR-dF)>0.01)s+=rect(dR,0.3,0.9,true);
           s+=rect(dF,0.28,1,false);
-        } else if(P.role==='insert'&&L==='OFFSET_5MM'){                  // insert pocket band: 6.9→11.95 from the edge
+        } else if(P.role==='insert'&&L==='OFFSET_5MM'){                   // insert pocket band: 6.9→11.95 from the edge
           s+=band(edge(6.9),edge(11.95))+rrect(edge(6.9),0.25,0.9)+rrect(edge(11.95),0.25,0.9);
-        } else {                                                         // cavity-relative ops drawn on the REAL geometry, per opening
+        } else if(/^OFFSET_[A-G]$/.test(L)&&opRects.length){              // TRUE offset-line ops: kerf ring at the real inset per cavity
+          opRects.forEach(rc=>{const kc=grow(rc,dF);if(kc.w<1||kc.h<1)return;
+            s+=rrect(kc,(tool.dia/10).toFixed(2),0.35)+rrect(kc,0.26,1);
+            if(Math.abs(dR-dF)>0.01)s+=rrect(grow(rc,dR),0.3,0.9);});
+        } else {                                                          // legacy cavity-relative ops (flushback reference rings)
           const cavs=partCavs(p);
           if(!cavs.length){s+=rect(dF,(tool.dia/10).toFixed(2),0.3,false)+rect(dF,0.28,1,false);}
           cavs.forEach(cv=>{
@@ -4044,16 +4080,30 @@
     else{
       const staleN=camPaths.filter(tpIsStale).length;
       if(staleN)h+=`<div class="tp-empty" style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:8px;margin:4px 6px;padding:6px 8px;font-size:11.5px">⚠ ${staleN} toolpath${staleN===1?'':'s'} became <b>STALE</b> — the parts they were created for changed or were deleted. Stale paths cut NOTHING. <span class="link" onclick="tpClearStale()">Remove stale</span></div>`;
-      camPaths.forEach((pp,i)=>{
-      const tool=toolById(pp.toolId),col=TP_COLORS[i%TP_COLORS.length],stale=tpIsStale(pp);
-      h+=`<div class="tp-row ${tpUI.sel===pp.id?'sel':''}" onclick="tpUI.sel='${pp.id}';tpSide()"${stale?' style="opacity:.55"':''}>
-        <input type="checkbox" class="selcb" ${pp.on?'checked':''} onclick="event.stopPropagation()" onchange="tpToggle('${pp.id}',this.checked)">
-        <span class="dot" style="background:${stale?'#f59e0b':col}"></span>
-        <span class="nm">${esc(pp.name)} [${tool?tool.num:'?'}]${stale?' <span style="color:#b45309;font-weight:800;font-size:9.5px" title="Source parts changed/deleted — this path cuts nothing until recreated">STALE</span>':(!pp.on?' <span style="color:#94a3b8;font-weight:800;font-size:9.5px" title="Loaded OFF on purpose — the template keeps its cutting order and you tick each operation when ready. OFF paths generate no NC.">OFF</span>':'')}</span>
-        <span class="sub2">${tool?esc(tool.name):'no tool'}</span>
-        <button class="iconbtn" title="Edit" style="width:22px;height:22px" onclick="event.stopPropagation();tpEdit('${pp.id}')">${ic('pencil',11)}</button>
-        <button class="iconbtn" title="Delete" style="width:22px;height:22px" onclick="event.stopPropagation();tpDel('${pp.id}')">${ic('trash',11)}</button>
-      </div>`;
+      const buckets=tpGrpBuckets(),grouped=buckets.some(b=>b.gid!=='manual');
+      buckets.forEach((b,gi)=>{
+        const gcol=TP_COLORS[gi%TP_COLORS.length];
+        if(grouped){
+          const allOn=b.rows.every(p=>p.on),anyOn=b.rows.some(p=>p.on);
+          h+=`<div class="tp-row" style="background:${gcol}14;border-left:4px solid ${gcol};border-radius:6px;margin:6px 4px 1px;font-weight:800">
+            <input type="checkbox" class="selcb" ${allOn?'checked':''} title="Turn the WHOLE group ${allOn?'off':'on'}" onclick="event.stopPropagation()" onchange="tpGrpToggle('${b.gid}',this.checked)">
+            <span class="dot" style="background:${gcol};width:9px;height:9px"></span>
+            <span class="nm" style="color:${gcol}">${esc(b.name)}</span>
+            <span class="sub2">${b.rows.length} op${b.rows.length===1?'':'s'}${anyOn&&!allOn?' · partial':''}</span>
+            <button class="iconbtn" title="Delete this whole group" style="width:22px;height:22px" onclick="event.stopPropagation();tpGrpDel('${b.gid}')">${ic('trash',11)}</button>
+          </div>`;
+        }
+        b.rows.forEach((pp,ri)=>{
+        const tool=toolById(pp.toolId),col=grouped?gcol:TP_COLORS[ri%TP_COLORS.length],stale=tpIsStale(pp);
+        h+=`<div class="tp-row ${tpUI.sel===pp.id?'sel':''}" onclick="tpUI.sel='${pp.id}';tpSide()" style="${grouped?'margin-left:14px;':''}${stale?'opacity:.55':''}">
+          <input type="checkbox" class="selcb" ${pp.on?'checked':''} onclick="event.stopPropagation()" onchange="tpToggle('${pp.id}',this.checked)">
+          <span class="dot" style="background:${stale?'#f59e0b':col}"></span>
+          <span class="nm">${esc(pp.name)} [${tool?tool.num:'?'}]${stale?' <span style="color:#b45309;font-weight:800;font-size:9.5px" title="Source parts changed/deleted — this path cuts nothing until recreated">STALE</span>':(!pp.on?' <span style="color:#94a3b8;font-weight:800;font-size:9.5px" title="Loaded OFF on purpose — the template keeps its cutting order and you tick each operation when ready. OFF paths generate no NC.">OFF</span>':'')}</span>
+          <span class="sub2">${tool?esc(tool.name):'no tool'}</span>
+          <button class="iconbtn" title="Edit" style="width:22px;height:22px" onclick="event.stopPropagation();tpEdit('${pp.id}')">${ic('pencil',11)}</button>
+          <button class="iconbtn" title="Delete" style="width:22px;height:22px" onclick="event.stopPropagation();tpDel('${pp.id}')">${ic('trash',11)}</button>
+        </div>`;
+        });
       });
     }
     h+='</div>';
@@ -4234,6 +4284,24 @@
   }
   function tpToggle(id,on){const pp=camPaths.find(x=>x.id===id);if(pp)pp.on=!!on;renderToolpaths();}
   function tpDel(id){const i=camPaths.findIndex(x=>x.id===id);if(i<0)return;if(!confirm('Delete toolpath "'+camPaths[i].name+'"?'))return;camPaths.splice(i,1);if(tpUI.sel===id)tpUI.sel=null;renderToolpaths();}
+  // ---- toolpath GROUPS (one template apply = one group; manual paths live in "Manual toolpaths") ----
+  function tpGrpOf(pp){return (pp&&pp.grp&&pp.grp.id)||'manual';}
+  function tpGrpBuckets(){const buckets=[],idx={};
+    camPaths.forEach(pp=>{const gid=tpGrpOf(pp);
+      if(idx[gid]==null){idx[gid]=buckets.length;buckets.push({gid,name:(pp.grp&&pp.grp.name)||'Manual toolpaths',rows:[]});}
+      buckets[idx[gid]].rows.push(pp);});
+    return buckets;}
+  function tpGrpCol(gid){const b=tpGrpBuckets(),i=b.findIndex(x=>x.gid===gid);return TP_COLORS[(i<0?0:i)%TP_COLORS.length];}
+  // one colour per TOOL NUMBER (same tool = same colour everywhere in the preview — Ednei 2026-07-12)
+  const TP_TOOLCOL={1:'#2563eb',2:'#0891b2',4:'#059669',6:'#d97706',8:'#65a30d',10:'#be185d',11:'#7c3aed',12:'#16a34a'};
+  function tpToolCol(num){return TP_TOOLCOL[num]||TP_COLORS[(Math.abs(Math.round(+num||0))*3)%TP_COLORS.length];}
+  function tpGrpToggle(gid,on){camPaths.forEach(pp=>{if(tpGrpOf(pp)===gid)pp.on=!!on;});renderToolpaths();}
+  function tpGrpDel(gid){const rows=camPaths.filter(pp=>tpGrpOf(pp)===gid);if(!rows.length)return;
+    const nm=(rows[0].grp&&rows[0].grp.name)||'Manual toolpaths';
+    if(!confirm('Delete the whole group "'+nm+'" ('+rows.length+' toolpath'+(rows.length===1?'':'s')+')?'))return;
+    camPaths=camPaths.filter(pp=>tpGrpOf(pp)!==gid);
+    if(tpUI.sel&&!camPaths.find(p=>p.id===tpUI.sel))tpUI.sel=null;
+    renderToolpaths();}
   function tpMoveSel(dir){const i=camPaths.findIndex(x=>x.id===tpUI.sel);if(i<0)return;const j=i+dir;if(j<0||j>=camPaths.length)return;const t=camPaths[i];camPaths[i]=camPaths[j];camPaths[j]=t;renderToolpaths();}
   function tpPreviewAll(){renderToolpaths();const c=document.getElementById('tpCanvas');if(c)c.scrollIntoView({behavior:'smooth',block:'start'});}
   // ---- Tool Database ----
@@ -4427,6 +4495,9 @@
     const ids=tplTargets();
     if(!ids.length){if(!quiet)alert('No parts in the job yet.');return null;}
     const role=((tpl.appliesTo||{}).part==='insert')?'insert':'body';
+    // every apply = one GROUP: same colour in the list/preview, group on/off + group delete (Ednei 2026-07-12)
+    const prevN=new Set(camPaths.filter(p=>p.grp&&p.grp.tpl===tpl.id).map(p=>p.grp.id)).size;
+    const grp={id:'tg'+Date.now().toString(36)+Math.floor(Math.random()*999),tpl:tpl.id,name:tpl.name+(prevN?' #'+(prevN+1):'')};
     const report=[];let made=0;
     (tpl.ops||[]).forEach((op,k)=>{
       const its=tplOpItems(op,ids,tpl);
@@ -4449,7 +4520,7 @@
       else if(kind==='sweep'&&role==='body'&&hasGeo&&sweepProf)live=true;
       const params=Object.assign(tpDefaults(tool),{layer:engLayer,refLayer:op.layer||'OUT',role:role,scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
       if(kind==='sweep'&&sweepProf)params.profile=JSON.parse(JSON.stringify(sweepProf));   // the moulding section travels with the op
-      camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',
+      camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:op.kind||'profile',grp:JSON.parse(JSON.stringify(grp)),
         name:(op.name||tpl.name+' '+(k+1)+' — '+(op.layer||'OUT'))+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:tpScopeSig(its)});
       tpSeq++;made++;
       if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
