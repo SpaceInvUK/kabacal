@@ -902,6 +902,9 @@
   // overridden) and legacy names on items map forward, so old .fastcnc files keep loading unchanged.
   function extProfiles(s){const o={};Object.keys(s||{}).forEach(k=>{if(BUILTIN_PRESETS.indexOf(k)<0&&k!=='Shaker'&&k!=='All offsets')o[k]=s[k];});return o;}
   function normPresetName(n){return n==='Shaker'?'Plain Shaker':(n==='All offsets'?'Custom':n);}
+  // display name for a part row: a real offset preset (Ogee etc.) takes over the badge text — the
+  // physical door type keeps the icon/colour and moves to the tooltip (Ednei 2026-07-12)
+  function itemDispName(it){const n=it&&it.offsetName;return (n&&n!=='None'&&n!=='Custom')?n:TYPES[it.type].name;}
   // user presets persist on this computer (kab_profiles); the factory built-ins are never saved
   (function(){try{const s=JSON.parse(localStorage.getItem('kab_profiles'));if(s&&typeof s==='object')profiles=Object.assign({},profiles,extProfiles(s));}catch(e){}})();
   function saveProfiles(){try{const o={};Object.keys(profiles).forEach(k=>{if(BUILTIN_PRESETS.indexOf(k)<0)o[k]=profiles[k];});localStorage.setItem('kab_profiles',JSON.stringify(o));}catch(e){}}
@@ -1690,7 +1693,7 @@
         <div class="item-row" onclick="sel(${i},event)">
           <input type="checkbox" class="selcb" ${selSet.has(i)?'checked':''} onclick="event.stopPropagation()" onchange="cbSel(${i},this.checked)">
           <div class="idx">${i+1}</div>
-          <div class="typecell">${d.icon(c)}<span class="badge ${d.badge}">${d.name}</span></div>
+          <div class="typecell">${d.icon(c)}<span class="badge ${d.badge}" title="${d.name}${itemDispName(it)!==d.name?' · preset '+esc(itemDispName(it)):''}">${esc(itemDispName(it))}</span></div>
           <div><span class="dim">${it.w} × ${it.h} mm</span>
             <div class="pills" style="margin-top:4px">
               ${frameLabel(it)?'<span class="chip off">'+frameLabel(it)+'</span>':''}

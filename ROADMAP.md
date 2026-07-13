@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (nn) — Nome do preset no badge da PART (lista Doors)
+
+Pedido do Ednei: quando a peça usa um preset de offset de verdade, o **nome do preset assume o badge** da linha na lista de parts — porta Flat com preset Ogee mostra "**Ogee**" (Flat vai pro tooltip: "Flat · preset Ogee"); ícone e cor continuam do tipo físico. `None`/`Custom` seguem mostrando o tipo. Helper `itemDispName` usado só no badge da linha (UI pura — genParts/DXF/NC/quote intocados).
+
+### Testado (nn)
+`check.mjs` verde ✓ · app real: 3 linhas → "Flat" (sem preset), "**Ogee**" (Flat+Ogee, tooltip certo), "**Plain Shaker**" (Traditional+preset) — screenshot ✓ · smoke de goldens pós-mudança: GOLDEN_18mm + QUOTE_standard + **GOLDEN_OGEE_S1_22mm** byte-idênticos ✓. Só `index.html`.
+
 ## 2026-07-12 (mm) — Toolpath template "Ogee Moulding 22mm" (pocket raster + sweep 3D + gating por preset)
 
 Parte 2 do sistema Ogee: o template de toolpath casado ao preset pelo NOME, convertido do `Ogee Moulding 22mm.ToolpathTemplate` + validado contra o `Ogee Moulding 22mm.nc` de referência do VCarve. Decisões do Ednei: **T11=ball 5mm / T12=50.8 skim** (NC é a verdade, não o nome no template), **visível-mas-bloqueado** com motivo, **construir já + air-cut antes de cortar**, e **Panels também** (CAM de Panels não existe → próxima etapa grande; feito Doors primeiro porque a referência É uma peça com 4 cavidades).
