@@ -143,6 +143,11 @@
   .ed-field{display:flex;flex-direction:column;gap:4px}
   .ed-field label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}
   .ed-field input,.ed-field select{padding:7px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+  /* frame T/B/L/R editor — clean labelled fields (Offset section + multi-panel Parts editor) */
+  .frame-ed{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:4px 0 6px}
+  .frame-ed .ed-field{flex:1 1 64px;min-width:58px}
+  .frame-ed .frame-foot{flex:1 0 100%;display:flex;align-items:center;gap:12px;margin-top:1px;flex-wrap:wrap}
+  .frame-ed .frame-lk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;text-transform:none;font-weight:400}
   .tg{display:flex;align-items:center;gap:6px;font-weight:700;font-size:12px}
 
   .offset-wrap{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff}
@@ -1871,20 +1876,22 @@
     return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
       ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Offset</b> section.</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Offset</b> section to reuse it here.</div>'}`;
   }
+  // Shared frame editor (2026-07-13): clean labelled Top/Bottom/Left/Right fields (a single box when linked). Used by
+  // the Offset section AND the multi-panel Parts editor — replaces the old cramped 44px inputs with tiny letter labels
+  // that were hard to see/aim at. Same setters (setFrame/setFrameSide/toggleFrameLink) → no geometry change.
+  function frameEditor(i,it,withApply){const f=resolveFrame(it);
+    const fields=it.frameLink
+      ?`<div class="ed-field" style="flex:0 1 150px"><label>Frame · all sides</label><input type="number" min="0" value="${f.t}" onchange="setFrame(${i},this.value)"></div>`
+      :[['t','Top'],['b','Bottom'],['l','Left'],['r','Right']].map(s=>`<div class="ed-field"><label>${s[1]}</label><input type="number" min="0" value="${f[s[0]]}" onchange="setFrameSide(${i},'${s[0]}',this.value)"></div>`).join('');
+    return `<div class="frame-ed">${fields}<div class="frame-foot"><label class="frame-lk"><input type="checkbox" ${it.frameLink?'checked':''} onchange="toggleFrameLink(${i})"> link all sides</label>${withApply?ap(i,'frame'):''}</div></div>`;}
   function secParts(i,it){const M=selSet.size>1;const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);const f=resolveFrame(it);
     // Multi-panel editor (2026-07-13): outer frame (T/B/L/R) + internal rail + bottom-referenced panel size, all in
     // one place. Pure UI — reuses the existing setters (setFrame/setFrameSide/setMidFrame/setPanelSize), so the
     // cavity geometry, DXF export and goldens are byte-identical. The outer frame here is the SAME it.frame edited
     // in the Offset section (kept in sync by render()); the internal rail (it.midFrame) and panel size never touch it.
-    const frameBox=it.frameLink
-      ?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm all round</span>`
-      :['t','b','l','r'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('');
     const multi=n>1?`
     <div class="sub" style="font-weight:700;margin-top:8px">Outer frame <span style="font-weight:400">— stays fixed when you resize a panel or rail</span></div>
-    <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px">
-      ${frameBox}
-      <label class="tg" style="font-size:12px"><input type="checkbox" ${it.frameLink?'checked':''} onchange="toggleFrameLink(${i})"> link</label>
-    </div>
+    ${frameEditor(i,it,false)}
     <div style="display:flex;gap:8px;margin-top:8px">
       <div class="ed-field" style="flex:1"><label>Internal rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${f.t}" onchange="setMidFrame(${i},this.value)" title="The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)"></div>
       <div class="ed-field" style="flex:1"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Height of the ${portrait?'bottom':'right-hand'} opening, measured from the ${portrait?'bottom':'right'} of the part — the other openings share the rest (empty = equal split)"></div>
@@ -2012,13 +2019,9 @@
         <b>· ${ins.w}×${ins.h}mm</b>${ins.reed?' · reeded':''}
         ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
         <span class="sub" style="margin-left:auto" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
-    <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <span class="sub" style="font-weight:700">Frame:</span>
-      ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','b','l','r'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
-      <label class="tg" style="font-size:12px"><input type="checkbox" ${it.frameLink?'checked':''} onchange="toggleFrameLink(${i})"> link</label>
-      ${ap(i,'frame')}
-    </div>
-    <div class="sub" style="margin:-4px 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>
+    <div class="sub" style="font-weight:700;margin:2px 0 0">Frame</div>
+    ${frameEditor(i,it,true)}
+    <div class="sub" style="margin:0 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>
     <div style="max-width:130px;margin:0 auto 10px">${offsetPreview(it)}</div>
     <div class="prof-pick">
       <span class="sub" style="font-weight:700">Preset:</span>

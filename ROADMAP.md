@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (vv) — Campos do frame (T/B/L/R) rótulados e maiores (Offset + Parts)
+
+Ednei: os campos do frame — na seção *Offset* e no editor multi-painel (*Parts*) — estavam apertados/bagunçados, difícil ver onde digitar e onde clicar. Causa: o `.frame-ctl` inline usava inputs de **44px** precedidos por letrinhas minúsculas t/b/l/r que embolavam com `flex-wrap`. Trocado por um editor **compartilhado** `frameEditor(i,it,withApply)` que renderiza campos `.ed-field` rótulados **Top / Bottom / Left / Right** (ou "Frame · all sides" quando *link* ligado), do mesmo estilo de Width/Height, dentro de um `.frame-ed` (linha limpa, 4 campos de ~66×31px, gap 8px, toggle "link all sides" em linha própria; botão apply-to-all preservado na Offset). Usado nos DOIS lugares → consistente e sem duplicação de markup. Só UI, mesmos setters (`setFrame`/`setFrameSide`/`toggleFrameLink`) → geometria/DXF inalterados.
+
+### Testado (vv)
+`node tools/check.mjs` verde ✓ · **goldens byte-idênticos** (GOLDEN_18mm.dxf 4517, QUOTE_standard.json 940) ✓ · DOM real: 2 editores montados (Parts+Offset), 4 campos rótulados **66×31px numa única linha**, posições 28/102/176/250, gaps 8px, **sem sobreposição**, "link all sides" numa linha abaixo, cabendo no inspector de 328px ✓ · linked = 1 campo "Frame · all sides"; unlinked = Top/Bottom/Left/Right ✓ · sem erros no console ✓. Screenshots seguem travando no ambiente (verificado por medição no DOM). Só `index.html` + ROADMAP.
+
 ## 2026-07-13 (uu) — Editor multi-painel de portas: frame externo + rail interno + painel juntos num só lugar
 
 Pedido do Ednei: no editor de portas com 2+ painéis, controlar separadamente (1) o frame externo, (2) o rail interno entre painéis, (3) o tamanho dos painéis — e que mexer no rail ou redimensionar o painel de baixo **não** altere os valores de frame/rail já editados; altura do painel medida a partir de **baixo** da peça.
