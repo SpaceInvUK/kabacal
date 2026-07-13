@@ -3565,7 +3565,33 @@
   const TP_COLORS=['#2563eb','#d97706','#0d9488','#9333ea','#dc2626','#0891b2','#65a30d'];
   const TP_ANCH={ll:'lower-left',lc:'lower-centre',lr:'lower-right',mr:'right-middle',ur:'upper-right',uc:'upper-centre',ul:'upper-left',ml:'left-middle'};
   function thicknessOf(mat){const t=parseFloat(parseMat(mat).th);return isNaN(t)?18:t;}
-  function tpSheets(){const flat=[];buildSheetGroups().forEach((sheets,mat)=>sheets.forEach((sh,i)=>flat.push({mat,i,sh,th:thicknessOf(mat)})));return flat;}
+  function tpSheets(){const flat=[];buildSheetGroups().forEach((sheets,mat)=>sheets.forEach((sh,i)=>flat.push({mat,i,sh,th:thicknessOf(mat)})));tpPanelsSheets().forEach(f=>flat.push(f));return flat;}
+  // ---- Panels → CAM bridge (2026-07-12): every nested panels sheet becomes a toolpath sheet. Pieces
+  // carry their shaker CELLS (piece-local, y-down) + the room's offset lines + preset name, so tpOpRects
+  // resolves OFFSET_A..G rings on the real cells and the Ogee template applies to wall panels too.
+  // Doors sheets always come FIRST (golden recipes index tpSheets()[0]/[1] — order is contractual).
+  function tpPanelsSheets(){
+    const flat=[];
+    if(typeof panelRooms==='undefined'||!panelRooms||!panelRooms.length)return flat;
+    let n=0;
+    panelRooms.forEach((room,ri)=>{
+      let L;try{L=pnRoom(room);}catch(e){return;}
+      if(!L.pieces.length)return;
+      const th=parseInt(parseMat(room.mat).th)||18;
+      const lines=(pnLinesFor(room)||[]).map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en);
+      const offName=(typeof pnOffsetName==='function')?pnOffsetName(room):'';
+      const nest=pnNestRoom(room,L.pieces);
+      nest.sheets.forEach(sh=>{
+        const parts=sh.parts.map((p,pi)=>{
+          const geo=pnCellRects(p);
+          const cells=(geo.cells||[]).filter(c=>c.w>2&&c.h>2).map(c=>({x:c.x,y:p.h-c.y-c.h,w:c.w,h:c.h}));   // y-up piece local → y-down
+          return Object.assign({},p,{key:'pn'+ri+'_'+n+'_'+pi,name:p.label||'Panel',offsetName:offName,lines:JSON.parse(JSON.stringify(lines)),cells,frame:{t:0,r:0,b:0,l:0},pnl:null});
+        });
+        flat.push({mat:room.mat+' · '+(room.name||('Room '+(ri+1))),i:'pn'+(n++),sh:{sz:sh.sz,S:sh.S,g:sh.g,margin:sh.margin,parts},th,offName,roomLines:lines,isPanels:true});
+      });
+    });
+    return flat;
+  }
   function tpThicknesses(){const s=new Set();tpSheets().forEach(f=>s.add(f.th));return [...s].sort((a,b)=>b-a);}
   function tpVisibleSheets(){const all=tpSheets();return tpFilter==='all'?all:all.filter(f=>f.th===+tpFilter);}
   function tpResolveTh(){const v=tpVisibleSheets();return v.length?v[0].th:18;}
@@ -3616,7 +3642,10 @@
     if(!/^OFFSET_[A-G]$/.test(L))return [{x:p.x,y:p.y,w:p.w,h:p.h}];
     const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
     if(!ln)return [];
-    const mm=Math.max(0,+ln.mm||0),f=p.frame||{t:0,r:0,b:0,l:0};
+    const mm=Math.max(0,+ln.mm||0);
+    if(Array.isArray(p.cells)&&p.cells.length)   // PANELS piece: shaker cells travel with the part (y-down local)
+      return p.cells.map(c=>({x:p.x+c.x+mm,y:p.y+c.y+mm,w:c.w-2*mm,h:c.h-2*mm})).filter(rc=>rc.w>1&&rc.h>1);
+    const f=p.frame||{t:0,r:0,b:0,l:0};
     const cavs=(typeof cavsFor==='function')?cavsFor(p.w,p.h,f,p.pnl):[];
     return cavs.map(c=>({x:p.x+c.x+mm,y:p.y+c.y+mm,w:c.w-2*mm,h:c.h-2*mm})).filter(rc=>rc.w>1&&rc.h>1);
   }
@@ -3692,6 +3721,9 @@
     return a;}
   function tpPathParts(f,pp){let parts=(f.sh.parts||[]).filter(p=>!p.isBack);
     const P=pp.params;
+    // PANELS sheets only cut paths EXPLICITLY sheet-scoped to them (tplApply panels branch, or a manual
+    // path the user sheet-scoped). Legacy/doors paths keep exactly their old reach — goldens contractual.
+    if(f.isPanels&&!(P.scope&&P.scope.sheets&&P.scope.sheets.length))return [];
     // stale-scope guard (docs/CONTRACT-CAM.md §7: filters only ever FILTER): if the items this path was
     // created for changed underneath it, cut NOTHING — never silently retarget re-used indexes.
     if(P.scope&&P.scope.items&&pp.sig&&typeof tpScopeSig==='function'&&tpScopeSig(P.scope.items)!==pp.sig)return [];
@@ -3852,6 +3884,7 @@
     let s=`<svg class="sheet-svg"${click} viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff" stroke="#cbd5e1" stroke-width="0.4"/>`;
     // cavities of a placed part, in SHEET coords (rotated parts use the same transpose mapping as mrEmit)
     const partCavs=p=>{
+      if(Array.isArray(p.cells)&&p.cells.length)return p.cells.map(c=>({x:p.x+c.x,y:p.y+c.y,w:c.w,h:c.h}));   // panels piece
       if(p.isInsert||p.isBeading)return [];
       const host=p.type==='trad'||p.type==='flush'||p.type==='reeded'||(p.lines&&p.lines[0]&&p.lines[0].en);
       if(!host)return [];
@@ -4481,6 +4514,7 @@
   // why a gated template can't run on the current parts — shown on the template row ("visible but blocked")
   function tplBlockReason(t,ids){
     const A=t.appliesTo||{};
+    if(typeof tplPanelsFs==='function'&&tplPanelsFs(t).length)return null;   // matching WALL PANELS make it available too
     if(!ids.length)return 'no parts in the job';
     if(ids.some(i=>!!tplRoleLayers(items[i],t)))return null;
     if(A.part==='insert')return 'needs a '+(A.type?A.type+' ':'')+'insert part'+(A.th?' on '+A.th+'mm':'');
@@ -4490,16 +4524,46 @@
     return 'no matching part';
   }
   function tplMatchInfo(tpl,ids){const ops=tpl.ops||[];let m=0;ops.forEach(op=>{if(tplOpItems(op,ids,tpl).length)m++;});return {matched:m,total:ops.length,full:m===ops.length&&ops.length>0};}
+  // panels sheets a template can machine: thickness + offset-preset gate (same appliesTo contract)
+  function tplPanelsFs(tpl){
+    const A=(tpl&&tpl.appliesTo)||{};
+    if((A.part||'body')!=='body')return [];
+    return tpPanelsSheets().filter(f=>(!A.th||f.th===+A.th)&&(!A.offsetName||f.offName===A.offsetName));
+  }
+  // apply a template's ops to the matching PANELS sheets: sheet-scoped paths (no items scope/sig),
+  // geometry resolved per piece from its cells. Same GROUP as the doors ops of the same apply.
+  function tplApplyPanels(tpl,grp,report){
+    const fs=tplPanelsFs(tpl);if(!fs.length)return 0;
+    const keys=fs.map(f=>f.mat+'#'+f.i);
+    const lineSet=new Set();fs.forEach(f=>(f.roomLines||[]).forEach(l=>{if(l&&l.en)lineSet.add('OFFSET_'+l.L);}));
+    const A=tpl.appliesTo||{};let made=0;
+    (tpl.ops||[]).forEach((op,k)=>{
+      const L=op.layer||'OUT',kind=op.kind||'profile';
+      const hasGeo=/^OFFSET_[A-G]$/.test(L)&&lineSet.has(L);
+      if(L!=='OUT'&&!hasGeo){report.push('· panels op '+(k+1)+' ('+L+'): no room offset line — skipped');return;}
+      const tool=tplResolveTool(op.tool);
+      if(!tool){report.push('· panels op '+(k+1)+' ('+L+'): tool not in the Tool Database — skipped');return;}
+      const sweepProf=(kind==='sweep'&&A.offsetName&&profiles[A.offsetName]&&profiles[A.offsetName].profile)||null;
+      const live=(kind==='profile')?(L==='OUT'||hasGeo):(kind==='pocket'?hasGeo:(kind==='sweep'?!!(hasGeo&&sweepProf):false));
+      const params=Object.assign(tpDefaults(tool),{layer:L,refLayer:L,scope:{sheets:keys.slice()}},op.side?{side:op.side}:{},op.params||{});
+      if(sweepProf)params.profile=JSON.parse(JSON.stringify(sweepProf));
+      camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:kind,grp:JSON.parse(JSON.stringify(grp)),
+        name:(op.name||L)+' — Panels'+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:null});
+      tpSeq++;made++;
+    });
+    return made;
+  }
   function tplApply(id,quiet){
     const tpl=tpTemplates.find(t=>t.id===id);if(!tpl)return null;
     const ids=tplTargets();
-    if(!ids.length){if(!quiet)alert('No parts in the job yet.');return null;}
+    if(!ids.length&&!tplPanelsFs(tpl).length){if(!quiet)alert('No parts in the job yet.');return null;}
     const role=((tpl.appliesTo||{}).part==='insert')?'insert':'body';
     // every apply = one GROUP: same colour in the list/preview, group on/off + group delete (Ednei 2026-07-12)
     const prevN=new Set(camPaths.filter(p=>p.grp&&p.grp.tpl===tpl.id).map(p=>p.grp.id)).size;
     const grp={id:'tg'+Date.now().toString(36)+Math.floor(Math.random()*999),tpl:tpl.id,name:tpl.name+(prevN?' #'+(prevN+1):'')};
     const report=[];let made=0;
-    (tpl.ops||[]).forEach((op,k)=>{
+    const anyDoor=ids.some(i=>!!tplRoleLayers(items[i],tpl));
+    if(anyDoor)(tpl.ops||[]).forEach((op,k)=>{
       const its=tplOpItems(op,ids,tpl);
       if(!its.length){report.push('· op '+(k+1)+' ('+(op.layer||'OUT')+'): no matching part has this layer — skipped');return;}
       const tool=tplResolveTool(op.tool);
@@ -4525,6 +4589,7 @@
       tpSeq++;made++;
       if(!live)report.push('· op '+(k+1)+' ('+(op.kind||'profile')+' on '+(op.layer||'OUT')+'): added DISABLED — that operation type ships next; the order is kept');
     });
+    made+=tplApplyPanels(tpl,grp,report);
     if(!quiet){renderToolpaths();
       alert('Template "'+tpl.name+'": '+made+' toolpath(s) created in the template\'s order.'+(report.length?'\n\n'+report.join('\n'):''));}
     return {made:made,report:report,name:tpl.name};
