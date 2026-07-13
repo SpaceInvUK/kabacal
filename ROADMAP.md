@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (yy) — CAM: Flushback tudo-ligado + novo template Plain Shaker (22mm + gêmeo 18mm automático)
+
+Dois pedidos do Ednei:
+
+1. **Flushback tudo ligado por padrão** — `tpl_flush18`/`tpl_flushins12` ganharam `allLive:true`; `tplApply` força `live=true` em toda op que tenha geometria (as ops de insert-pocket/recess/shadow não entram mais OFF; ops sem geometria seguem sem emitir nada). Goldens regenerados: `GOLDEN_TPL_S1_18mm.nc` **1525→2788** (agora **T1→T4→T2→T1**), `GOLDEN_TPL_S2_12mm.nc` **661→1174**.
+2. **Novo esquema Plain Shaker** (convertido do `22mm Plain Shaker.ToolpathTemplate` + validado vs `22mm Plain Shaker.nc`) — gated no preset **Plain Shaker** (usa só OFFSET_A), recesso shaker **6mm**. 5 ops na ordem de corte (árvore binária revertida): ① pocket **T12 50.8 skim** 1 nível 6mm → ② **T1 6mm** acabamento de parede → ③ **T2 2mm** acabamento fino (3/6) → ④ **OUT T1 6mm** rebaixo (2.5/5/6 a **+0.4**) → ⑤ **OUT T1** offcut PASSANTE. Auto-aplica ao escolher o preset (as 5 ops LIVE, via a lógica normal — OFFSET_A/OUT). **Desafio 18mm resolvido**: `tpl_plainshaker18` = idêntico, só o offcut passa a 18 (o recesso continua 6mm — profundidade do shaker independe da chapa). Novos goldens `GOLDEN_PLAINSHAKER_S1_{22,18}mm.nc` (2570). Tools por id+num+dia (`t12skim508`/`t1`/2mm `v27b53e74`).
+
+### Testado (yy)
+`node tools/check.mjs` verde ✓ · **18 goldens**: 12 byte-idênticos, 2 TPL regenerados (all-live), 2 Plain Shaker novos — todos determinísticos (regen == disco, cache-busted) ✓ · **NC Plain Shaker 22mm bate ESTRUTURALMENTE com o de referência**: ferramentas **T12→T1→T2→T1**, rpm **12000/18000/16000/18000**, feeds **9000/8000/3000**, profundidades pocket→16 / T1→16 / T2→19,16 / OUT→19.5,17,16,0 ✓ · 18mm: recesso floor **Z12** (6mm de 18), offcut **Z0** (passante 18) ✓ · **segurança: min Z = 0 nos 4 NCs** (nada corta abaixo da mesa) ✓ · auto-apply: preset Plain Shaker → 5 ops LIVE (22 e 18); Flushback → **7 ops todas LIVE** (era 3/4) ✓ · sem erros no console. Só `index.html` + docs + 4 goldens. **Air-cut obrigatório antes de material real** (esquema novo — o offcut passa a chapa inteira num passe).
+
 ## 2026-07-13 (xx) — CAM: auto-aplicar o template de corte ao escolher door type/preset + Ogee 6mm 11.8→11.5
 
 Dois pedidos do Ednei no CAM:

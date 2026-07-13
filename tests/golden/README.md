@@ -34,8 +34,8 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 | `GOLDEN_RICH_9mm.dxf` (2268) | Trad insert sheet |
 | `GOLDEN_RICH_3mm.dxf` (2220) | Beading sheet — BEADING |
 | `QUOTE_rich.json` (2205) | Doors + services (1/0.5/1h) + spray, panels.total = 0 (doors-only invariant) |
-| `GOLDEN_TPL_S1_18mm.nc` (1525) | Factory flushback template on the 18mm sheet with Shadow enabled → **3 tool segments T1→T2→T1, real toolchanges**, rough-17/finish-18 pattern |
-| `GOLDEN_TPL_S2_12mm.nc` (661) | Insert sheet contour (role filter proof — only insert parts) |
+| `GOLDEN_TPL_S1_18mm.nc` (2788) | Factory flushback template on the 18mm sheet — **all ops LIVE by default** (`allLive:true`, Ednei 2026-07-13): **4 tool segments T1→T4→T2→T1** (OUT-17 + OFFSET_A-6.5 → insert-pocket/recess T4 → shadow T2 → OUT-18 finish), real toolchanges. Was 1525 with only 3 segments when the extras shipped OFF |
+| `GOLDEN_TPL_S2_12mm.nc` (1174) | Insert sheet — all ops LIVE (`allLive`): T4 pocket + T1 insert OUT (role filter proof — only insert parts). Was 661 |
 
 **Panels** — 2 rooms, chained walls, openings:
 | File | What |
@@ -53,6 +53,12 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 | File | What |
 |---|---|
 | `GOLDEN_OGEE_PANELS_S1_22mm.nc` (57795) | One 22mm room, offset preset **Ogee** (room scope), one 2600×3000 wall → one nested panels sheet (1 piece, 6 shaker cells) → `tplApply('tpl_ogee22')` machines the WALL PANELS: 5 segments T12(S12000)→T1(S18000)→T6(S16000)→T11(S15000)→T1(S18000). Proves the bridge + the sheet-scoped panels ops + the panels stale-tracking baseline. Deterministic (two in-session runs identical). |
+
+**Plain Shaker** — the preset-gated 6mm-deep shaker scheme (2026-07-13, converted from `22mm Plain Shaker.ToolpathTemplate` + validated vs `22mm Plain Shaker.nc`):
+| File | What |
+|---|---|
+| `GOLDEN_PLAINSHAKER_S1_22mm.nc` (2570) | One 600×400 22mm flat door, frame 50, offset preset **Plain Shaker** → `tplApply('tpl_plainshaker22')` → **4 segments T12(S12000 skim, 1 level 6mm)→T1(S18000 6mm pocket finish)→T2(S16000 2mm finish 3/6)→T1(S18000 OUT rebate 2.5/5/6 at +0.4 + offcut through 22)**. Feeds pinned to the reference NC (T12 9000, T1 8000, T2 3000). |
+| `GOLDEN_PLAINSHAKER_S1_18mm.nc` (2570) | Same scheme retargeted to 18mm (`tpl_plainshaker18`): the 6mm recess is kept (pocket/finishes floor at 18−6=Z12); only the offcut depth follows the board (through 18). Same 4-segment structure. |
 
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
@@ -105,10 +111,10 @@ const qRich = calcQuote();                    // -> QUOTE_rich.json (panels.tota
 // factory flushback templates -> toolchange NC:
 clearSel(); camPaths.length = 0;
 camJob.zZero='bed'; camJob.datum='ll'; camJob.rapidGap=20; camJob.approach=5; camJob.orient='portrait';
-tplApply('tpl_flush18', true); tplApply('tpl_flushins12', true);      // 7 body + 2 insert ops
-camPaths.find(p => /shadow/i.test(p.name)).on = true;                 // enable the T2 op
-const ncTpl18 = ncPegasus(tpSegsForSheet(tpSheets()[0]));             // -> GOLDEN_TPL_S1_18mm.nc (T1,T2,T1 segs)
-const ncTpl12 = ncPegasus(tpSegsForSheet(tpSheets()[1]));             // -> GOLDEN_TPL_S2_12mm.nc
+tplApply('tpl_flush18', true); tplApply('tpl_flushins12', true);      // 7 body + 2 insert ops — ALL LIVE (allLive:true)
+camPaths.find(p => /shadow/i.test(p.name)).on = true;                 // no-op now (allLive already ON) — kept so the recipe reproduces byte-identically
+const ncTpl18 = ncPegasus(tpSegsForSheet(tpSheets()[0]));             // -> GOLDEN_TPL_S1_18mm.nc (T1→T4→T2→T1 segs)
+const ncTpl12 = ncPegasus(tpSegsForSheet(tpSheets()[1]));             // -> GOLDEN_TPL_S2_12mm.nc (T4→T1)
 ```
 
 ### Panels rooms (PANELS DXF + QUOTE_mixed) — run AFTER the rich recipe, same page
@@ -176,6 +182,20 @@ camPaths.length=0;camJob.zZero='bed';camJob.datum='ll';camJob.rapidGap=20;camJob
 tplApply('tpl_ogee22',true);
 const nc=ncPegasus(tpSegsForSheet(tpSheets().find(f=>f.isPanels)));   // -> GOLDEN_OGEE_PANELS_S1_22mm.nc (57795, CRLF)
 // expect: segments T12/S12000, T1/S18000, T6/S16000, T11/S15000, T1/S18000; 1 piece / 6 cells
+```
+
+### Plain Shaker (GOLDEN_PLAINSHAKER_S1_22mm.nc / _18mm) — one recipe, two thicknesses
+
+```js
+// per thickness: mat='MDF 22mm' → tpl_plainshaker22 (offcut 22) · mat='MDF 18mm' → tpl_plainshaker18 (offcut 18)
+localStorage.clear(); items.length=0; clearSel(); panelRooms.length=0; camPaths.length=0;
+items.push(mkItem('flat',600,400,1,'MDF 22mm','8x4',{t:50,r:50,b:50,l:50},null,'PLAIN SHAKER',{on:false},{offsetName:'None'}));
+applyProfile(0,'Plain Shaker'); render();                              // auto-applies; the explicit apply below is what we capture
+camPaths.length=0; camJob.zZero='bed'; camJob.datum='ll'; camJob.rapidGap=20; camJob.approach=5; camJob.orient='portrait';
+tplApply('tpl_plainshaker22',true);
+const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));                     // -> GOLDEN_PLAINSHAKER_S1_22mm.nc (2570, CRLF)
+// expect: 4 segments T12/S12000(skim →Z16), T1/S18000(→Z16), T2/S16000(→Z19,Z16), T1/S18000(OUT 19.5/17/16 + offcut Z0)
+// 18mm: MDF 18mm + tpl_plainshaker18 → recess floor Z12, offcut Z0; else identical
 ```
 
 ### Getting bytes out of the browser
