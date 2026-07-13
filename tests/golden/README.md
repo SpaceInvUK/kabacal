@@ -47,7 +47,7 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 **Ogee Moulding 22mm** — the preset-gated toolpath template (2026-07-12):
 | File | What |
 |---|---|
-| `GOLDEN_OGEE_S1_22mm.nc` (38246) | One 735×1720 22mm flat door, frame 50, **4 internal panels**, offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5) → T1(S18000 ring 11.8) → T6(S16000 V 9.5 + corner sharpen) → T11(S15000 ogee sweep ~37 rings 14.0↔22.0) → T1(OUT 10.5/21/22). Structure-validated against the VCarve reference `Ogee Moulding 22mm.nc` (ring sizes 581/588/600/530.2/575/629.88 exact; Z/feeds/spindles exact) |
+| `GOLDEN_OGEE_S1_22mm.nc` (38555) | One 735×1720 22mm flat door, frame 50, **4 internal panels** (nests ROTATED), offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5, penultimate line at edge−step/2, serpentine reversed per level) → T1(S18000 ring 11.8) → T6(S16000 V 9.5, **CW from mid-right** + corner sharpen) → T11(S15000 ogee sweep) → T1(OUT **rough 10.5/21 at +0.4** + exact ramped FINAL 22). Regenerated 2026-07-12 after the VCarve-exactness fixes — validated field-by-field against BOTH VCarve references (`Ogee Moulding 22mm.nc` + small-job `Ogee Vcarve.nc`) |
 
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
@@ -152,8 +152,8 @@ items.push(mkItem('flat',735,1720,1,'MDF 22mm','8x4',{t:50,r:50,b:50,l:50},null,
 applyProfile(0,'Ogee');render();
 camPaths.length=0;camJob.zZero='bed';camJob.datum='ll';camJob.rapidGap=20;camJob.approach=5;camJob.orient='portrait';
 tplApply('tpl_ogee22',true);                  // 5 ops, all live
-const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));   // -> GOLDEN_OGEE_S1_22mm.nc (38246, CRLF)
-// expect: T12M6/S12000, T1M06/S18000, T6M06/S16000, T11M06/S15000, T1M06/S18000; z floor 0 only on the OUT
+const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));   // -> GOLDEN_OGEE_S1_22mm.nc (38555, CRLF)
+// expect: T12M6/S12000, T1M06/S18000, T6M06/S16000, T11M06/S15000, T1M06/S18000; z floor 0 only on the OUT final pass
 ```
 
 ### Getting bytes out of the browser

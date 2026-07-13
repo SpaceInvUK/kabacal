@@ -3537,6 +3537,13 @@
   let toolDb=(function(){try{const s=JSON.parse(localStorage.getItem('kab_tooldb'));if(Array.isArray(s)&&s.length)return migrateToolDb(s);}catch(e){}
     return factoryTools();})();
   function saveToolDb(){try{localStorage.setItem('kab_tooldb',JSON.stringify(toolDb));}catch(e){}}
+  // factory tools referenced by factory TEMPLATES must exist even in an older SAVED library. Real bug
+  // (Ednei 2026-07-12, "Ogee Kabacal.nc"): his kab_tooldb predated t11ball5/t12skim508, the num-only
+  // fallback grabbed a 2mm "T12" at S5000 and a 6mm "T11" at S18000. Additive: appends missing ids only;
+  // user edits to an existing id always win.
+  (function(){const need=['t11ball5','t12skim508'];let added=false;
+    need.forEach(id=>{if(!toolDb.find(t=>t&&t.id===id)){const f=factoryTools().find(t=>t.id===id);if(f){toolDb.push(f);added=true;}}});
+    if(added)saveToolDb();})();
   function toolById(id){return toolDb.find(t=>t.id===id)||null;}
   // ordered group list: factory order first (Standard Tools leads), then any extra groups in the library
   function toolGroups(){
@@ -3619,16 +3626,18 @@
   function emitSharpLap(mv,rect,S,d,z,topZ,rampD,plunge,feed){
     const mY=y=>S.h-y;
     const cor=dd=>({ll:[rect.x-dd,mY(rect.y+rect.h+dd)],lr:[rect.x+rect.w+dd,mY(rect.y+rect.h+dd)],ur:[rect.x+rect.w+dd,mY(rect.y-dd)],ul:[rect.x-dd,mY(rect.y-dd)]});
-    const B=cor(d),Ln=cor(0),seq=['lr','ur','ul'];
-    const P0=B.ll;
-    rampD=Math.max(5,Math.min(+rampD||100,Math.abs(B.lr[0]-B.ll[0])*0.9));
-    const rp=[+(P0[0]+rampD).toFixed(3),+P0[1].toFixed(3)];
-    mv.push({x:rp[0],y:rp[1],z:z,f:plunge});                                          // ramp along the bottom side
+    const B=cor(d),Ln=cor(0);
+    // VCarve order ("Ogee Vcarve.nc"): enter MID-RIGHT, ramp DOWN the right side, then CW —
+    // BR sharpen → bottom → BL → left up → TL → top → TR → right down to mid → re-cover the ramp span.
+    const xR=+B.lr[0].toFixed(3),midY=+((B.lr[1]+B.ur[1])/2).toFixed(3);
+    rampD=Math.max(5,Math.min(+rampD||100,Math.abs(B.ur[1]-B.lr[1])/2*0.9));
+    const rampY=+(midY-rampD).toFixed(3);
+    mv.push({x:xR,y:rampY,z:z,f:plunge});                                             // ramp down the right side
     const sharp=k=>{mv.push({x:+Ln[k][0].toFixed(3),y:+Ln[k][1].toFixed(3),z:topZ});mv.push({x:+B[k][0].toFixed(3),y:+B[k][1].toFixed(3),z:z});};
     let f=feed;
-    seq.forEach(k=>{mv.push({x:+B[k][0].toFixed(3),y:+B[k][1].toFixed(3),f:f});f=undefined;sharp(k);});
-    mv.push({x:+P0[0].toFixed(3),y:+P0[1].toFixed(3)});sharp('ll');
-    mv.push({x:rp[0],y:rp[1]});                                                       // re-cover the ramp span
+    ['lr','ll','ul','ur'].forEach(k=>{mv.push({x:+B[k][0].toFixed(3),y:+B[k][1].toFixed(3),f:f});f=undefined;sharp(k);});
+    mv.push({x:xR,y:midY});                                                           // close back at mid-right
+    mv.push({x:xR,y:rampY});                                                          // re-cover the ramp span
   }
   // full profile move-set for ONE part (rough passes at +lastPass allowance, optional exact final pass — production
   // pattern). Geometry comes from tpOpRects (part outline or per-cavity offset rings). Optional additive params:
@@ -3637,7 +3646,7 @@
   function tpPartMoves(mv,p,S,P,tool,th){
     const topZ=(camJob.zZero==='bed')?th:0;
     let cutD=(P.cutDepth==null?th:+P.cutDepth)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
-    if(Array.isArray(P.depthList)&&P.depthList.length)cutD=(+P.depthList[P.depthList.length-1]||0)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);
+    if(Array.isArray(P.depthList)&&P.depthList.length&&P.cutDepth==null)cutD=(+P.depthList[P.depthList.length-1]||0)+((P.addDepth&&P.addDepth.on)?(+P.addDepth.val||0):0);   // explicit cutDepth wins (VCarve OUT: rough ladder 10.5/21 + exact FINAL 22 via lastPass)
     const startZ=+(topZ-(+P.startDepth||0)).toFixed(3),finalZ=+(topZ-cutD).toFixed(3);
     const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
     const fCut=(+P.feed>0)?+P.feed:tool.feed,fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
@@ -3654,7 +3663,7 @@
     const mkTabs=W=>{if(!(P.tabs&&P.tabs.on))return null;const n=Math.max(1,Math.round(P.tabs.n||4)),h=Math.max(1,(+P.tabs.len||10)/2);
       const out=[];for(let k=0;k<n;k++){const c=(k+0.5)*W.per/n;out.push({s:Math.max(0.5,c-h),e:Math.min(W.per-0.5,c+h)});}return out;};
     tpOpRects(p,P).forEach(rc=>{
-      const WR=ringWalker(ringPts(rc,S,dRough,P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);
+      const WR=ringWalker(ringPts(rc,S,dRough,(P.cornerSharpen&&sgn<0)?'mr':P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);   // corner-sharpen enters mid-right (VCarve)
       mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
       zs.forEach(z=>{
         mv.push({r:1,z:appZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
@@ -3665,11 +3674,12 @@
         else{mv.push({z:z,f:fPl});emitLapFrom(mv,WR,0,WR.per,z,fCut,uT,tabTop);}
       });
       mv.push({r:1,z:safeZ});
-      if(lastA>0){                                                                      // separate last pass: exact offset, vertical plunge, full depth
+      if(lastA>0){                                                                      // separate last pass: exact offset, full depth (vertical plunge, or ramped with P.rampLast — VCarve OUT behaviour)
         const WF=ringWalker(ringPts(rc,S,dFinal,P.startAt)),tabsF=mkTabs(WF),sf=WF.at(0);
         mv.push({r:1,x:+sf[0].toFixed(3),y:+sf[1].toFixed(3)});mv.push({r:1,z:appZ});
-        mv.push({z:finalZ,f:fPl});
-        emitLapFrom(mv,WF,0,WF.per,finalZ,fCut,(tabsF&&finalZ<tabTop-1e-6)?tabsF:null,tabTop);
+        const uTF=(tabsF&&finalZ<tabTop-1e-6)?tabsF:null;
+        if(P.rampLast&&P.ramp&&P.ramp.on){mv.push({z:startZ,f:fPl});emitRampThenLap(mv,WF,startZ,finalZ,P.ramp.dist,fPl,fCut,uTF,tabTop);}
+        else{mv.push({z:finalZ,f:fPl});emitLapFrom(mv,WF,0,WF.per,finalZ,fCut,uTF,tabTop);}
         mv.push({r:1,z:safeZ});
       }
     });
@@ -3706,25 +3716,28 @@
     const rr={x:b.x+g,y:b.y+g,w:Math.max(0.1,b.w-2*g),h:Math.max(0.1,b.h-2*g)};      // raster grid region
     const step=Math.max(1,+P.stepover||tool.stepover||r);
     const mY=y=>S.h-y;
-    const xs=[];for(let x=rr.x;x<rr.x+rr.w-0.01;x+=step)xs.push(+x.toFixed(3));
-    xs.push(+(rr.x+rr.w).toFixed(3));
+    const xs=[];{const edge=rr.x+rr.w,half=+(edge-step/2).toFixed(3);
+      for(let x=rr.x;x<=edge-step/2+1e-6;x+=step)xs.push(+x.toFixed(3));
+      if(!xs.length||half>xs[xs.length-1]+0.01)xs.push(half);                        // VCarve rule: penultimate line at edge − step/2
+      xs.push(+edge.toFixed(3));}
     const yLo=+mY(rr.y+rr.h).toFixed(3),yHi=+mY(rr.y).toFixed(3);
     mv.push({r:1,z:safeZ});mv.push({r:1,x:xs[0],y:yLo});mv.push({r:1,z:appZ});
     let curZ=topZ;
     const WB=ringWalker(ringPts(rc,S,-(r+allow),P.startAt)),bs=WB.at(0);
-    depths.forEach(z=>{
+    depths.forEach((z,li)=>{
+      const seq=(li%2===0)?xs:xs.slice().reverse();                                  // serpentine reverses each level (VCarve)
       mv.push({z:+curZ.toFixed(3),f:fPl});
-      const rd=Math.min(100,(yHi-yLo)*0.9);                                          // there-and-back ramp on the first line
-      mv.push({x:xs[0],y:+(yLo+rd).toFixed(3),z:+((curZ+z)/2).toFixed(3)});
-      mv.push({x:xs[0],y:yLo,z:z});
+      const rd=Math.min(100,(yHi-yLo)*0.9);                                          // there-and-back ramp on this level's first line
+      mv.push({x:seq[0],y:+(yLo+rd).toFixed(3),z:+((curZ+z)/2).toFixed(3)});
+      mv.push({x:seq[0],y:yLo,z:z});
       let f=fCut;
-      xs.forEach((x,i)=>{
+      seq.forEach((x,i)=>{
         if(i>0)mv.push({x:x});
         mv.push({x:x,y:(i%2===0)?yHi:yLo,f:f});f=undefined;
       });
       mv.push({x:+bs[0].toFixed(3),y:+bs[1].toFixed(3)});                            // boundary ring pass
       emitLapFrom(mv,WB,0,WB.per,z,undefined,null,0);
-      mv.push({x:xs[0],y:yLo});                                                      // back to the ramp anchor for the next level
+      if(li+1<depths.length)mv.push({x:((li+1)%2===0)?xs[0]:xs[xs.length-1],y:yLo}); // travel at cleared z to the next level's ramp line
       curZ=z;
     });
     mv.push({r:1,z:safeZ});
@@ -4354,7 +4367,7 @@
     {name:'6mm Pocket Finish 11.8mm Deep',layer:'OFFSET_F',kind:'profile',tool:{num:1,dia:6},side:'inside',params:{cutDepth:11.8,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
     {name:'V-Bit 9.5mm Deep',layer:'OFFSET_D',kind:'profile',tool:{num:6,dia:38.3},side:'inside',params:{cutDepth:9.5,passes:1,vbit:{deg:90},cornerSharpen:true,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:9000,plunge:3000}},
     {name:'5mm Ball Nose Swept',layer:'OFFSET_E',kind:'sweep',tool:{id:'t11ball5',num:11,dia:5},side:'on',params:{stepover:0.75,liftZ:0.75,feed:10000,plunge:5000}},
-    {name:'6mm OUT 22mm Deep',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{depthList:[10.5,21,22],allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
+    {name:'6mm OUT 22mm Deep',layer:'OUT',kind:'profile',tool:{num:1,dia:6},side:'outside',params:{cutDepth:22,depthList:[10.5,21],allowance:0,lastPass:{on:true,val:0.4},rampLast:true,startAt:'ur',ramp:{on:true,dist:100},feed:8000,plunge:3000}}
    ]}];
   // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
   let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();
@@ -4375,6 +4388,7 @@
     if(!spec)return null;
     if(spec.id){const t=toolById(spec.id);if(t)return t;}
     const ordered=[];toolGroups().forEach(g=>toolDb.forEach(t=>{if((t.grp||'My Tools')===g)ordered.push(t);}));   // Standard Tools first
+    if(spec.num!=null&&spec.dia!=null){const t=ordered.find(t=>+t.num===+spec.num&&Math.abs(+t.dia-+spec.dia)<0.6);if(t)return t;}   // num+dia beats num-only (2026-07-12 bug: num-only grabbed a 2mm "T12")
     if(spec.num!=null){const t=ordered.find(t=>+t.num===+spec.num);if(t)return t;}
     if(spec.dia!=null){const t=ordered.find(t=>Math.abs(+t.dia-+spec.dia)<0.05);if(t)return t;}
     return null;

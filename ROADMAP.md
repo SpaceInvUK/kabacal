@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-12 (oo) — Correções de exatidão VCarve no Ogee toolpath + bug real de ferramenta
+
+Ednei rodou o template no app dele ("Ogee Kabacal.nc") e mandou o par de referência ("Ogee Vcarve.nc", job 600×400). A comparação expôs **1 bug grave + 3 divergências**, todas corrigidas:
+
+- **BUG ferramenta errada em produção**: o `kab_tooldb` SALVO dele era anterior às ferramentas novas → fallback por número pegou "T12" de 2mm @S5000 e "T11" de 6mm @S18000 (pocket saiu com anel 444 em vez de 395.2). Fix duplo: **boot semeia** ids de fábrica faltantes na biblioteca salva (aditivo, edições do usuário por id vencem) + `tplResolveTool` tenta **num+dia** antes de num-só. Provado no app: db despojado → reload → ferramentas voltam, NC com S12000/S15000 corretos.
+- **OUT padrão VCarve**: desbastes `10.5/21` com folga **+0.4** + passe FINAL exato a 22 **com ramp** (novo `rampLast`; `cutDepth` explícito vence o `depthList`). Anéis 606.8 rough + 606 exato = referência.
+- **Pocket regra de linhas VCarve**: penúltima linha em `borda − passo/2`; serpentina **inverte a cada nível**.
+- **V-bit ordem VCarve**: entra no **meio-direito**, ramp descendo a lateral, **horário**, quinas BR→BL→TL→TR, recover do ramp.
+- Correção conceitual do Ednei registrada: ball 5mm = **MOULDING** (só `OFFSET_E`+`PROFILE`); 50.8 = **POCKET**.
+
+### Testado (oo)
+check.mjs verde ✓ · harness node vs "Ogee Vcarve.nc" (600×400): boundary 395.2 ✓ última linha borda−12.7 ✓ quinas V 465.0 com entrada meio-direita descendo (CW) ✓ OUT rough 3.6–610.4 + final 4–610 ✓ níveis 11.5/1/0 ✓ · **14/14 goldens antigos byte-idênticos** (caminho legado intacto — lastPass/anchor sem mudança quando os params novos não são usados) ✓ · **GOLDEN_OGEE_S1_22mm.nc regenerado (38246→38555)** e provado por DUAS vias independentes byte-idênticas (engine extraído em node vs app real, hash igual; peça nesta ROTACIONADA no 8x4) ✓ · seeding provado no app (localStorage sem os ids → reload → presentes + persistidos) ✓. **PENDENTE (próxima sessão, pedido do Ednei): UI de grupos de toolpath (on/off por grupo, delete em massa, cor por grupo/ferramenta), preview com linhas DXF reais + pocket pintado, e Panels CAM.** Air-cut continua obrigatório antes de material real.
+
 ## 2026-07-12 (nn) — Nome do preset no badge da PART (lista Doors)
 
 Pedido do Ednei: quando a peça usa um preset de offset de verdade, o **nome do preset assume o badge** da linha na lista de parts — porta Flat com preset Ogee mostra "**Ogee**" (Flat vai pro tooltip: "Flat · preset Ogee"); ícone e cor continuam do tipo físico. `None`/`Custom` seguem mostrando o tipo. Helper `itemDispName` usado só no badge da linha (UI pura — genParts/DXF/NC/quote intocados).
