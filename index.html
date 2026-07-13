@@ -3610,7 +3610,25 @@
   // scope identity: a scoped toolpath remembers WHAT it was created for. If those items changed
   // (deleted / resized / split), the toolpath is STALE — it cuts nothing and the tree flags it.
   function tpScopeSig(idxs){return (idxs||[]).map(i=>{const it=items[i];return it?[i,it.type,it.w,it.h,it.q].join(':'):(i+':gone');}).join('|');}
-  function tpIsStale(pp){const P=pp&&pp.params;return !!(P&&P.scope&&P.scope.items&&pp.sig&&tpScopeSig(P.scope.items)!==pp.sig);}
+  // Panels toolpaths are scoped to sheet KEYS. A room edit (piece resize, offset change, preset swap, or the
+  // room being deleted) changes the sheet's CONTENT — capture that as a per-sheet signature so an out-of-date
+  // panels path shows STALE and cuts NOTHING, exactly like the doors item-sig. Cheap: reads the placed pieces.
+  function tpPanelsSig(f){
+    if(!f||!f.isPanels)return '';
+    const parts=(f.sh.parts||[]).map(p=>Math.round(p.w)+'x'+Math.round(p.h)+':'+(p.cells||[]).map(c=>[Math.round(c.x),Math.round(c.y),Math.round(c.w),Math.round(c.h)].join(',')).join(';')).join('|');
+    const lines=(f.roomLines||[]).map(l=>l.L+(+l.mm||0)+(l.rd?'r':'')).join(',');
+    return f.th+'|'+(f.offName||'')+'|'+lines+'|'+parts;
+  }
+  function tpPanelsSigMap(){const m={};tpPanelsSheets().forEach(f=>{m[f.mat+'#'+f.i]=tpPanelsSig(f);});return m;}
+  function tpIsStale(pp){
+    const P=pp&&pp.params;if(!P)return false;
+    if(P.scope&&P.scope.items&&pp.sig&&tpScopeSig(P.scope.items)!==pp.sig)return true;          // doors item scope (unchanged)
+    if(P.scope&&P.scope.sheets&&Array.isArray(pp.pnSigs)){                                        // panels: content drifted or sheet gone
+      const map=tpPanelsSigMap();
+      return P.scope.sheets.some((k,i)=>{const cur=map[k];return cur==null||cur!==pp.pnSigs[i];});
+    }
+    return false;
+  }
   function tpClearStale(){const n=camPaths.filter(tpIsStale).length;if(!n)return;if(!confirm('Remove '+n+' stale toolpath'+(n===1?'':'s')+'? (their source parts changed or no longer exist)'))return;camPaths=camPaths.filter(pp=>!tpIsStale(pp));saveCamState();renderToolpaths();}
   /*CAM_ENGINE_START*/ // toolpath geometry + Syntec post — extracted + EXECUTED by tools/check.mjs; contract in docs/CONTRACT-CAM.md. Never remove/move the markers.
   // ---- geometry: CCW 8-point ring (machine coords, y-up) starting at the chosen anchor. CCW matches the
@@ -3735,6 +3753,9 @@
     // PANELS sheets only cut paths EXPLICITLY sheet-scoped to them (tplApply panels branch, or a manual
     // path the user sheet-scoped). Legacy/doors paths keep exactly their old reach — goldens contractual.
     if(f.isPanels&&!(P.scope&&P.scope.sheets&&P.scope.sheets.length))return [];
+    // panels stale guard (cheap, per-sheet): if THIS panels sheet isn't in scope, or its content drifted
+    // since the path was applied, cut NOTHING — never machine an out-of-date room silently.
+    if(f.isPanels&&Array.isArray(pp.pnSigs)&&P.scope&&P.scope.sheets){const si=P.scope.sheets.indexOf(f.mat+'#'+f.i);if(si<0||tpPanelsSig(f)!==pp.pnSigs[si])return [];}
     // stale-scope guard (docs/CONTRACT-CAM.md §7: filters only ever FILTER): if the items this path was
     // created for changed underneath it, cut NOTHING — never silently retarget re-used indexes.
     if(P.scope&&P.scope.items&&pp.sig&&typeof tpScopeSig==='function'&&tpScopeSig(P.scope.items)!==pp.sig)return [];
@@ -4545,6 +4566,7 @@
   function tplApplyPanels(tpl,grp,report){
     const fs=tplPanelsFs(tpl);if(!fs.length)return 0;
     const keys=fs.map(f=>f.mat+'#'+f.i);
+    const pnSigs=fs.map(f=>tpPanelsSig(f));   // snapshot each targeted sheet's content — drift => STALE (re-apply)
     const lineSet=new Set();fs.forEach(f=>(f.roomLines||[]).forEach(l=>{if(l&&l.en)lineSet.add('OFFSET_'+l.L);}));
     const A=tpl.appliesTo||{};let made=0;
     (tpl.ops||[]).forEach((op,k)=>{
@@ -4558,7 +4580,7 @@
       const params=Object.assign(tpDefaults(tool),{layer:L,refLayer:L,scope:{sheets:keys.slice()}},op.side?{side:op.side}:{},op.params||{});
       if(sweepProf)params.profile=JSON.parse(JSON.stringify(sweepProf));
       camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:live,kind:kind,grp:JSON.parse(JSON.stringify(grp)),
-        name:(op.name||L)+' — Panels'+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:null});
+        name:(op.name||L)+' — Panels'+(live?'':' (off — from template)'),toolId:tool.id,params:JSON.parse(JSON.stringify(params)),sig:null,pnSigs:pnSigs.slice()});
       tpSeq++;made++;
     });
     return made;

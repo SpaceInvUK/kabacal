@@ -49,6 +49,11 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 |---|---|
 | `GOLDEN_OGEE_S1_22mm.nc` (38555) | One 735×1720 22mm flat door, frame 50, **4 internal panels** (nests ROTATED), offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5, penultimate line at edge−step/2, serpentine reversed per level) → T1(S18000 ring 11.8) → T6(S16000 V 9.5, **CW from mid-right** + corner sharpen) → T11(S15000 ogee sweep) → T1(OUT **rough 10.5/21 at +0.4** + exact ramped FINAL 22). Regenerated 2026-07-12 after the VCarve-exactness fixes — validated field-by-field against BOTH VCarve references (`Ogee Moulding 22mm.nc` + small-job `Ogee Vcarve.nc`) |
 
+**Ogee on WALL PANELS** — the Panels→CAM bridge (2026-07-13):
+| File | What |
+|---|---|
+| `GOLDEN_OGEE_PANELS_S1_22mm.nc` (57795) | One 22mm room, offset preset **Ogee** (room scope), one 2600×3000 wall → one nested panels sheet (1 piece, 6 shaker cells) → `tplApply('tpl_ogee22')` machines the WALL PANELS: 5 segments T12(S12000)→T1(S18000)→T6(S16000)→T11(S15000)→T1(S18000). Proves the bridge + the sheet-scoped panels ops + the panels stale-tracking baseline. Deterministic (two in-session runs identical). |
+
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
 `.gitattributes` marks everything in this folder `-text`: NC is CRLF by machine contract; nothing here may be EOL-normalised by git.
@@ -154,6 +159,23 @@ camPaths.length=0;camJob.zZero='bed';camJob.datum='ll';camJob.rapidGap=20;camJob
 tplApply('tpl_ogee22',true);                  // 5 ops, all live
 const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));   // -> GOLDEN_OGEE_S1_22mm.nc (38555, CRLF)
 // expect: T12M6/S12000, T1M06/S18000, T6M06/S16000, T11M06/S15000, T1M06/S18000; z floor 0 only on the OUT final pass
+```
+
+### Ogee on wall panels (GOLDEN_OGEE_PANELS_S1_22mm.nc)
+
+```js
+localStorage.clear();   // fresh factory tools + presets
+items.length=0;clearSel();panelRooms.length=0;
+const r=pnNewRoom(1);r.id='pr_ogee_g';r.name='Ogee';r.mat='MDF 22mm';
+r.skirtOn=true;r.skirtH=225;r.sillH=22;r.hPanelH=1030;r.vPanelH=3000;
+r.linesScope='room';r.offsetName='Ogee';
+r.lines=profiles['Ogee'].lines.map(l=>({en:l.en,mm:l.mm,rd:l.rd}));
+const w=pnNewWall();w.id='pw_ogee_g';w.w=2600;w.h=3000;
+r.walls=[w];panelRooms.push(r);pnSave();render();
+camPaths.length=0;camJob.zZero='bed';camJob.datum='ll';camJob.rapidGap=20;camJob.approach=5;camJob.orient='portrait';
+tplApply('tpl_ogee22',true);
+const nc=ncPegasus(tpSegsForSheet(tpSheets().find(f=>f.isPanels)));   // -> GOLDEN_OGEE_PANELS_S1_22mm.nc (57795, CRLF)
+// expect: segments T12/S12000, T1/S18000, T6/S16000, T11/S15000, T1/S18000; 1 piece / 6 cells
 ```
 
 ### Getting bytes out of the browser

@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (ss) — Hardening dos toolpaths de painéis: stale-tracking + golden do NC
+
+Fecha as duas pendências do bridge Panels→CAM (qq). **Stale-tracking (segurança)**: paths de painéis agora guardam `pp.pnSigs` (assinatura de conteúdo por sheet — `tpPanelsSig`: espessura + preset + linhas de offset + dims e células de cada peça). Editar a sala (mudar um offset, redimensionar parede, trocar preset) ou apagá-la faz a assinatura diferir → o path fica **STALE** (badge âmbar + "Remove stale", igual aos Doors) e **corta NADA** naquela sheet (`tpPathParts` faz uma checagem barata por-sheet com o `f` atual, sem re-nesting). Doors `pp.sig` intocado. **Golden do NC de painéis**: `GOLDEN_OGEE_PANELS_S1_22mm.nc` (57795 bytes) capturado por receita determinística (sala 22mm Ogee, parede 2600×3000 → 1 sheet/1 peça/6 células → template).
+
+### Testado (ss)
+`node tools/check.mjs` verde ✓ · E2E no app: fresh apply = **0 stale**, NC completo (5 segmentos T12/T1/T6/T11/T1, 579 cut-moves); editar offset D 17.5→12 → **5 paths STALE**, NC da sheet cai pra header/footer (**0 cut-moves**); re-aplicar regenera; apagar a sala → 10 stale, 0 panels sheets, sem crash ✓ · **isolação Doors intacta**: golden TPL das portas byte-idêntico com salas presentes; path escopado a portas corta 0 peças em sheet de painel ✓ · **15/15 goldens antigos byte-idênticos** + **golden novo `GOLDEN_OGEE_PANELS_S1_22mm.nc`** provado por DUAS vias (base64 do app decodificado em node = mesmo hash 2402723342/57795; e determinístico em 2 runs) ✓. Só `index.html` + docs + golden novo. Air-cut continua obrigatório antes de material real.
+
 ## 2026-07-13 (rr) — Bugfix urgente Doors: Enter duplo, qty 0, peça sumida, Ogee flat em peça rotacionada, ordem do frame
 
 Ednei mandou `Issues James.fastcnc.json` (portas 300×2093/2040/1996 com frame assimétrico + Ogee). 6 bugs, todas de causa-raiz identificada e corrigida:
