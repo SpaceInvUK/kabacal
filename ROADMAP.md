@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (xx) — CAM: auto-aplicar o template de corte ao escolher door type/preset + Ogee 6mm 11.8→11.5
+
+Dois pedidos do Ednei no CAM:
+
+1. **Auto-apply na seleção** — os templates (Flushback, Ogee) SEMPRE estiveram lá e o auto-apply já existia (botão ⚡ Auto na aba Toolpaths); o que faltava era **disparar isso ao escolher o door type / preset NAS DOORS**, pra "o corte já ficar pronto". Novo `tplAutoSyncItem(i)`: quando o tipo/preset/espessura de uma peça muda e ela passa a bater 100% num template `auto`, o corte é montado sozinho. **Idempotente + auto-limpa**: nunca duplica um template já aplicado (manual OU auto) e remove só o SEU grupo auto (`grp.fromSel`) quando o match some (preset volta pra None, troca de tipo/espessura). `tplApply` ganhou `idsOverride`+`fromSel` (assinatura aditiva — chamadas antigas inalteradas); apply **item-scoped NÃO toca em salas de painéis** (painéis têm gatilho próprio). Ligado em `applyProfile` (preset) e `upd` (type/mat). Chip verde **"⚡ Cut ready: &lt;template&gt; · N/N ops live"** no editor de doors. Toolpaths manuais nunca são tocados.
+2. **Ogee 6mm 11.8→11.5** — o op "6mm Pocket Finish" (T1) cortava a **11.8**, 0.3mm mais fundo que o pocket (11.5). Corrigido pra **11.5** (= fundo do pocket). Goldens Ogee regenerados: door **4 linhas** + panels **6 linhas**, todas `Z10.200`→`Z10.500`, tamanho idêntico (38555 / 57795).
+
+### Testado (xx)
+`node tools/check.mjs` verde ✓ · **16 goldens**: 14 byte-idênticos (auto-apply não perturba nada — toda receita zera `camPaths` antes do apply explícito, provado), 2 Ogee regenerados com diff **cirúrgico** (só a profundidade do pocket-finish; disco confirmado 0× Z10.200, 8×/12× Z10.500) ✓ · auto-apply E2E: Ogee preset → **5 ops LIVE**, re-selecionar **não duplica**, → None **remove**, → Ogee de novo re-aplica; flush type → **tpl_flush18 + tpl_flushins12 (7+2)**, trocar tipo remove; guarda contra duplicar grupo manual ✓ · **door auto-sync com sala Ogee presente = 5 ops, 0 de painel** (escopo door-only) ✓ · manual full apply ainda cobre painéis (5+5) ✓ · chip "Cut ready" montado no DOM real, sem erros no console ✓. Só `index.html` + docs + 2 goldens. Air-cut continua obrigatório antes de material real.
+
 ## 2026-07-13 (ww) — Nesting: peça maior que a chapa padrão sobe de tamanho sozinha (+ frame TBLR+MR no chip da peça)
 
 Ednei abriu "James Frame DOORS + TOP Window.fastcnc" (do Drive) — o nesting saiu **uma bagunça**. Causa-raiz: o nesting agrupava por MATERIAL só e usava UMA chapa por material (`sheetMeta` = `sheetSizeOv || matSizeDef || nestSize`), ignorando o tamanho de chapa atribuído por peça. As molduras de janela (2463/2762/2850mm de comprimento) são MAIORES que uma 8x4 (2440mm), então não cabiam em nenhuma orientação e caíam no canto da chapa (fallback "oversize → keep"), estourando pra fora — **6 chapas, 5 com uma peça pra fora**.

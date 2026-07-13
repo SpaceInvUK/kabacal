@@ -47,7 +47,7 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 **Ogee Moulding 22mm** — the preset-gated toolpath template (2026-07-12):
 | File | What |
 |---|---|
-| `GOLDEN_OGEE_S1_22mm.nc` (38555) | One 735×1720 22mm flat door, frame 50, **4 internal panels** (nests ROTATED), offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5, penultimate line at edge−step/2, serpentine reversed per level) → T1(S18000 ring 11.8) → T6(S16000 V 9.5, **CW from mid-right** + corner sharpen) → T11(S15000 ogee sweep) → T1(OUT **rough 10.5/21 at +0.4** + exact ramped FINAL 22). Regenerated 2026-07-12 after the VCarve-exactness fixes — validated field-by-field against BOTH VCarve references (`Ogee Moulding 22mm.nc` + small-job `Ogee Vcarve.nc`) |
+| `GOLDEN_OGEE_S1_22mm.nc` (38555) | One 735×1720 22mm flat door, frame 50, **4 internal panels** (nests ROTATED), offset preset **Ogee** → `tplApply('tpl_ogee22')` → 5 segments T12(S12000 pocket raster 5.75/11.5, penultimate line at edge−step/2, serpentine reversed per level) → T1(S18000 ring 11.5) → T6(S16000 V 9.5, **CW from mid-right** + corner sharpen) → T11(S15000 ogee sweep) → T1(OUT **rough 10.5/21 at +0.4** + exact ramped FINAL 22). Regenerated 2026-07-12 after the VCarve-exactness fixes — validated field-by-field against BOTH VCarve references (`Ogee Moulding 22mm.nc` + small-job `Ogee Vcarve.nc`). **2026-07-13 (xx):** T1 pocket-finish depth 11.8→**11.5** per Ednei (matches the pocket floor, was 0.3 deeper) — 4 lines `Z10.200`→`Z10.500`, size unchanged |
 
 **Ogee on WALL PANELS** — the Panels→CAM bridge (2026-07-13):
 | File | What |
