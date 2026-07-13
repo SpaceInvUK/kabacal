@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (rr) — Bugfix urgente Doors: Enter duplo, qty 0, peça sumida, Ogee flat em peça rotacionada, ordem do frame
+
+Ednei mandou `Issues James.fastcnc.json` (portas 300×2093/2040/1996 com frame assimétrico + Ogee). 6 bugs, todas de causa-raiz identificada e corrigida:
+
+- **#5/#4 (raiz)** — cavidade/offset saíam **flat em peças rotacionadas** no nesting. `drawPart` (preview do app), `dxfForThickness` (DXF) e `tpOpRects` (CAM) chamavam `cavsFor(p.w,p.h,frame)` com as dimensões JÁ rotacionadas + frame lógico → cavidade negativa (300−92−305) → vazia. Novo helper **`placedCavs(p)`**: calcula a cavidade em dims LÓGICAS (top/bottom = altura, left/right = largura) e só depois transpõe pra placement rotacionado. Um único ponto, usado nos 4 lugares (app+DXF+CAM+preview de toolpaths) → app e DXF **sempre iguais**. 300×1050 @35mm (não rotaciona) inalterada.
+- **#1 Enter adiciona 2** — havia DOIS handlers de Enter nos campos qaW/qaH/qaQ/qaText (o `onkeydown="qaEnter"` de cada campo **e** o keydown global). Removido o bloco do global; `qaEnter` cobre todos os campos (adicionado a qaMat/qaFrame). Um Enter = 1 peça.
+- **#2 qty 0** — clamp `>=1` em 3 pontos: `mkItem` (add/programático), `loadFastCnc` (import — `num(0,1)` retornava 0), e `genParts` (rede de segurança final). Input `min="1"` + `onchange` clamp.
+- **#3 "peça 6 não aparece"** — era CONSEQUÊNCIA do #2: a 5ª peça do arquivo tinha `quantity:0` → genParts gerava 0 partes → sumia. Com o clamp, aparece (5/5 nestadas).
+- **#6 ordem do frame** — editor de 4 lados reordenado `[t,r,b,l]` → **[t,b,l,r]** (Top, Bottom, Left, Right).
+- **#7 DXF == visual** — garantido pelo `placedCavs` compartilhado.
+
+### Testado (rr)
+`node tools/check.mjs` verde ✓ · **arquivo do Ednei carregado via `loadFastCnc`**: 5 itens, frames importados certos (top herda 92, bottom 305), qty da ex-0 = **1**, **5/5 peças nestadas em 2 chapas**, DXF com **30 polylines OFFSET** (6 linhas × 5 peças, layers A–F) — **não-flat** ✓ · peça rotacionada 300×2093: placed rot=90 (2093×300), `placedCavs`=1696×160 (antes vazio), 7 rects na peça na tela (OUT+6) ✓ · Enter único = **1** add (era 2), qty preservada 2 ✓ · qty 0 digitada → adiciona 1 com q=1 ✓ · 300×1050 @35mm rot=0, cav 160×945 (regressão OK) ✓ · ordem do frame **T,B,L,R** ✓ · **15/15 goldens byte-idênticos** (nenhum job golden tem porta com frame+linhas rotacionada → `placedCavs` idêntico ao antigo pra não-rotacionadas) ✓. Screenshots impossíveis (painel do browser travando no SVG pesado) — verificado por DOM+DXF. Só `index.html` + docs.
+
 ## 2026-07-12 (qq) — Panels → CAM bridge (Ogee nos wall panels)
 
 Bloco 3: chapas de painéis agora são chapas de toolpath. `tpPanelsSheets()` mapeia cada chapa nested (por sala) com as peças carregando **células de shaker** (local y-down), linhas de offset da sala e nome do preset; `tpOpRects` resolve OFFSET_A..G nas células (`p.cells`); preview (`partCavs`) idem. **Regra de segurança**: chapa de painéis só corta paths EXPLICITAMENTE escopados a ela (`tpPathParts` guard) — paths legados/manuais/de portas nunca alcançam painéis. `tplApply` ganhou o ramo `tplApplyPanels`: salas com espessura+preset compatíveis recebem as 5 ops "— Panels" (sheet-scoped, mesmo GRUPO, sem sig — mudou a sala, re-aplica o grupo). `tplBlockReason` considera painéis (template disponível com zero portas). Chapas de portas SEMPRE primeiro no `tpSheets()` (receitas golden indexam [0]/[1] — contratual).

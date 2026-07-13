@@ -565,8 +565,8 @@
         <div class="hint">Type a size and press <b>Enter</b> — or paste a whole list below. Each line is a door/part with its own type, size and settings.</div>
 
         <div class="quickadd">
-          <div class="qa-field"><label>Material</label><select id="qaMat" onchange="orderMaterial=this.value;updateMatPricing()" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:170px"></select></div>
-          <div class="qa-field"><label>Frame (mm)</label><input id="qaFrame" type="number" value="50" style="width:74px"></div>
+          <div class="qa-field"><label>Material</label><select id="qaMat" onchange="orderMaterial=this.value;updateMatPricing()" onkeydown="qaEnter(event)" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:170px"></select></div>
+          <div class="qa-field"><label>Frame (mm)</label><input id="qaFrame" type="number" min="0" value="50" onkeydown="qaEnter(event)" style="width:74px"></div>
           <div class="qa-field"><label>Part Type</label>
             <select id="qaType">
               <option value="flat">Flat</option>
@@ -578,7 +578,7 @@
           <div class="qa-div"></div>
           <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600" onkeydown="qaEnter(event)"></div>
           <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400" onkeydown="qaEnter(event)"></div>
-          <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" value="1" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" min="1" step="1" value="1" onkeydown="qaEnter(event)" onchange="if(+this.value<1)this.value=1"></div>
           <div class="qa-field"><label>Text</label><input id="qaText" type="text" placeholder="optional" onkeydown="qaEnter(event)" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:120px"></div>
           <button class="btn primary" onclick="addItem()" title="Enter in any size field does the same">+ Add to order</button>
         </div>
@@ -737,7 +737,7 @@
   function mkItem(type,w,h,q,mat,size,frame,linesCfg,text,hinges,extra){
     extra=extra||{};
     const fr={t:+frame.t||0,r:+frame.r||0,b:+frame.b||0,l:+frame.l||0};
-    return {type,w,h,q,mat,size,frame:fr,frameLink:(fr.t===fr.r&&fr.r===fr.b&&fr.b===fr.l),
+    return {type,w,h,q:Math.max(1,Math.round(+q||1)),mat,size,frame:fr,frameLink:(fr.t===fr.r&&fr.r===fr.b&&fr.b===fr.l),
       lines:mkLines(linesCfg),pocketSide:extra.side||'front',pocketRound:extra.round?'Yes':'No',
       text:text||'',spray:!!extra.spray,sprayCfg:extra.sprayCfg||null,grain:(extra.grain===true?'long':(extra.grain==='long'||extra.grain==='short'?extra.grain:'off')),
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
@@ -772,6 +772,17 @@
     return out;}
   function pnlOf(it){const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
   function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
+  // Cavities of a PLACED (possibly rotated) part, in the part's LOCAL top-left / y-down coords (placed w/h).
+  // The frame ALWAYS follows the LOGICAL width/height (top/bottom = height direction, left/right = width
+  // direction). When nesting rotates a part we transpose the logical cavities so the on-screen sheet, the
+  // DXF export and the toolpaths all agree — the frame is NEVER derived from the rotated placement.
+  // (Bug 2026-07-13: tall doors like 300×2093 with a 305mm frame rotated for nesting → negative cavity →
+  //  drawn/exported flat. Symmetric frames were unaffected, which is why 300×1050 @35mm looked fine.)
+  function placedCavs(p){
+    const lw=p.rot?p.h:p.w, lh=p.rot?p.w:p.h;                       // logical (unrotated) dims
+    const cavs=cavsFor(lw,lh,p.frame||{t:0,r:0,b:0,l:0},p.pnl);     // logical cavities, top-left y-down
+    return p.rot?cavs.map(c=>({x:c.y,y:c.x,w:c.h,h:c.w})):cavs;     // transpose into the rotated placement
+  }
   function setPanels(i,v){items[i].panels=Math.max(1,Math.min(8,Math.round(+v||1)));render();}
   function setMidFrame(i,v){items[i].midFrame=(String(v).trim()==='')?'':Math.max(0,Math.round(+v||0));render();}
   function setPanelSize(i,v){items[i].panelSize=(String(v).trim()==='')?'':Math.max(1,Math.round(+v||0));render();}
@@ -1087,7 +1098,7 @@
         const c=part.sprayCfg||null;
         const it={
           type:typeFromDoor(part.doorType),
-          w:num(part.width,0),h:num(part.height,0),q:num(part.quantity,1),
+          w:num(part.width,0),h:num(part.height,0),q:Math.max(1,Math.round(num(part.quantity,1))),   // qty always >=1 (a saved 0/blank never imports as a hidden empty part)
           mat,size,frame:f,frameLink:(f.t===f.r&&f.r===f.b&&f.b===f.l),
           lines,
           pocketSide:part.pocketSideMode||block.pocketSideMode||'front',
@@ -1414,7 +1425,7 @@
           layers.add('BEADING');var bo=rRectD(bx-bc,by-bc,p.w+2*bc,p.h+2*bc);body+=(p.beadRound!==false?dxfRoundRect('BEADING',bo.x,bo.y,bo.w,bo.h,2.5):dxfRect('BEADING',bo.x,bo.y,bo.w,bo.h));
         }
         // internal openings: cavities in y-up local coords (one for plain doors, N split by the centre rail)
-        const dCavs=cavsFor(p.w,p.h,f,p.pnl).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
+        const dCavs=placedCavs(p).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
         if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
           const gg=(p.glass.guide||20);
@@ -1610,7 +1621,8 @@
     const mat=qm&&qm.value?qm.value:orderMaterial;const f=Math.max(0,Math.round(+(qf?qf.value:50)||0));
     const w=+qaW.value,h=+qaH.value;
     if(!w||!h||w<=0||h<=0||isNaN(w)||isNaN(h)){alert('Enter a valid width and height first.');const ww=document.getElementById('qaW');if(ww){ww.focus();ww.select();}return;}
-    const it=mkItem(qaType.value,w,h,+qaQ.value,mat,nestSize,{t:f,r:f,b:f,l:f},null,normPartText(qt?qt.value:''),{on:false},{offsetName:'None'});
+    const it=mkItem(qaType.value,w,h,Math.max(1,Math.round(+qaQ.value||1)),mat,nestSize,{t:f,r:f,b:f,l:f},null,normPartText(qt?qt.value:''),{on:false},{offsetName:'None'});
+    if(qaQ)qaQ.value=it.q;   // reflect the clamped qty back into the field (a typed 0 becomes 1)
     items.push(it);orderMaterial=mat;resetSel(items.length-1);if(qt)qt.value='';
     if(oversizeOf(it)){const k=smallestSheetFor(w,h);if(k&&k!==nestSize){if(confirm('This part ('+w+'×'+h+') does not fit the current sheet ('+sheetDef(nestSize).label+').\nUse a larger sheet ('+sheetDef(k).label+')?')){nestSize=k;sheetSizeOv={};const ns=document.getElementById('nestSizeSel');if(ns)ns.value=k;}}else if(!k){alert('Warning: this part ('+w+'×'+h+') is bigger than any available sheet size.');}}
     render();
@@ -1987,7 +1999,7 @@
         <span class="sub" style="margin-left:auto" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
     <div class="frame-ctl" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <span class="sub" style="font-weight:700">Frame:</span>
-      ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','r','b','l'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
+      ${it.frameLink?`<input type="number" value="${f.t}" onchange="setFrame(${i},this.value)" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:8px"><span class="sub">mm</span>`:['t','b','l','r'].map(sd=>`<span class="sub" style="text-transform:uppercase">${sd}</span><input type="number" value="${f[sd]}" onchange="setFrameSide(${i},'${sd}',this.value)" style="width:44px;padding:6px;border:1px solid var(--line);border-radius:8px">`).join('')}
       <label class="tg" style="font-size:12px"><input type="checkbox" ${it.frameLink?'checked':''} onchange="toggleFrameLink(${i})"> link</label>
       ${ap(i,'frame')}
     </div>
@@ -2291,7 +2303,7 @@
       const insA=insertSpecsFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
-      for(let n=0;n<(+it.q||0);n++){
+      for(let n=0,qn=Math.max(1,Math.round(+it.q||1));n<qn;n++){   // qty is ALWAYS >=1 — a 0/blank/NaN qty never yields a hidden empty part
         add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
@@ -2743,7 +2755,7 @@
     const f=p.frame||{t:0,r:0,b:0,l:0};
     const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
     // internal openings: ONE cavity for a plain door, N cavities split by the centre rail (p.pnl)
-    const cavs=cavsFor(p.w,p.h,f,p.pnl).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
+    const cavs=placedCavs(p).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
     if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
       const g10=(p.glass.guide||20)/10;
@@ -2808,8 +2820,8 @@
     var tag=(document.activeElement||{}).tagName||'';
     if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){e.preventDefault();undo();return;}
     if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')){e.preventDefault();redo();return;}
-    var qaIds=['qaMat','qaType','qaFrame','qaW','qaH','qaQ','qaText'];
-    if(e.key==='Enter'&&qaIds.indexOf(document.activeElement.id)>=0){addItem();const w=document.getElementById('qaW');if(w){w.focus();w.select();}return;}
+    // NOTE: Enter-to-add lives ONLY on the field handlers (onkeydown="qaEnter"). A second copy here made
+    // Enter add TWO parts on qaW/qaH/qaQ/qaText (both fired). qaEnter now covers all quick-add fields.
     if(editMode&&selKey&&(e.key==='9'||e.key==='0')){
       if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
       materialize();const pl=placements[selKey];if(pl){pl.rot=pl.rot?0:90;render();}
@@ -3645,8 +3657,7 @@
     const mm=Math.max(0,+ln.mm||0);
     if(Array.isArray(p.cells)&&p.cells.length)   // PANELS piece: shaker cells travel with the part (y-down local)
       return p.cells.map(c=>({x:p.x+c.x+mm,y:p.y+c.y+mm,w:c.w-2*mm,h:c.h-2*mm})).filter(rc=>rc.w>1&&rc.h>1);
-    const f=p.frame||{t:0,r:0,b:0,l:0};
-    const cavs=(typeof cavsFor==='function')?cavsFor(p.w,p.h,f,p.pnl):[];
+    const cavs=(typeof placedCavs==='function')?placedCavs(p):[];   // frame follows logical w/h even when rotated
     return cavs.map(c=>({x:p.x+c.x+mm,y:p.y+c.y+mm,w:c.w-2*mm,h:c.h-2*mm})).filter(rc=>rc.w>1&&rc.h>1);
   }
   // V-bit lap with CORNER SHARPEN (reference "Ogee Moulding 22mm.nc"): ramp in along the first side,
@@ -3888,8 +3899,7 @@
       if(p.isInsert||p.isBeading)return [];
       const host=p.type==='trad'||p.type==='flush'||p.type==='reeded'||(p.lines&&p.lines[0]&&p.lines[0].en);
       if(!host)return [];
-      try{const cavs=doorCavities(Object.assign({},p,{w:p.rot?p.h:p.w,h:p.rot?p.w:p.h}));
-        return cavs.map(c=>p.rot?{x:p.x+c.y,y:p.y+c.x,w:c.h,h:c.w}:{x:p.x+c.x,y:p.y+c.y,w:c.w,h:c.h});}catch(e){return [];}
+      try{return placedCavs(p).map(c=>({x:p.x+c.x,y:p.y+c.y,w:c.w,h:c.h}));}catch(e){return [];}
     };
     const sheetKey=f.mat+'#'+f.i;
     // group-colour highlight: the SELECTED toolpath's group paints its target parts in the group colour
