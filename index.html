@@ -5872,7 +5872,11 @@
     const pc=part.pnPiece;if(!pc)return {cells:[],notches:[]};
     const rot=part.rot===90||part.rot===1||part.rot===true;
     const W0=Math.max(1,Math.round(pc.w)),H0=Math.max(1,Math.round(pc.h));
-    const tf=r=>rot?{x:H0-r.y-r.h,y:W0-r.x-r.w,w:r.h,h:r.w}:{x:r.x,y:r.y,w:r.w,h:r.h};
+    // A nested rotation is a proper 90° rotation, NOT a mirror. The old x-term (H0−y−h) with y=(W0−x−w)
+    // was a reflection (det −1) → it silently SWAPPED left/right on rotated panels (a door-side 147mm frame
+    // came out on the wrong edge). Point map (x,y)→(y, W0−x) is a proper CW rotation, matching the Doors net
+    // (placedCavs transpose + y-flip). Non-rotated is unchanged. Verified 2026-07-13.
+    const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w}:{x:r.x,y:r.y,w:r.w,h:r.h};
     return {cells:(pc.cells||[]).map(tf),notches:(pc.notches||[]).map(tf)};
   }
   function pnDxfForThickness(th,list){
@@ -6399,6 +6403,7 @@
   // panoramic room view: every wall side by side, click a wall to open it
   function pnPanoSvg(room,L){
     const walls=room.walls||[];if(!walls.length)return '<div class="pn-hint">No walls.</div>';
+    const lines=pnLinesFor(room);   // scope-aware offset set — Room view must show the SAME offsets as Wall view / DXF (2026-07-13)
     const gap=160;   // compact panoramic spacing (2026-07-10): was 420 — cut well over half so walls read at a glance (each label stays centred within its own wall, so no overlap)
     let totW=0,maxH=0;walls.forEach(w=>{totW+=Math.max(200,+w.w||0);maxH=Math.max(maxH,+w.h||0);});
     totW+=gap*Math.max(0,walls.length-1);
@@ -6417,7 +6422,12 @@
       L.pieces.filter(p=>p.wi===wi).forEach(p=>{
         const ppx=x0+p.x0*sc,ppw=(p.x1-p.x0)*sc,ppy=floorY-p.y1*sc,pph=(p.y1-p.y0)*sc;
         s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
-        (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3)s+='<rect x="'+(x0+(p.x0+c.x)*sc)+'" y="'+(floorY-(p.y0+c.y+c.h)*sc)+'" width="'+(c.w*sc)+'" height="'+(c.h*sc)+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';});
+        (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3){
+          const cx=x0+(p.x0+c.x)*sc,cy=floorY-(p.y0+c.y+c.h)*sc,cw=c.w*sc,chh=c.h*sc;
+          s+='<rect x="'+cx+'" y="'+cy+'" width="'+cw+'" height="'+chh+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';
+          lines.forEach((l,li)=>{if(!l.en)return;const o=(+l.mm||0)*sc,lw=cw-2*o,lh=chh-2*o;
+            if(lw>1.5&&lh>1.5)s+='<rect x="'+(cx+o)+'" y="'+(cy+o)+'" width="'+lw+'" height="'+lh+'" fill="none" stroke="'+OFFCOL['ABCDEFG'[li]]+'" stroke-width="0.6"'+(l.rd?' rx="2"':'')+'/>';});
+        }});
         if(ppw>40&&pph>15)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="9" fill="var(--muted)"><tspan font-weight="800" fill="var(--ink)">'+(p.letter||'')+'</tspan> · '+Math.round(p.w)+' × '+Math.round(p.h)+'</text>';
         else if(ppw>16&&pph>11)s+='<text x="'+(ppx+ppw/2)+'" y="'+(ppy+pph/2+3)+'" text-anchor="middle" font-size="9" font-weight="800" fill="var(--ink)">'+(p.letter||'')+'</text>';
       });

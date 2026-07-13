@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-13 (tt) — Revisão Paneling: offsets no Room Front View + inversão esquerda/direita em peça rotacionada
+
+Revisão pedida pelo Ednei ("não é 100% certo, investiga e testa direito antes de assumir o bug"). Dois problemas, **ambos confirmados por teste numérico + E2E ANTES de mexer**:
+
+- **Issue 2 (inversão L/R — o grave)**: a transform de rotação do `pnCellRects` era `{x:H0−y−h, y:W0−x−w}` — mapa de ponto (x,y)→(H0−y, W0−x), Jacobiano det **−1 = REFLEXÃO** (espelho na anti-diagonal). Numa peça de painel que o nesting **rotaciona** (comprovadamente acontece — ex. "Room 2 Wall 1A/B/C" rot=90), isso **trocava esquerda↔direita**: peça com frame lado-porta 175 e lado-vizinho 40 saía no DXF com os lados invertidos (margens upright L175/R40/B305/T80 → rotação CW correta = L305/R80, mas o código dava **L80/R305**). Doors NÃO tinha o bug (o par transpose+y-flip do `placedCavs` já é det +1 — control confirmado byte-idêntico no `GOLDEN_OGEE_S1_22mm.nc`, uma porta com 4 painéis rotacionados). Fix: **um termo** — `x:H0−r.y−r.h` → `x:r.y` — vira rotação 90° CW própria (det +1), idêntica à convenção das portas. Não-rotacionadas inalteradas.
+- **Issue 1 (offsets no Room Front View)**: `pnPanoSvg` desenhava só o contorno das células, sem as linhas de offset (A–G) — sumiam ao ver a sala inteira. Adicionado o MESMO loop de inset por célula do `pnWallSvg` (usa `pnLinesFor(room)`, geometria real, não patch cosmético). Room view agora mostra os mesmos offsets do Wall view / DXF.
+
+### Testado (tt)
+`node tools/check.mjs` verde ✓ · **prova numérica** do espelho: 3 células quirais A→B→C dão orientação CCW upright; o `tf` antigo inverte pra CW (det −1), o novo preserva (det +1) ✓ · **E2E no app real**: peça assimétrica real (porta à esquerda → L175/R40) rot=90 agora **L305/R80** = rotação CW esperada (`fixedMatchesRotation`) ✓ · nesting DE FATO rotaciona peças de painel (reachability) ✓ · Doors control byte-idêntico (não tinha bug) ✓ · Room view: **0 traços de offset ANTES, 6 = igual ao Wall view DEPOIS** ✓ · **goldens**: 14/15 byte-idênticos; **só `GOLDEN_PANELS_18mm.dxf` mudou** (10038→10030) e a diff é EXCLUSIVAMENTE 60 coords Y em `OFFSET_A` das 4 peças rotacionadas (0 mudanças em OUT/SHEET/INSIDE/qualquer X) — assinatura exata da correção do espelho; golden regenerado no mesmo commit ✓. Só `index.html` + docs + golden. Air-cut continua obrigatório antes de material real.
+
 ## 2026-07-13 (ss) — Hardening dos toolpaths de painéis: stale-tracking + golden do NC
 
 Fecha as duas pendências do bridge Panels→CAM (qq). **Stale-tracking (segurança)**: paths de painéis agora guardam `pp.pnSigs` (assinatura de conteúdo por sheet — `tpPanelsSig`: espessura + preset + linhas de offset + dims e células de cada peça). Editar a sala (mudar um offset, redimensionar parede, trocar preset) ou apagá-la faz a assinatura diferir → o path fica **STALE** (badge âmbar + "Remove stale", igual aos Doors) e **corta NADA** naquela sheet (`tpPathParts` faz uma checagem barata por-sheet com o `f` atual, sem re-nesting). Doors `pp.sig` intocado. **Golden do NC de painéis**: `GOLDEN_OGEE_PANELS_S1_22mm.nc` (57795 bytes) capturado por receita determinística (sala 22mm Ogee, parede 2600×3000 → 1 sheet/1 peça/6 células → template).

@@ -39,7 +39,7 @@ The exported DXFs feed the **VCarve gadgets** (in the `CNC App` repo: "Fast CNC 
 | `OFFCUT` | 6 | offcut outline (OPEN polyline — sheet-edge sides omitted) + 3mm 45° identification chamfer ON the drawn line |
 | `OFFCUT_TEXT` | 4 | the word OFFCUT + size (L-shape: both maximal sizes with `/`) — ALWAYS separate from the geometry layer |
 
-Geometry conventions: rounded corners r2.5 on offset/cavity lines; text auto-fitted (`fitDxfPartText`); duplicated same-geometry rings on different layers are **intentional** (each layer feeds a different VCarve op — flushback reference behaviour).
+Geometry conventions: rounded corners r2.5 on offset/cavity lines; text auto-fitted (`fitDxfPartText`); duplicated same-geometry rings on different layers are **intentional** (each layer feeds a different VCarve op — flushback reference behaviour). **Nested rotation is a proper 90° rotation, never a mirror**: a piece the nester rotates (`p.rot`) must keep its logical left/right/top/bottom mapping so an asymmetric frame (e.g. door-side 175 vs neighbour 40) lands on the correct edge after the operator turns the part upright. Panels use `pnCellRects` (rotated `tf` point-map (x,y)→(y, W0−x), det +1 — matched to the Doors `placedCavs` transpose+y-flip net); a det −1 transform is a reflection and is a bug (fixed 2026-07-13 tt).
 
 Business rules for offcut shape/thresholds, flushback ring distances, insert sizing: `KABACAL_RULES.md` (that file wins on any disagreement about WHAT to draw; this file defines WHERE it lands).
 

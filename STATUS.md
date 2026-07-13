@@ -1,7 +1,7 @@
 # Kabacal — STATUS (you are here)
 
 **Update when:** a risk opens/closes, a decision is made, or in-flight work changes. Keep under ~60 lines — this is the mutable "current state", `ROADMAP.md` is the append-only history.
-Last update: 2026-07-11 · repo at `7daeea5` + SaaS Phase 0 commit.
+Last update: 2026-07-13 · Paneling review (tt) — rotated-panel L/R mirror fixed + Room-view offsets.
 
 ## Open risks (ranked)
 
@@ -13,6 +13,7 @@ Last update: 2026-07-11 · repo at `7daeea5` + SaaS Phase 0 commit.
 
 ## In flight
 
+- **Paneling review** shipped 2026-07-13 (ROADMAP *tt*): two reported issues, both confirmed by numeric + E2E test before any edit. (1) **Rotated-panel left/right inversion was REAL** — `pnCellRects`'s rotated transform was a reflection (det −1) that swapped L/R on any panel the nester rotates; an asymmetric frame (door-side 175 vs neighbour 40) landed on the wrong edge in the DXF. One-term fix → proper 90° CW rotation, matched to the Doors `placedCavs` net (Doors never had the bug — proven by the byte-identical `GOLDEN_OGEE_S1_22mm.nc` control). (2) **Room Front View now draws the offset lines** (`pnPanoSvg` gained the same per-cell inset loop as `pnWallSvg` — real geometry). Only `GOLDEN_PANELS_18mm.dxf` moved (10038→10030, 60 `OFFSET_A` Y-coords on the 4 rotated pieces only; regenerated same commit); other 14 goldens byte-identical.
 - **Panels toolpath hardening** shipped 2026-07-13 (ROADMAP *ss*): the two Panels→CAM pendings closed — panels paths now stale-track (`pp.pnSigs` content signature; room edit/delete → amber STALE + cuts nothing, re-apply the group) and the panels NC has a binary golden `GOLDEN_OGEE_PANELS_S1_22mm.nc`. Doors sig/goldens untouched; 15/15 old goldens byte-identical. **Ogee on wall panels is now regression-locked.** Air-cut still mandatory before real material.
 - **URGENT Doors bugfix** shipped 2026-07-13 (ROADMAP *rr*): rotated tall doors no longer go flat — new `placedCavs(p)` computes cavities from LOGICAL w/h (frame follows width/height, not sheet orientation) and transposes for the rotated placement; used by app preview + DXF + CAM so they always agree. Also: Enter adds exactly one part (removed a duplicate global handler), qty clamped >=1 everywhere (mkItem/loadFastCnc/genParts + input min) — a qty-0 part no longer silently vanishes, frame editor reordered Top/Bottom/Left/Right. Ednei's `Issues James.fastcnc.json` loads with all 5 parts nesting + full Ogee offsets in the DXF; 15/15 goldens byte-identical.
 - **Toolpath groups + faithful preview + PANELS CAM BRIDGE** shipped 2026-07-12 (ROADMAP *pp*+*qq*): template applies = coloured GROUPS (whole-group on/off, group delete, part highlighted in group colour); preview draws TRUE offset lines per layer colour + PROFILE section + per-TOOL colours with painted pocket areas and sweep bands; panels sheets are now toolpath sheets (cells as cavities, sheet-scoped ops only — doors jobs byte-identical, proven). Ednei's Ogee now machines WALL PANELS. Pending: panels-NC binary golden + stale-tracking for panels paths; air-cut still mandatory before real material.

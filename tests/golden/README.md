@@ -40,7 +40,7 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 **Panels** — 2 rooms, chained walls, openings:
 | File | What |
 |---|---|
-| `GOLDEN_PANELS_18mm.dxf` (10038) | 40/40 joint seam, matching shakers, door + window openings (window = INSIDE cut to the FLOOR at its column so the band never overlaps the lower panel — regenerated 2026-07-08), vertical columns, visual-order PART_NUMBERs. **Recipe pins `ow.bottom = 900`** — the window default is now the panel-band top (item 6, 2026-07-10), so the recipe fixes the old sill (900) to keep this file stable & byte-identical. |
+| `GOLDEN_PANELS_18mm.dxf` (10030) | 40/40 joint seam, matching shakers, door + window openings (window = INSIDE cut to the FLOOR at its column so the band never overlaps the lower panel — regenerated 2026-07-08), vertical columns, visual-order PART_NUMBERs. **Recipe pins `ow.bottom = 900`** — the window default is now the panel-band top (item 6, 2026-07-10), so the recipe fixes the old sill (900) to keep this file stable & byte-identical. **Regenerated 2026-07-13 (tt):** `pnCellRects` rotation was a mirror (det −1) that swapped left/right on the 4 rotated pieces — the fix moved only their `OFFSET_A` cavity Y-coords (60 lines; 10038→10030), no OUT/SHEET/X changes. |
 | `QUOTE_mixed.json` (2774) | Rich doors + panels rooms combined (panels £2390 / 6 sheets, total £3665) |
 | `GOLDEN_WALL_LAYOUT.dxf` (3428) | **Wall Layout DXF** (2026-07-10, regenerated for the **horizontal/panoramic** layout) — the non-cutting, front-view export: walls placed LEFT→RIGHT in app order, each full measured outline with its panels inside; wall label shows the measured wall size, panel labels the physical panel size. Layers `WALL`/`WALL_GAP`/`OUT`/`OFFSET_A`/`INSIDE`/`text`, no `SHEET`/`PART_NUMBER`. |
 
