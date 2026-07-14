@@ -291,6 +291,12 @@
   .acc-c{margin-left:auto;color:var(--muted);font-size:12px}
   .acc-b{padding:10px 12px 14px 13px;display:flex;flex-direction:column;gap:10px;background:var(--card)}
   .acc-b .ed-field{gap:4px}
+  /* editing panel overflow guard (2026-07-15): number inputs have a ~170px intrinsic width — without
+     min-width:0 a flexed field PUSHES OUT of the 300px sidebar instead of shrinking. Rows wrap when tight. */
+  .acc-b .ed-field,.insp-body .ed-field{min-width:0}
+  .acc-b .ed-field>input,.acc-b .ed-field>select,.insp-body .ed-field>input,.insp-body .ed-field>select{width:100%;min-width:0;box-sizing:border-box}
+  .acc-b .ins-card{flex-wrap:wrap;min-width:0}
+  .acc-b .ins-card select{max-width:100%}
   /* saved offset/frame presets */
   .preset-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
   .preset-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:20px;background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:#334155}
@@ -313,12 +319,13 @@
   .tp-acts .btn{display:flex;align-items:center;gap:6px;justify-content:flex-start;font-size:11.5px;padding:7px 9px}
   .tp-tree{border:1px solid var(--line);border-radius:9px;overflow:hidden}
   .tp-tree-h{display:flex;align-items:center;gap:5px;padding:7px 9px;background:var(--head);border-bottom:1px solid var(--line);font-weight:800;font-size:12px}
-  .tp-row{display:flex;align-items:center;gap:7px;padding:6px 9px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer}
+  .tp-row{display:flex;align-items:center;gap:7px;padding:6px 9px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;flex-wrap:wrap}
   .tp-row:last-child{border-bottom:0}
   .tp-row.sel{background:var(--head-open)}
   .tp-row .dot{width:9px;height:9px;border-radius:3px;flex:none}
-  .tp-row .nm{font-weight:700;white-space:nowrap}
-  .tp-row .sub2{color:var(--muted);font-size:10.5px;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+  .tp-row .nm{font-weight:700;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  /* long status badges ("needs 22mm material…") WRAP to their own line instead of being clipped (2026-07-15) */
+  .tp-row .sub2{color:var(--muted);font-size:10.5px;margin-left:auto;min-width:0;max-width:100%;text-align:right;overflow-wrap:anywhere}
   .tp-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:12px}
   .tp-datum{display:grid;grid-template-columns:repeat(3,15px);grid-template-rows:repeat(3,15px);gap:2px;flex:none}
   .tp-datum i{width:13px;height:13px;border:1.5px solid var(--line-strong);border-radius:50%;cursor:pointer;background:var(--input)}
@@ -1935,16 +1942,16 @@
     const multi=n>1?`
     <div class="sub" style="font-weight:700;margin-top:8px">Outer frame <span style="font-weight:400">— stays fixed when you resize a panel or rail</span></div>
     ${frameEditor(i,it,false)}
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <div class="ed-field" style="flex:1"><label>Internal rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${f.t}" onchange="setMidFrame(${i},this.value)" title="The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)"></div>
-      <div class="ed-field" style="flex:1"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Height of the ${portrait?'bottom':'right-hand'} opening, measured from the ${portrait?'bottom':'right'} of the part — the other openings share the rest (empty = equal split)"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <div class="ed-field" style="flex:1;min-width:104px"><label>Internal rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${f.t}" onchange="setMidFrame(${i},this.value)" title="The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)"></div>
+      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Height of the ${portrait?'bottom':'right-hand'} opening, measured from the ${portrait?'bottom':'right'} of the part — the other openings share the rest (empty = equal split)"></div>
     </div>
     <div class="sub" style="margin-top:6px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' opening is measured from the '+side+' of the part and stays fixed — resizing it or the door re-splits the others, never the frame or rail.';})()}</div>`:'';
     return `
-    <div style="display:flex;gap:8px">
-      <div class="ed-field" style="flex:1"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
-      <div class="ed-field" style="flex:1"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
-      <div class="ed-field" style="flex:0 0 96px"><label>Panels</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="ed-field" style="flex:1;min-width:88px"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:88px"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:64px;max-width:96px"><label>Panels</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
     </div>
     ${multi}
     <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
@@ -2061,7 +2068,7 @@
         <select onchange="setInsOv(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px">${ths.map(t=>`<option value="${t}" ${t===ins.insTh?'selected':''}>${t}mm${t===ins.autoTh?' (auto)':''}</option>`).join('')}</select>
         <b>· ${ins.w}×${ins.h}mm</b>${ins.reed?' · reeded':''}
         ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
-        <span class="sub" style="margin-left:auto" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
+        <span class="sub" style="flex-basis:100%" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
     <div class="sub" style="font-weight:700;margin:2px 0 0">Frame</div>
     ${frameEditor(i,it,true)}
     <div class="sub" style="margin:0 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>

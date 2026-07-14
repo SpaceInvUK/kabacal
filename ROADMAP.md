@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 — Overflow do editor no DESKTOP (o "nem tudo aparece" do Ednei)
+
+Follow-up do achado #11: mesmo no PC partes do editor estouravam o painel de ~313px. Auditoria programática (getBoundingClientRect em TODA a árvore do inspector/Toolpaths/Quote) achou **12 elementos vazando** — agora **0**.
+
+- **Causa raiz**: `input[type=number]` tem largura intrínseca ~170px; `.ed-field{flex:1}` sem `min-width:0` não encolhe — o campo EMPURRA pra fora do painel (Width/Height +65px, linha Panels +169px). Fix global: `.acc-b/.insp-body .ed-field{min-width:0}` + inputs/selects `width:100%`.
+- Linhas W/H/Panels e Internal rail/Bottom panel agora quebram (`flex-wrap` + min-width por campo) em vez de estourar.
+- Card do Insert (Offset): o "nests on its own sheet · priced & machined" (+204px) virou linha própria (`flex-basis:100%`); selects com `max-width:100%`.
+- Tree de templates (Toolpaths): badges longos ("⛔ needs 22mm material", "needs the Plain Shaker offset preset") eram CORTADOS pelo `max-width:90px` — agora quebram pra própria linha (`.tp-row{flex-wrap}` + `.sub2{overflow-wrap:anywhere}`), tudo legível.
+
+### Testado
+Auditoria de overflow: inspector CLEAN (era 12) · tpSide CLEAN (era 3) · quote CLEAN ✓ · flushback 2 painéis + backside custom + todas as seções abertas a 1280×800 ✓ · screenshot ✓ · `check.mjs` ok ✓ · console limpo ✓. (Mobile de verdade continua Fase 2 — isto cobre o desktop.)
+
 ## 2026-07-14 — Rodada de integridade (auditoria de 21 achados): load transacional, autosave, Tool DB protegida
 
 Resposta à auditoria externa (P0/P1/P2). Zona guardada intocada em NC/preço: **goldens byte-idênticos** e baskets A/B **delta zero** (300/60/360 · 881/176/1057, contexto limpo).
