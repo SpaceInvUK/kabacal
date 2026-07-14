@@ -2,6 +2,23 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-14 — Rodada de integridade (auditoria de 21 achados): load transacional, autosave, Tool DB protegida
+
+Resposta à auditoria externa (P0/P1/P2). Zona guardada intocada em NC/preço: **goldens byte-idênticos** e baskets A/B **delta zero** (300/60/360 · 881/176/1057, contexto limpo).
+
+- **Load `.fastcnc` TRANSACIONAL (#3)**: parse em staging; arquivo rejeitado não toca em NADA (job/toolpaths/serviços intactos — provado). **Reset completo no commit (#4)**: services/VAT/spray/machine/overrides/panelRooms/pnProj/históricos zeram antes de aplicar o arquivo — nada vaza do job anterior. **Panels-only restaura tudo (#5)**: kabacalQuote (serviços, VAT, camJob, camPaths) agora roda pros dois caminhos.
+- **Cloud unlink (#2)**: `newProject()` e abrir arquivo local zeram `cloudJob` — "Update this cloud job" nunca mais sobrescreve o job errado. **Guard de concorrência (#19)**: update compara `updated_at` e pergunta antes de sobrescrever o que outra aba salvou; Archive não engole mais erro.
+- **Tool DB protegida (#6)**: arquivo pode ADICIONAR tools desconhecidas (→ My Tools), mas conflito de id com valores diferentes = **biblioteca da máquina vence** + banner listando as divergências pra revisão. (Política invertível se preferir "arquivo vence".)
+- **Autosave do job inteiro (#7)**: `kab_autosave` (payload buildFastCnc + vínculo cloud, debounce 800ms em todo captureHistory) restaurado no boot — Doors sobrevive ao reload como Panels/CAM já sobreviviam; número NÃO é regenerado. **Layout manual persiste (#8)**: `kabNest` aditivo no `.fastcnc` (placements arrastados/rotação + size/margin/gap por chapa + nestSize/custom) salvo e restaurado com keepPlacements.
+- **Número lazy (#14)**: gerado só no 1º save/print/cloud-save (iniciais do cliente existem; reload não queima sequência). **Data local (#15)** (`localToday()` — BST não volta um dia). **Arquivos com número (#20)**: `<numero>.fastcnc.json` / `<numero>_18mm.dxf`.
+- **Undo seguro (#9)**: Ctrl+Z/Y dentro de input/textarea = undo NATIVO do campo (app não intercepta); Esc fecha o modal genérico; `pnPlanHist` zera em new/load. **Preflight (#10)**: `frame ≥ part`, `rails don't fit` (painéis não cabem), `hinge off part` — bloqueiam export como os erros de tamanho.
+- **Auto-template em toda entrada (#12)**: Quick Add e Takeoff/checklist chamam `tplAutoSyncItem` (Flushback via Quick Add ganha os 9 toolpaths na hora). **Takeoff sem perda silenciosa (#13)**: linhas não entendidas FICAM na caixa + status "X added · Y not understood".
+- **Quote segue os campos do cliente (#16)**. **Reset pricing pede confirmação (#18)**. **Workshop Backup (#17)**: export ver 3 = pricing + materiais + empresa + presets + **Tool DB + templates de corte + camJob + doorTpl/offcutTpl**; cloud sync ganhou `kab_profiles`. **Banner NC (#1)**: aviso permanente no painel Toolpaths — "não validado em produção; dry-run em ar obrigatório".
+- **Fase 2 (concordado, não incluído)**: mobile (redesign dedicado), a11y completa (modal ganhou role/aria/Esc/focus), preview linha-a-linha do Takeoff, sequência de número no servidor, redo do builder Panels, E2E.
+
+### Testado
+Arquivo inválido → job intacto (items/CAM/serviços) ✓ · load B pós-A: cloud null, services 0, VAT on, spray off, panels [] ✓ · tool conflito: t1 feed mantido + tz_new em grupo do arquivo + banner ✓ · panels-only: modo panels + services 2h + VAT off + camPaths + datum c restaurados ✓ · autosave: reload → items/client/número RT-001/cloud cj-77/margem 11/placement x+40 e rot round-trip ✓ · número vazio no boot, seq não consumida ✓ · preflight frame≥part / rails / flat puro limpo ✓ · takeoff: 3 peças + linha ruim na caixa ✓ · Quick Add flush → 9 toolpaths auto ✓ · Ctrl+Z em input não dispara undo do app ✓ · baskets A/B delta zero + £75 ✓ · goldens ll/c/dxf byte-idênticos ✓ · console limpo ✓.
+
 ## 2026-07-13 (yy) — CAM: Flushback tudo-ligado + novo template Plain Shaker (22mm + gêmeo 18mm automático)
 
 Dois pedidos do Ednei:
