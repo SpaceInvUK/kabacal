@@ -5131,7 +5131,7 @@
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
-    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><div class="tpl-list">${rows}</div>`,true);
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" onclick="tpExportPackage()">${ic('export',13)} Production package (.zip)</button><span class="sub">all NCs + labels + <b>manifest.csv</b> in one order folder — the same ID everywhere, for SYNTEC ScanMode / Workinglist</span></div><div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><div class="tpl-list">${rows}</div>`,true);
   }
   // AIR-CUT (dry-run) export: the EXACT same file with every Z lifted by +N mm — the machine runs the full
   // toolpath in the air above the sheet, so the P0 validation (STATUS.md) can be done without material.
@@ -5149,6 +5149,55 @@
     const nc=ncPegasus(segs);
     const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(i+1)+'_'+f.th+'mm'+suffix+'.nc';
     dlBlob(nc,'text/plain;charset=utf-8',nm);
+  }
+  // store-only ZIP writer (2026-07-15): no dependency, no compression — bundles a few small text files into one
+  // .zip. Vanilla bytes (local headers + central directory + end record), CRC32 per file. Keeps the single-file rule.
+  function zipStore(files){
+    const enc=new TextEncoder();
+    const CRC=(function(){const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+    const crc32=b=>{let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;};
+    const u16=v=>[v&0xFF,(v>>>8)&0xFF],u32=v=>[v&0xFF,(v>>>8)&0xFF,(v>>>16)&0xFF,(v>>>24)&0xFF];
+    const parts=[],central=[];let offset=0;
+    files.forEach(f=>{
+      const nameB=enc.encode(f.name),dataB=(f.data instanceof Uint8Array)?f.data:enc.encode(f.data),crc=crc32(dataB);
+      parts.push(new Uint8Array([].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(dataB.length),u32(dataB.length),u16(nameB.length),u16(0))),nameB,dataB);
+      central.push(new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(dataB.length),u32(dataB.length),u16(nameB.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset))),nameB);
+      offset+=30+nameB.length+dataB.length;
+    });
+    let cenSize=0;central.forEach(c=>cenSize+=c.length);
+    const end=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(cenSize),u32(offset),u16(0)));
+    const chunks=[...parts,...central,end];let total=0;chunks.forEach(c=>total+=c.length);
+    const out=new Uint8Array(total);let p=0;chunks.forEach(c=>{out.set(c,p);p+=c.length;});
+    return out;
+  }
+  // Tier 1 production package (SYNTEC 60W-E workflow, 2026-07-15): one .zip per ORDER where the SAME order id is on
+  // the folder, EVERY NC filename, the labels and the manifest — so ScanMode / Workinglist / traceability all line
+  // up. Pure packaging: the NC bytes are the EXACT ncPegasus output (goldens untouched). Barcode for ScanMode = the
+  // NC filename (the machine scans it to queue that sheet); per-part uid is for label traceability.
+  function tpExportPackage(){
+    const all=tpSheets();
+    if(!all.length){alert('Generate toolpaths first — no sheets to export.');return;}
+    if(!project.number)genOrderNumber();
+    const order=(project.number||'JOB').replace(/[^A-Za-z0-9_-]/g,'_');
+    const files=[],manifest=[['order','nc_file','sheet','material','thickness_mm','sheet_size','part_no','part_name','width_mm','height_mm','role','uid']];
+    let ncCount=0;
+    all.forEach((f,i)=>{
+      const segs=tpSegsForSheet(f);if(!segs.length)return;
+      const nc_file=order+'_S'+(i+1)+'_'+f.th+'mm.nc';
+      files.push({name:order+'/'+nc_file,data:ncPegasus(segs)});ncCount++;
+      (f.sh.parts||[]).filter(p=>!p.isBack).forEach(p=>{
+        const it=items[parseInt(p.key,10)];
+        const nm=String(p.text||p.name||(p.pnPiece&&p.pnPiece.name)||(it&&it.text)||('Part '+(p.pnum||''))).replace(/[\r\n,]+/g,' ').trim();
+        const w=Math.round(p.origW!=null?p.origW:p.w),h=Math.round(p.origH!=null?p.origH:p.h);
+        const role=p.isInsert?'insert':(p.isBeading?'beading':(f.isPanels?'panel':'door'));
+        manifest.push([order,nc_file,i+1,f.mat,f.th,(f.sh.S&&(f.sh.S.label||f.sh.sz))||'',p.pnum||'',nm,w,h,role,shortHash([order,f.mat,p.key,i,role,w,h].join('|'))]);
+      });
+    });
+    if(!ncCount){alert('No sheet has a toolpath yet — apply a template or add a profile first.');return;}
+    try{const pages=collectLabelMapPages();if(pages&&pages.length)files.push({name:order+'/'+order+'_labels.html',data:a4LabelsPrintHtml(pages)});}catch(e){}
+    const csv=manifest.map(r=>r.map(c=>{const s=String(c);return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\r\n')+'\r\n';
+    files.push({name:order+'/'+order+'_manifest.csv',data:csv});
+    dlBlob(zipStore(files),'application/zip',order+'.zip');
   }
   function renderToolpaths(){
     saveCamState();

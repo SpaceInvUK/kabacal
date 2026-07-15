@@ -18,7 +18,8 @@
 - **Footer**: `G53Z0`, `M05`, `T1M06`, `G90G54`, `G43H1`, `G0X0.000Y0.000`, `G49H0`, `G0X0Y0`, `G55X0Y0`, `M05M30`.
 - N-numbers step by 10. Coordinates are **MODAL** (emitted only when they change). XYZ `%.3f`, F `%.1f`. **CRLF** line endings; file ends with CRLF.
 - Consecutive toolpaths using the same tool number **merge into one segment** (no redundant toolchange) — VCarve behaviour.
-- Per-sheet file naming: `{ORDER}_S{i}_{th}mm.nc` (`tpDownloadNC`).
+- Per-sheet file naming: `{ORDER}_S{i}_{th}mm.nc` (`tpDownloadNC`); air-cut variant appends `_AIRCUT+{mm}`.
+- **Production package (2026-07-15, SYNTEC Tier 1, `tpExportPackage`)**: "⤓ Production package (.zip)" bundles one `{ORDER}/` folder with every sheet's NC (the EXACT `ncPegasus` bytes — no change), the A4 labels HTML, and `{ORDER}_manifest.csv` (per-part rows: order/nc_file/sheet/material/thickness/size/part_no/name/W/H/role/uid). The **SYNTEC ScanMode barcode = the NC filename** (scan → queue that sheet); the per-part `uid` is label traceability. Pure packaging — the `:1248` header and NC content are untouched (that stays deliberately un-changed until validated on the 60W-E; NC `()` comments are a separate opt-in tier).
 
 ## Cutting pattern (production defaults, `tpDefaults` — the reference-job pattern)
 

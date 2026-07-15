@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 (f) — SYNTEC Tier 1: pacote de produção por pedido (.zip com NCs + etiquetas + manifest)
+
+Primeira das melhorias do fluxo **SYNTEC 60W-E** (análise do Ednei: os NCs hoje são "anônimos" — sem cliente/pedido/peça/rastreabilidade; o `:1248` é fixo, não é ID). Tier escolhido pra começar por ter **maior valor e ZERO risco de máquina** (não toca nos bytes do NC). Botão **"⤓ Production package (.zip)"** no modal de export de Toolpaths: gera **um .zip por pedido** onde o MESMO ID (`genOrderNumber` = INICIAIS-AAAAMMDD-SEQ) aparece na pasta, em TODO nome de NC, nas etiquetas e no manifest — pra o ScanMode/Workinglist e a rastreabilidade baterem.
+
+- **Conteúdo**: `{ORDER}/` com todos os NCs por chapa (`{ORDER}_S{i}_{th}mm.nc`, saída **EXATA** do `ncPegasus`), `{ORDER}_labels.html` (reaproveita a impressão A4 de etiquetas — já com QR), e `{ORDER}_manifest.csv` (uma linha por peça: order, nc_file, sheet, material, espessura, tamanho da chapa, part_no, nome, W, H, role, uid).
+- **Barcode do ScanMode = o nome do NC** (a máquina escaneia pra enfileirar a chapa); o `uid` por peça é pra rastreio da etiqueta. Nada disso precisa entrar no G-code (conforme a análise).
+- `zipStore` inline (store-only, CRC32, ~20 linhas — **sem dependência**, mantém a regra single-file). Reaproveita `ncPegasus`/`tpSheets`/`collectLabelMapPages`/`a4LabelsPrintHtml`/`shortHash`. Próximos: Tier 2 (comentários `()` opt-in no NC + air-cut), Tier 3 (etiqueta ZPL Zebra), Tier 4 (tempo estimado).
+
+### Testado (f)
+`node tools/check.mjs` verde ✓ · **goldens byte-idênticos** (spot-check `PLAINSHAKER_S1_22mm` + `GOLDEN_S1_18mm` — `ncPegasus`/`tpSheets` intocados) ✓ · E2E: job 2 peças Plain Shaker 22mm → `tpExportPackage` capturado (monkeypatch no `dlBlob`), **o zip abre no `Expand-Archive`** (unzip real do Windows), contém `J-…/…_S1_22mm.nc` (5342, header `%`/`:1248`/`G90` + segmentos T12→T1→T2→T1) + `…_labels.html` (50478) + `…_manifest.csv` (282, 2 linhas de peça com o ID em todas as colunas) ✓ · sem erros no console. Só `index.html` (+50/−1). Zona guardada (CAM) sem mudança de bytes.
+
 ## 2026-07-15 (e) — Panels no Quote/PDF: m², cut list, panorama + sheet preview (toggles) + m² no editor
 
 Pedido do Ednei: "improve Panels information in Quote tab and PDF quotation" — simples, sem redesenhar o sistema de quotation. Quando o job tem Wall Panels, o Quote (tela) e o PDF ganham uma seção **"Wall Panels"** limpa. Camada de DISPLAY apenas: não toca pricing/DXF/NC/geometria. Job só-Doors sai idêntico.
