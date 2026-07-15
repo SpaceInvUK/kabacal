@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 (b) — CAM: fix de segurança no all-live + Drilling de dobradiças + export Air-cut
+
+Rodada "Pocket/Drill NC + air-cut" escolhida pelo Ednei. **Bug grave achado e corrigido**: o "Flushback all-live" de ontem cortava as layers não mapeadas (IN_22MM, POKET_INSERT, SHADOW, OFFSET_5MM) no **contorno da PEÇA** — o `tpOpRects` caía no fallback do part-rect, então "4mm In 18mm" recortava a borda da porta passante a 2mm pra dentro e o pocket do insert idem a 5.5mm. Goldens byte-idênticos (o refactor é contratual).
+
+- **`tpOpRects` agora resolve a geometria real do flushback**: IN_22MM/OUT_10MM = anel(0) da cavidade · POKET_INSERT = banda anel(7)+anel(14) · SHADOW = anel(16) · OFFSET_5MM/IN no insert = anéis 6.9/11.95. **Bandas com lado por anel** (`rc.side`: anel externo inside + interno outside — nested reversal do VCarve, os dois kerfs caem DENTRO da banda). Layers desconhecidas cortam NADA (antes: contorno da peça); essas layers em peça não-flushback = NADA.
+- **`tpPartMoves`**: sgn/dRough/dFinal por-rect (`rc.side||P.side`) — matemática idêntica sem rc.side.
+- **Kind `drill` (copos de dobradiça)**: mergulho reto por centro (safeZ → XY → appZ → G1 no plunge feed → safeZ), centros = regra de produção do DXF/preview (inset 22.5 + hingePositions). **Profundidade OBRIGATÓRIA** (nunca assumida) — form manual "Drilling" (tool pré-seleciona a 1ª broca, hint com nº de furos no escopo, recusa sem depth); em template: op `{kind:'drill',layer:'hinges',params:{cutDepth:…}}` só entra live com depth explícita.
+- **☁ Air-cut (destrava o P0)**: botão por chapa no Save NC — o MESMO arquivo com todo Z levantado +N mm (input, default 50, mín 10), sufixo `_AIRCUT+N`. X/Y/F/ordem/toolchanges/header/footer idênticos; `ncPegasus` intocado.
+- **Fixes do cam-reviewer aplicados no mesmo commit**: Plain Shaker 18/22 ganharam `appliesTo.type:'flat'` (flushback+preset PS não recebe mais o stack redundante de 4 perfis OUT; flat+PS continua casando — testado nos 2 sentidos); form Drilling ganhou o aviso vermelho "exceeds material" (paridade com o Profile); o aviso de bed no Save NC só dispara pra drill quando a chapa tem peça com dobradiça.
+
+### Testado (b)
+Goldens ll/c byte-idênticos ✓ · rects pós-fix: cavidade 350×367@72 (In18/Insert-on), banda 364×381(out)+378×395(in), shadow 382×399@56, insert 364×381(in)/354×371(out) ✓ · NC 18mm Z∈[0,38] sem negativo ✓ · drill: recusa sem depth, 6 mergulhos Z5.000 (18−13) F3000, NC válido ✓ · air-cut: piso 5→55 (exatamente +50), XY byte-idênticos, header/footer ok ✓ · `check.mjs` ok ✓ · console limpo ✓ · cam-reviewer delta no commit.
+
 ## 2026-07-15 — Overflow do editor no DESKTOP (o "nem tudo aparece" do Ednei)
 
 Follow-up do achado #11: mesmo no PC partes do editor estouravam o painel de ~313px. Auditoria programática (getBoundingClientRect em TODA a árvore do inspector/Toolpaths/Quote) achou **12 elementos vazando** — agora **0**.

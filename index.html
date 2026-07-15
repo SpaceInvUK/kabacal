@@ -3772,7 +3772,27 @@
   // lines cut real geometry for parts whose offset preset enables that line (Ogee etc.).
   function tpOpRects(p,P){
     const L=(P&&P.layer)||'OUT';
-    if(!/^OFFSET_[A-G]$/.test(L))return [{x:p.x,y:p.y,w:p.w,h:p.h}];
+    // FLUSHBACK structural layers (reference DXF geometry): rings = CAVITY expanded by d. A BAND (two
+    // rings) is cut VCarve-style — the OUTER ring from its inside, the INNER ring from its outside, so
+    // both kerfs land INSIDE the band (rc.side overrides P.side per ring). These layers exist ONLY on
+    // flushback door bodies — any other part yields NOTHING (never fall back to the part outline: that
+    // was cutting the door's EDGE 12.3-18mm deep — safety fix 2026-07-15).
+    const FB={'IN_22MM':[0],'OUT_10MM':[0],'POKET_INSERT':[7,14],'SHADOW':[16]};
+    if(FB[L]){
+      if(p.type!=='flush'||p.isInsert||p.isBeading)return [];
+      const cavs=(typeof placedCavs==='function')?placedCavs(p):[];
+      const ds=FB[L],out=[];
+      cavs.forEach(c=>ds.forEach(d=>{const rc={x:p.x+c.x-d,y:p.y+c.y-d,w:c.w+2*d,h:c.h+2*d};
+        if(rc.w>1&&rc.h>1){if(ds.length>1)rc.side=(d===Math.max.apply(0,ds))?'inside':'outside';out.push(rc);}}));
+      return out;
+    }
+    // FLUSHBACK insert pocket band (reference insert DXF): rings inset 6.9 / 11.95 from the insert edge
+    if(L==='OFFSET_5MM'||L==='IN'){
+      if(!p.isInsert||p.kind!=='flush')return [];
+      const out=[];[[6.9,'inside'],[11.95,'outside']].forEach(q=>{const o=q[0],rc={x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o,side:q[1]};if(rc.w>1&&rc.h>1)out.push(rc);});
+      return out;
+    }
+    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?[{x:p.x,y:p.y,w:p.w,h:p.h}]:[];   // unknown layers cut NOTHING (was: part outline)
     const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
     if(!ln)return [];
     const mm=Math.max(0,+ln.mm||0);
@@ -3813,9 +3833,7 @@
     const fCut=(+P.feed>0)?+P.feed:tool.feed,fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
     let r=tool.dia/2;
     if(P.vbit&&+P.vbit.deg>0)r=+(cutD*Math.tan(((+P.vbit.deg)*Math.PI/180)/2)).toFixed(3);   // V-bit: radius where the flank meets the surface
-    const sgn=P.side==='outside'?1:(P.side==='inside'?-1:0);
     const allow=+P.allowance||0,lastA=(P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0;
-    const dRough=sgn*r+sgn*(allow+lastA),dFinal=sgn*r+sgn*allow;
     const total=startZ-finalZ,pd=Math.max(0.1,+P.passDepth||1);
     const nP=(P.passes!=null&&P.passes>0)?Math.round(P.passes):Math.max(1,Math.ceil(total/pd));
     let zs=[];for(let k=1;k<=nP;k++)zs.push(+(startZ-total*k/nP).toFixed(3));
@@ -3824,6 +3842,11 @@
     const mkTabs=W=>{if(!(P.tabs&&P.tabs.on))return null;const n=Math.max(1,Math.round(P.tabs.n||4)),h=Math.max(1,(+P.tabs.len||10)/2);
       const out=[];for(let k=0;k<n;k++){const c=(k+0.5)*W.per/n;out.push({s:Math.max(0.5,c-h),e:Math.min(W.per-0.5,c+h)});}return out;};
     tpOpRects(p,P).forEach(rc=>{
+      // per-ring side: a BAND ring carries its own side (outer=inside, inner=outside) so both kerfs land
+      // inside the band; plain rects inherit P.side — identical maths to before (goldens contractual)
+      const side=rc.side||P.side;
+      const sgn=side==='outside'?1:(side==='inside'?-1:0);
+      const dRough=sgn*r+sgn*(allow+lastA),dFinal=sgn*r+sgn*allow;
       const WR=ringWalker(ringPts(rc,S,dRough,(P.cornerSharpen&&sgn<0)?'mr':P.startAt)),tabsR=mkTabs(WR),st=WR.at(0);   // corner-sharpen enters mid-right (VCarve)
       mv.push({r:1,z:safeZ});mv.push({r:1,x:+st[0].toFixed(3),y:+st[1].toFixed(3)});
       zs.forEach(z=>{
@@ -3950,7 +3973,30 @@
     if(kind==='profile'){tpPathParts(f,pp).forEach(p=>tpPartMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
     if(kind==='pocket'){tpPathParts(f,pp).forEach(p=>tpOpRects(p,pp.params).forEach(rc=>tpPocketMoves(mv,rc,f.sh.S,pp.params,tool,f.th)));return mv;}
     if(kind==='sweep'){tpPathParts(f,pp).forEach(p=>tpOpRects(p,pp.params).forEach(rc=>tpSweepMoves(mv,rc,f.sh.S,pp.params,tool,f.th)));return mv;}
+    if(kind==='drill'){tpPathParts(f,pp).forEach(p=>tpDrillMoves(mv,p,f.sh.S,pp.params,tool,f.th));return mv;}
     return mv;}
+  // DRILL op (hinge cups): ONE straight plunge per hinge centre — rapid safeZ → XY → appZ → plunge at
+  // the plunge feed to finalZ → retract. Depth comes from the op; Kabacal NEVER assumes one (no default).
+  // Centres = the SAME production rule as the DXF/preview (22.5mm edge inset, hingePositions spacing).
+  function tpDrillMoves(mv,p,S,P,tool,th){
+    const hi=p.hinge;if(!hi||!hi.on)return;
+    const cutD=(+P.cutDepth>0)?+P.cutDepth:0;if(!cutD)return;
+    const topZ=(camJob.zZero==='bed')?th:0;
+    const finalZ=+(topZ-cutD).toFixed(3);
+    const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
+    const fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
+    const inset=22.5,side=resolveHingeSide(p.w,p.h,hi.rawSide),pts=[];
+    if(side==='left'||side==='right'){const ex=(side==='left')?p.x+inset:p.x+p.w-inset;hingePositions(hi,p.h).forEach(pos=>pts.push([ex,p.y+pos]));}
+    else{const ey=(side==='top')?p.y+inset:p.y+p.h-inset;hingePositions(hi,p.w).forEach(pos=>pts.push([p.x+pos,ey]));}
+    const mY=y=>S.h-y;
+    pts.forEach(pt=>{
+      mv.push({r:1,z:safeZ});
+      mv.push({r:1,x:+pt[0].toFixed(3),y:+mY(pt[1]).toFixed(3)});
+      mv.push({r:1,z:appZ});
+      mv.push({z:finalZ,f:fPl});
+      mv.push({r:1,z:safeZ});
+    });
+  }
   // machine-frame dims: portrait swaps the sheet (X = short side, like the Pegasus); landscape = as nested
   function tpOrientDims(S){return (camJob.orient==='landscape')?{W:S.w,H:S.h}:{W:S.h,H:S.w};}
   function tpDatumOff(D){switch(camJob.datum){case 'lr':return [D.W,0];case 'c':return [D.W/2,D.H/2];case 'ul':return [0,D.H];case 'ur':return [D.W,D.H];default:return [0,0];}}
@@ -4192,6 +4238,7 @@
   function tpSideHtml(){
     if(tpUI.mode==='job')return tpJobHtml();
     if(tpUI.mode==='profile')return tpProfileFormHtml();
+    if(tpUI.mode==='drill')return tpDrillFormHtml();
     if(tpUI.mode==='ph')return tpPhHtml();
     return tpHomeHtml();
   }
@@ -4208,7 +4255,7 @@
     <div class="tp-ops">
       <div class="tp-op" onclick="tpOpenOp('profile')">${tpOpIcon('profile')}<span>Profile</span></div>
       <div class="tp-op" onclick="tpOpenPh('pocket')">${tpOpIcon('pocket')}<span>Pocket</span></div>
-      <div class="tp-op" onclick="tpOpenPh('drill')">${tpOpIcon('drill')}<span>Drilling</span></div>
+      <div class="tp-op" onclick="tpOpenDrill()">${tpOpIcon('drill')}<span>Drilling</span></div>
       <div class="tp-op" onclick="tpOpenPh('mould')">${tpOpIcon('mould')}<span>Moulding</span></div>
     </div>
     <div class="tp-acts">
@@ -4433,6 +4480,60 @@
     tpForm.params.scope=(sc.items&&sc.items.length)||(sc.sheets&&sc.sheets.length)?sc:null;
     tpSide();}
   function tpOpenPh(k){tpUI.mode='ph';tpUI.ph=k;tpSide();}
+  // ---- Drilling op (hinge cups) — manual form. Depth is REQUIRED (production rule: never assume). ----
+  function tpOpenDrill(){
+    tpUI.mode='drill';tpUI.editId=null;
+    const snapP=(typeof selSet!=='undefined')?[...selSet]:[],snapS=(typeof selSheets!=='undefined')?[...selSheets]:[];
+    const t9=toolDb.find(t=>t.type==='drill')||null;   // first drill in the library preselects (still editable)
+    tpForm={name:'Drilling '+tpSeq,toolId:t9?t9.id:null,params:Object.assign(tpDefaults(t9),{layer:'hinges',cutDepth:null}),selSnap:snapP,sheetSnap:snapS};
+    const sc={};if(snapP.length)sc.items=snapP.slice();if(snapS.length)sc.sheets=snapS.slice();
+    tpForm.params.scope=(sc.items||sc.sheets)?sc:null;
+    tpSide();
+  }
+  function tpDrillFormHtml(){
+    const F=tpForm,tool=toolById(F.toolId);
+    const sc=F.params.scope||{};
+    const partsSel=!!(sc.items&&sc.items.length),sheetsSel=!!(sc.sheets&&sc.sheets.length);
+    const nHinges=items.reduce((s,it,i)=>{if(partsSel&&sc.items.indexOf(i)<0)return s;const hi=hingeInfo(it);return s+(hi.on?hi.count*(+it.q||0):0);},0);
+    return `<div class="tps-title" style="display:flex;align-items:center;gap:8px">${tpOpIcon('drill')} Drilling — hinge cups</div>
+    <div class="tpf-sec"><div class="sub">One straight plunge per hinge centre (the red dots in the nesting — 22.5mm edge inset, production spacing). <b>${nHinges}</b> hole(s) in the current scope.</div></div>
+    <div class="tpf-sec"><h4>Tool</h4>
+      <div style="display:flex;gap:8px;align-items:center"><b style="font-size:12.5px">${tool?('('+tool.num+') '+esc(tool.name)):'<span style="color:#dc2626">no tool selected</span>'}</b>
+        <button class="btn ghost tiny" style="margin-left:auto" onclick="openToolPick()">Select ...</button><button class="btn ghost tiny" onclick="openToolDb()">Edit ...</button></div>
+      ${tool?`<div class="sub" style="margin-top:4px">Ø${tool.dia}mm · plunge F${tool.plunge} · S${tool.rpm}</div>`:''}
+    </div>
+    <div class="tpf-sec"><h4>Depth</h4>
+      <div class="ed-field" style="max-width:170px"><label>Drilling depth (mm) — required</label><input type="number" step="0.1" min="0.1" value="${F.params.cutDepth==null?'':F.params.cutDepth}" placeholder="e.g. 13" onchange="tpF('cutDepth',this.value===''?null:+this.value)"></div>
+      ${(+F.params.cutDepth>0&&+F.params.cutDepth>tpResolveTh()+0.01)?`<div class="sub" style="color:#dc2626;font-weight:700;margin-top:4px">⚠ Depth exceeds material thickness (${tpResolveTh()}mm) — would drill ${((+F.params.cutDepth)-tpResolveTh()).toFixed(1)}mm into the bed!</div>`:''}
+      <div class="sub" style="margin-top:3px">Kabacal never assumes a hinge depth — type the cup depth for your hinge.</div>
+    </div>
+    <div class="tpf-sec"><h4>Cut what</h4>
+      <div class="seg3" style="width:100%;margin-bottom:7px">
+        <button class="segbtn ${sheetsSel?'':'on'}" onclick="tpSetScope('sheets','all')">All sheets</button>
+        <button class="segbtn ${sheetsSel?'on':''}" ${F.sheetSnap&&F.sheetSnap.length?'':'disabled'} onclick="tpSetScope('sheets','sel')">Selected${F.sheetSnap&&F.sheetSnap.length?' ('+F.sheetSnap.length+')':''}</button>
+      </div>
+      <div class="seg3" style="width:100%">
+        <button class="segbtn ${partsSel?'':'on'}" onclick="tpSetScope('items','all')">All parts</button>
+        <button class="segbtn ${partsSel?'on':''}" ${F.selSnap&&F.selSnap.length?'':'disabled'} onclick="tpSetScope('items','sel')">Selected${F.selSnap&&F.selSnap.length?' ('+F.selSnap.length+')':''}</button>
+      </div>
+      <div class="sub" style="margin-top:4px">Only parts with hinges ON get holes — everything else is skipped.</div>
+    </div>
+    <div class="tpf-sec"><h4>Name</h4>
+      <input type="text" value="${esc(F.name)}" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px" onchange="tpForm.name=this.value">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:2px">
+      <button class="btn primary" onclick="tpCalcDrill()">Calculate</button>
+      <button class="btn ghost" onclick="tpUI.mode='home';tpForm=null;tpSide()">Close</button>
+    </div>`;
+  }
+  function tpCalcDrill(){
+    const F=tpForm;if(!F)return;
+    const tool=toolById(F.toolId);
+    if(!tool){alert('Select a tool first (Tool Database).');return;}
+    if(!(+F.params.cutDepth>0)){alert('Enter the drilling depth (mm) — Kabacal never assumes one.');return;}
+    camPaths.push({id:'tp'+Date.now().toString(36)+Math.floor(Math.random()*999),on:true,kind:'drill',name:F.name,toolId:F.toolId,params:JSON.parse(JSON.stringify(Object.assign({},F.params,{layer:'hinges'})))});
+    tpSeq++;tpUI.mode='home';tpUI.editId=null;tpForm=null;renderToolpaths();
+  }
   function tpEdit(id){const pp=camPaths.find(x=>x.id===id);if(!pp)return;
     tpUI.mode='profile';tpUI.editId=id;tpForm=JSON.parse(JSON.stringify({name:pp.name,toolId:pp.toolId,params:pp.params}));
     const sc=pp.params.scope||{};
@@ -4611,14 +4712,14 @@
    // (T1 6mm) → fine wall finish (T2 2mm, 3/6) → OUT rebate (T1 6mm, 2.5/5/6 at +0.4 allowance) → OUT offcut
    // THROUGH (T1 6mm, one ramped pass to full material depth). The 18mm twin is identical except the offcut
    // depth = 18 (recess stays 6mm — shaker depth is independent of the board).
-   {id:'tpl_plainshaker22',name:'22mm Plain Shaker',auto:true,appliesTo:{part:'body',th:22,offsetName:'Plain Shaker'},src:'22mm Plain Shaker.ToolpathTemplate + 22mm Plain Shaker.nc (2026-07-13, reversed to list order)',ops:[
+   {id:'tpl_plainshaker22',name:'22mm Plain Shaker',auto:true,appliesTo:{part:'body',type:'flat',th:22,offsetName:'Plain Shaker'},src:'22mm Plain Shaker.ToolpathTemplate + 22mm Plain Shaker.nc (2026-07-13, reversed to list order)',ops:[
     {name:'50.8mm Skimming 6mm Deep',layer:'OFFSET_A',kind:'pocket',tool:{id:'t12skim508',num:12,dia:50.8},side:'inside',params:{depths:[6],stepover:25.4,rasterInset:5.08,feed:9000,plunge:3000}},
     {name:'6mm Pocket Finish 6mm Deep',layer:'OFFSET_A',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'inside',params:{cutDepth:6,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
     {name:'2mm Pocket Finish 6mm',layer:'OFFSET_A',kind:'profile',tool:{id:'v27b53e74',num:2,dia:2},side:'inside',params:{cutDepth:6,depthList:[3,6],lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:3000,plunge:2000}},
     {name:'6mm OUT 22mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:6,depthList:[2.5,5,6],allowance:0.4,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}},
     {name:'6mm Offcut 22mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:22,passes:1,allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
    ]},
-   {id:'tpl_plainshaker18',name:'18mm Plain Shaker',auto:true,appliesTo:{part:'body',th:18,offsetName:'Plain Shaker'},src:'22mm Plain Shaker scheme retargeted to 18mm (2026-07-13): recess 6mm kept, offcut depth = board (18)',ops:[
+   {id:'tpl_plainshaker18',name:'18mm Plain Shaker',auto:true,appliesTo:{part:'body',type:'flat',th:18,offsetName:'Plain Shaker'},src:'22mm Plain Shaker scheme retargeted to 18mm (2026-07-13): recess 6mm kept, offcut depth = board (18)',ops:[
     {name:'50.8mm Skimming 6mm Deep',layer:'OFFSET_A',kind:'pocket',tool:{id:'t12skim508',num:12,dia:50.8},side:'inside',params:{depths:[6],stepover:25.4,rasterInset:5.08,feed:9000,plunge:3000}},
     {name:'6mm Pocket Finish 6mm Deep',layer:'OFFSET_A',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'inside',params:{cutDepth:6,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
     {name:'2mm Pocket Finish 6mm',layer:'OFFSET_A',kind:'profile',tool:{id:'v27b53e74',num:2,dia:2},side:'inside',params:{cutDepth:6,depthList:[3,6],lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:3000,plunge:2000}},
@@ -4738,6 +4839,7 @@
       }
       else if(kind==='pocket'&&role==='body'&&hasGeo)live=true;
       else if(kind==='sweep'&&role==='body'&&hasGeo&&sweepProf)live=true;
+      else if(kind==='drill'&&role==='body'&&(op.layer||'')==='hinges'&&(+((op.params||{}).cutDepth)>0))live=true;   // hinge drilling: live only with an explicit depth (never assumed)
       if(tpl.allLive&&its.length)live=true;   // template opts every op ON by default (Flushback — Ednei 2026-07-13); ops with no geometry still emit nothing
       const params=Object.assign(tpDefaults(tool),{layer:engLayer,refLayer:op.layer||'OUT',role:role,scope:{items:its.slice()}},op.side?{side:op.side}:{},op.params||{});
       if(kind==='sweep'&&sweepProf)params.profile=JSON.parse(JSON.stringify(sweepProf));   // the moulding section travels with the op
@@ -4947,17 +5049,28 @@
       const segs=tpSegsForSheet(f);if(!segs.length){rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)}<div class="sub">no toolpath applies here</div></div></div>`;return;}
       const tools=[...new Set(segs.map(s=>'T'+s.num))].join(' → ');
       const names=vis.map(p=>esc(p.name)).join(' + ');
-      const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;if(cd!=null&&cd>f.th+0.01&&tpPathParts(f,pp).length)w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();   // only when the path actually cuts THIS sheet (cam-reviewer note)
+      const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;
+        if(cd!=null&&cd>f.th+0.01&&tpPathParts(f,pp).some(p=>pp.kind!=='drill'||(p.hinge&&p.hinge.on)))w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();   // only when the path actually cuts THIS sheet — a drill op needs a hinged part here (cam-reviewer notes)
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
-        <div class="tpl-act"><button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
+        <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
-    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first.</b></div><div class="tpl-list">${rows}</div>`,true);
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><div class="tpl-list">${rows}</div>`,true);
   }
-  function tpDownloadNC(i){
+  // AIR-CUT (dry-run) export: the EXACT same file with every Z lifted by +N mm — the machine runs the full
+  // toolpath in the air above the sheet, so the P0 validation (STATUS.md) can be done without material.
+  // Z only; X/Y, feeds, order, toolchanges, header/footer identical to the real file.
+  function tpAirLift(segs,mm){return segs.map(s=>({num:s.num,rpm:s.rpm,moves:s.moves.map(m=>{const o=Object.assign({},m);if(o.z!==undefined)o.z=+(o.z+mm).toFixed(3);return o;})}));}
+  function tpDownloadNC(i,air){
     const f=tpVisibleSheets()[i];if(!f)return;
-    const segs=tpSegsForSheet(f);if(!segs.length){alert('No toolpath applies to this sheet.');return;}
+    let segs=tpSegsForSheet(f);if(!segs.length){alert('No toolpath applies to this sheet.');return;}
+    let suffix='';
+    if(air){
+      const el=document.getElementById('tpAirMm');
+      const lift=Math.max(10,Math.round(+((el&&el.value))||50));
+      segs=tpAirLift(segs,lift);suffix='_AIRCUT+'+lift;
+    }
     const nc=ncPegasus(segs);
-    const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(i+1)+'_'+f.th+'mm.nc';
+    const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(i+1)+'_'+f.th+'mm'+suffix+'.nc';
     dlBlob(nc,'text/plain;charset=utf-8',nm);
   }
   function renderToolpaths(){
