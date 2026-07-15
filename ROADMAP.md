@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 (d) — URGENT FIX: "Bottom part" é ABSOLUTO desde o fundo da peça (inclui o frame)
+
+Bug de interpretação: o `panelSize` era tratado como altura INTERNA da abertura inferior (semântica herdada do port do app antigo). Regra confirmada do Ednei: **Bottom part = distância absoluta do fundo/início da peça até o topo da seção inferior, INCLUINDO o frame de baixo** (frame direito na horizontal). Porta 2000 · frame 50 · mid 50 · Bottom part 400 ⇒ abertura inferior 350 + abertura superior 1500 (antes dava 400 + 1450 — errado). Mudança de output em DXF/toolpath/inserts é INTENCIONAL e só para portas multi-painel com Bottom part preenchido.
+
+- **Fix**: `cavsFor` subtrai `f.b` (ou `f.r` deitada) do valor antes do `panelSegs` — preview, DXF, toolpaths e inserts herdam via `placedCavs` (rotação verificada por transposição). Label virou "Bottom part (mm)"/"Right part (mm)" com tooltip da regra; hint multi-painel reescrito; preflight novo `bottom part ≤ frame`.
+- **Persistência aditiva**: `.fastcnc` grava `panelSize` INTERNO (compatível com o app de produção) + novo `kabBottomPart` ABSOLUTO; import prefere `kabBottomPart` e converte legado (interno + frame) — **jobs antigos renderizam idêntico** (verificado: arquivo legado 350 interno → 400 absoluto → mesma geometria).
+- **Regra registrada** em `KABACAL_RULES.md` §Doors (novo).
+- Testado: `node tools/check.mjs` verde com **E2E cenário (g) novo** (caso exato 2000/50/50/400: aberturas 1500+350, mid 50, frames intactos, 400→600 move só o split; save = 350 interno + kabBottomPart 400; round-trip restaura 400; import legado converte e renderiza idêntico); no browser (storage limpo): mesmo caso + inserts 524×1524/524×374 (seguem as aberturas), paisagem espelha da direita (400 da borda direita), DXF do job com rebates 1510/360 (aberturas+10, sem 1460/410 antigos), basket 300/60/360, £75, console limpo. Goldens byte-idênticos (não têm porta multi-painel com Bottom part).
+
 ## 2026-07-15 (c) — Gap×kerf, undo unificado + redo, Takeoff com preview, E2E no check.mjs
 
 A fila do Ednei (mobile por último). Zona guardada intocada: goldens byte-idênticos (agora TAMBÉM verificados em runtime no próprio checker) e basket padrão 300/60/360 no E2E.

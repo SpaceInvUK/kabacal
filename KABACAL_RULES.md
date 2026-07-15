@@ -5,7 +5,17 @@ App: `index.html` (antigo `order-entry-beta.html`). URL: https://spaceinvuk.gith
 > Este arquivo é o LIVRO DE REGRAS confirmadas com o Ednei — decisões de negócio, append-only.
 > Specs técnicas de interface ficam em `docs/` (CONTRACT-CAM, CONTRACT-DXF, PRICING); em conflito, ESTE arquivo ganha sobre o comportamento e os contracts ganham sobre o formato.
 >
-> **Índice:** Panels (medidas · otimizador 8x4/10x4 · shakers/correntes · vertical · aberturas/sill/skirting · offset lines · DXF · preço · persistência/nomes) · Nesting · Offcut (tamanho mínimo · forma/L · texto · chanfro · layers) · Flushback (geometria + templates + regra do binário INVERTIDO) · Templates por peça física (role) · Offset Depth/pockets.
+> **Índice:** Doors (Bottom part ABSOLUTO) · Panels (medidas · otimizador 8x4/10x4 · shakers/correntes · vertical · aberturas/sill/skirting · offset lines · DXF · preço · persistência/nomes) · Nesting · Offcut (tamanho mínimo · forma/L · texto · chanfro · layers) · Flushback (geometria + templates + regra do binário INVERTIDO) · Templates por peça física (role) · Offset Depth/pockets.
+
+## Doors — painéis internos: "Bottom part" é ABSOLUTO (confirmado 2026-07-15)
+
+Em portas com 2+ painéis internos, o campo **Bottom part** (Right part quando a porta está deitada) é a **distância ABSOLUTA do fundo/início da peça até o topo da seção inferior — INCLUINDO o frame de baixo** (frame direito na horizontal). NÃO é a altura interna da abertura inferior.
+
+- Exemplo canônico: porta 2000 de altura · frame 50 · mid rail 50 · 2 painéis · Bottom part 400 ⇒ seção inferior TOTAL = 400 (frame 50 + abertura 350) · mid rail 50 · abertura superior 1500 · frame de cima 50 · total 2000. "The lower panel is not 400 internal. It is 400 total from the bottom of the piece."
+- Mudar o Bottom part redimensiona SOMENTE a abertura inferior + a abertura superior restante; frames laterais, frame de cima/baixo, mid rail e altura total NUNCA mudam. Vazio = divisão igual.
+- Implementação: `cavsFor` subtrai o frame de baixo (`f.b`, ou `f.r` na horizontal) do valor antes do `panelSegs`; preflight avisa `bottom part ≤ frame`.
+- Persistência (aditiva): o `.fastcnc` continua gravando em `panelSize` o valor INTERNO (compatível com o app de produção) e grava o ABSOLUTO no campo novo `kabBottomPart`; na importação, `kabBottomPart` vence; arquivo legado (só `panelSize` interno) converte para absoluto somando o frame — jobs antigos renderizam idêntico.
+- Regressão: check.mjs E2E cenário (g) trava o caso 2000/50/50/400 (350+1500), o round-trip e o import legado.
 
 ## Panels (modo Panels — confirmado 2026-07-07)
 

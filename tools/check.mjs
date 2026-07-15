@@ -546,7 +546,8 @@ if (html && !process.argv.includes('--hook')) {
         get services(){return services}, get vatOn(){return vatOn}, get panelRooms(){return panelRooms},
         get toolDb(){return toolDb}, get nestNote(){return nestNote}, get camJob(){return camJob}, get selSet(){return selSet},
         loadFastCnc, calcQuote, mkItem, addTakeoffItems, parseTakeoffText, parseTakeoffLine, clearSel, render,
-        priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem
+        priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem,
+        doorCavities, buildFastCnc
       }`)(win, doc, ls, ss, m => alerts.push(String(m)), () => true, () => null, { userAgent: 'node' }, win.location, () => Promise.reject(new Error('offline')), () => 0, () => {});
 
     // (a) boot: empty job, LAZY order number (no sequence consumed at page-open)
@@ -596,6 +597,42 @@ if (html && !process.argv.includes('--hook')) {
     const p2 = api.parseTakeoffLine('3 x 600 x 400'); must(p2 && p2.quantity === 3 && p2.width === 600, 'e2e takeoff: "3 x 600 x 400" = qty 3');
     const p3 = api.parseTakeoffLine('100 x 600 x 400'); must(p3 && p3.width === 100 && p3.height === 600 && p3.quantity === 1, 'e2e takeoff: "100 x 600 x 400" parses W100 H600 qty1 (extra number flagged in the preview)');
     must(api.parseTakeoffLine('no dimensions here') === null, 'e2e takeoff: rubbish lines must parse to null');
+
+    // (g) "Bottom part" contract (2026-07-15 fix): ABSOLUTE distance from the BOTTOM of the piece to the
+    // top of the lower section, INCLUDING the bottom frame. 2000 tall · frame 50 · mid 50 · bottom part 400
+    // ⇒ lower opening 350 spanning y1600..1950 (top-down), upper opening 1500 @ y50, rail + frames untouched.
+    const bpDoor = api.mkItem('trad', 600, 2000, 1, 'MDF 18mm', '8x4', { t: 50, r: 50, b: 50, l: 50 }, null, 'BP', { on: false },
+      { offsetName: 'Plain Shaker', panels: 2, midFrame: 50, panelSize: 400 });
+    const bpCs = api.doorCavities(bpDoor);
+    must(bpCs.length === 2, 'bottom part: 2 panels must yield 2 openings');
+    const bpUp = bpCs[0], bpLo = bpCs[1];
+    must(bpLo.h === 350, `bottom part: lower OPENING must be 350 (= 400 − 50 bottom frame), got ${bpLo.h}`);
+    must(2000 - bpLo.y === 400, `bottom part: lower section incl. frame must end exactly 400 from the bottom of the piece, got ${2000 - bpLo.y}`);
+    must(bpUp.h === 1500 && bpUp.y === 50, `bottom part: upper opening must absorb the rest (1500 @ y50), got ${bpUp.h} @ y${bpUp.y}`);
+    must(bpLo.y - (bpUp.y + bpUp.h) === 50, 'bottom part: mid rail must stay exactly 50');
+    must(2000 - (bpLo.y + bpLo.h) === 50, 'bottom part: bottom frame must stay exactly 50');
+    const bpF = bpDoor.frame;
+    must(bpF.t === 50 && bpF.r === 50 && bpF.b === 50 && bpF.l === 50, 'bottom part: frame values must not change');
+    bpDoor.panelSize = 600;                                            // changing it moves ONLY the split point
+    const bpCs2 = api.doorCavities(bpDoor);
+    must(bpCs2[1].h === 550 && 2000 - bpCs2[1].y === 600 && bpCs2[0].h === 1300 && bpCs2[0].y === 50 && bpCs2[1].y - (bpCs2[0].y + bpCs2[0].h) === 50,
+      'bottom part: changing 400→600 must resize ONLY lower (550) + upper (1300); rail and frames untouched');
+    // persistence: .fastcnc keeps the production INNER value in panelSize + the absolute in kabBottomPart
+    bpDoor.panelSize = 400;
+    api.items.length = 0; api.clearSel(); api.items.push(bpDoor); api.render();
+    const bpDocOut = api.buildFastCnc();
+    const bpPart = bpDocOut.blocks.flatMap(b => b.parts || []).find(p => p.text === 'BP' || p.name === 'BP') || bpDocOut.blocks[0].parts[0];
+    must(String(bpPart.panelSize) === '350' && +bpPart.kabBottomPart === 400,
+      `bottom part save: .fastcnc must carry INNER 350 in panelSize + ABSOLUTE 400 in kabBottomPart, got ${bpPart.panelSize}/${bpPart.kabBottomPart}`);
+    api.loadFastCnc(JSON.parse(JSON.stringify(bpDocOut)));
+    must(+api.items[0].panelSize === 400, 'bottom part round-trip: reloading the file must restore the absolute 400');
+    // legacy import (file saved before the fix / by the production app): inner 350 + frame 50 ⇒ absolute 400
+    const bpLegacy = JSON.parse(JSON.stringify(bpDocOut));
+    bpLegacy.blocks.forEach(b => (b.parts || []).forEach(p => { delete p.kabBottomPart; }));
+    api.loadFastCnc(bpLegacy);
+    must(+api.items[0].panelSize === 400, 'bottom part legacy import: inner 350 + bottom frame 50 must convert to absolute 400');
+    const bpCs3 = api.doorCavities(api.items[0]);
+    must(bpCs3.length === 2 && bpCs3[1].h === 350 && bpCs3[1].y === 1600 && bpCs3[0].h === 1500, 'bottom part legacy import: geometry must render identical to before the fix');
   } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
 }
 

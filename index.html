@@ -759,10 +759,13 @@
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
   function cavityOf(it){const f=resolveFrame(it);return {w:Math.max(1,(+it.w||0)-f.l-f.r),h:Math.max(1,(+it.h||0)-f.t-f.b)};}
-  // ---- internal door panels (ported from the production app's computeCavitiesWithFrames/panelSegmentSizes) ----
+  // ---- internal door panels (split maths ported from the production app's computeCavitiesWithFrames) ----
   // panels = how many openings inside the door (split along the LONG axis) · midFrame = the centre rail
-  // between them ('' = same as the outer frame) · panelSize = the LAST opening's size (bottom in portrait,
-  // right in landscape; '' = equal split) — the production app's exact rule.
+  // between them ('' = same as the outer frame) · panelSize = "BOTTOM PART": the ABSOLUTE distance from the
+  // START (bottom) of the piece to the top of the lower section — it INCLUDES the bottom frame (right frame
+  // when the door lies landscape). Corrected 2026-07-15 (Ednei): 2000 tall · frame 50 · Bottom part 400
+  // ⇒ lower opening 350 (400−50) ending 400 from the bottom; the UPPER opening absorbs the rest (1500);
+  // frames and the rail NEVER move. '' = equal split.
   function panelsOf(it){return Math.max(1,Math.round(+(it&&it.panels)||1));}
   function midFrameOf(it){const v=(it&&it.midFrame!==''&&it.midFrame!=null)?+it.midFrame:NaN;return (!isNaN(v)&&v>=0)?v:resolveFrame(it).t;}
   function panelSegs(open,n,req){open=Math.max(0,+open||0);n=Math.max(1,Math.round(+n||1));
@@ -779,8 +782,12 @@
     const n=pnl?Math.max(1,pnl.n||1):1;
     if(n===1)return [{x:f.l,y:f.t,w:iw,h:ih}];
     const mid=Math.max(0,+pnl.mid||0),out=[];
-    if(h>=w){const hs=panelSegs(ih-mid*(n-1),n,pnl.size);let cy=f.t;hs.forEach(hh=>{if(hh>0)out.push({x:f.l,y:cy,w:iw,h:hh});cy+=hh+mid;});}
-    else{const ws=panelSegs(iw-mid*(n-1),n,pnl.size);let cx=f.l;ws.forEach(ww=>{if(ww>0)out.push({x:cx,y:f.t,w:ww,h:ih});cx+=ww+mid;});}
+    // Bottom part is ABSOLUTE from the start of the piece: the lower OPENING = size − bottom frame
+    // (right frame when landscape). panelSegs still receives an inner-opening target and clamps it.
+    if(h>=w){const req=(pnl.size===''||pnl.size==null)?'':Math.max(1,(+pnl.size||0)-f.b);
+      const hs=panelSegs(ih-mid*(n-1),n,req);let cy=f.t;hs.forEach(hh=>{if(hh>0)out.push({x:f.l,y:cy,w:iw,h:hh});cy+=hh+mid;});}
+    else{const req=(pnl.size===''||pnl.size==null)?'':Math.max(1,(+pnl.size||0)-f.r);
+      const ws=panelSegs(iw-mid*(n-1),n,req);let cx=f.l;ws.forEach(ww=>{if(ww>0)out.push({x:cx,y:f.t,w:ww,h:ih});cx+=ww+mid;});}
     return out;}
   function pnlOf(it){const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
   function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
@@ -1122,7 +1129,10 @@
           beading:part.kabBeading||undefined,
           groove:part.kabGroove||undefined,
           panels:Math.max(1,Math.round(num(part.panels,1))),
-          panelSize:(part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)),
+          // Bottom part (ABSOLUTE, incl. bottom/right frame): prefer the additive kabBottomPart; legacy
+          // files carry only the INNER opening in panelSize → convert (+ frame) so old jobs render IDENTICAL
+          panelSize:(part.kabBottomPart!=null&&+part.kabBottomPart>0)?Math.round(+part.kabBottomPart)
+            :((part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)+((num(part.height,0)>=num(part.width,0))?f.b:f.r))),
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
@@ -1225,7 +1235,11 @@
   function partObj(it,bf){
     const f=resolveFrame(it), o={};
     o.width=String(it.w); o.height=String(it.h); o.doorType=(it.type==='flat'?'no':doorFromType(it.type));
-    o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=panelsOf(it); o.panelSize=(it.panelSize===''||it.panelSize==null)?'':String(it.panelSize);
+    o.shaker=(it.type==='flat'?'No':'Yes'); o.panels=panelsOf(it);
+    // panelSize in .fastcnc stays the production app's INNER-opening value (so their renderer agrees);
+    // the corrected ABSOLUTE "Bottom part" travels in the additive kabBottomPart (2026-07-15 semantics fix)
+    if(it.panelSize===''||it.panelSize==null){o.panelSize='';}
+    else{const bf=((+it.h||0)>=(+it.w||0))?f.b:f.r;o.panelSize=String(Math.max(1,Math.round(+it.panelSize-bf)));o.kabBottomPart=+it.panelSize;}
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -1944,9 +1958,9 @@
     ${frameEditor(i,it,false)}
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
       <div class="ed-field" style="flex:1;min-width:104px"><label>Internal rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${f.t}" onchange="setMidFrame(${i},this.value)" title="The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)"></div>
-      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} panel (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="Height of the ${portrait?'bottom':'right-hand'} opening, measured from the ${portrait?'bottom':'right'} of the part — the other openings share the rest (empty = equal split)"></div>
+      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} part (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="equal" onchange="setPanelSize(${i},this.value)" title="ABSOLUTE distance from the ${portrait?'bottom':'right'} of the piece to the top of the ${portrait?'lower':'right'} section — INCLUDES the ${portrait?'bottom':'right'} frame (e.g. frame 50 + opening 350 = 400). The upper opening absorbs the rest; frames and rail never move. Empty = equal split."></div>
     </div>
-    <div class="sub" style="margin-top:6px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' opening is measured from the '+side+' of the part and stays fixed — resizing it or the door re-splits the others, never the frame or rail.';})()}</div>`:'';
+    <div class="sub" style="margin-top:6px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:'';
     return `
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="ed-field" style="flex:1;min-width:88px"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
@@ -5286,6 +5300,7 @@
       const f=resolveFrame(it),frameUsed=(it.type!=='flat')||enabledLines(it).length>0||panelsOf(it)>1;
       if(frameUsed&&(f.l+f.r>=w||f.t+f.b>=h))bad.push('frame ≥ part');
       else if(panelsOf(it)>1&&doorCavities(it).length<panelsOf(it))bad.push('rails don\'t fit');
+      else if(panelsOf(it)>1&&it.panelSize!==''&&it.panelSize!=null&&+it.panelSize<=((h>=w)?f.b:f.r))bad.push('bottom part ≤ frame');   // the ABSOLUTE bottom part must exceed its own frame
       const hi=hingeInfo(it);
       if(hi.on&&Array.isArray(hi.custom)&&hi.custom.some(p=>p<0||p>hi.span))bad.push('hinge off part');
     }
