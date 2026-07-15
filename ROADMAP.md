@@ -2,6 +2,19 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 (c) — Gap×kerf, undo unificado + redo, Takeoff com preview, E2E no check.mjs
+
+A fila do Ednei (mobile por último). Zona guardada intocada: goldens byte-idênticos (agora TAMBÉM verificados em runtime no próprio checker) e basket padrão 300/60/360 no E2E.
+
+- **Guarda gap × kerf** (chip do cam-reviewer): no Save NC, cada chapa com 2+ peças compara o alcance do kerf dos perfis outside LIVE (Ø + allowance + last pass — ex.: rough do flushback = 7.15mm) com o gap de nesting da chapa; se excede, aviso vermelho com o gap mínimo sugerido ("Set Spacing/gap ≥ 7.2mm"). Warning-only; chapa de peça única não avisa.
+- **Undo unificado + redo (fecha o #9)**: `appUndo`/`appRedo` roteiam por contexto — no Top View o menu Edit e o teclado usam a MESMA pilha do builder; `Ctrl+Y`/`Ctrl+Shift+Z` agora fazem **redo do builder** (`pnPlanRedo`, invalidado por ação nova, limpo em new/load); fora do builder, tudo vai pro histórico do app como antes.
+- **Takeoff com preview linha a linha (fecha o #13)**: Add parts abre um modal onde CADA linha mostra como foi entendida (Qty × W × H + texto), tudo editável inline; linha ambígua é flagada ("⚠ 1 number(s) ignored"); linha não entendida entra desmarcada e é incluída ao digitar W/H; só o que está ✓ vira peça; o resto fica na caixa. Colar checklist continua direto (formato exato).
+- **Parser fix pego pelo E2E**: `\d{1,2}` sem boundary fazia "100 x 600 x 400" virar **qty 40** (casava "40" dentro de "400") — `(?!\d)` adicionado; agora parseia 100×600 q1 com o 400 flagado no preview.
+- **E2E comportamental no `check.mjs`** (pedido da auditoria): sandbox node executa o app INTEIRO (DOM/storage fakes + ids como globals implícitos) e assegura: boot vazio + número lazy (seq não consumida), basket padrão 300/60/360 c/ 12 peças, £75, **golden NC datum-ll regenerado byte-idêntico em runtime**, load transacional (arquivo rejeitado não toca em nada), reset completo + tool policy (biblioteca vence, tool nova adicionada, aviso), número gerado só no ensureOrderNumber (seq=1), contrato do parser do takeoff. Pulado no modo --hook (roda no check completo/CI).
+
+### Testado (c)
+`check.mjs` completo verde (incl. E2E novo) ✓ · preview: 4 linhas (ok / ambígua flagada / não entendida ✗ / qty2), confirm → 4 peças físicas e "lixo qualquer" fica na caixa ✓ · Ctrl+Y no Top View → "Nothing to redo in the builder" (roteado); appUndo em doors desfaz item ✓ · gap×kerf: 2 flushbacks → "kerf reaches 7.15… ≥ 7.2mm"; peça única → sem aviso ✓ · console limpo ✓.
+
 ## 2026-07-15 (b) — CAM: fix de segurança no all-live + Drilling de dobradiças + export Air-cut
 
 Rodada "Pocket/Drill NC + air-cut" escolhida pelo Ednei. **Bug grave achado e corrigido**: o "Flushback all-live" de ontem cortava as layers não mapeadas (IN_22MM, POKET_INSERT, SHADOW, OFFSET_5MM) no **contorno da PEÇA** — o `tpOpRects` caía no fallback do part-rect, então "4mm In 18mm" recortava a borda da porta passante a 2mm pra dentro e o pocket do insert idem a 5.5mm. Goldens byte-idênticos (o refactor é contratual).

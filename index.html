@@ -468,8 +468,8 @@
       </span>
       <span class="menu" onclick="toggleMenu(this,event)">Edit
         <div class="dd">
-          <div class="dd-item" onclick="event.stopPropagation();undo();closeMenus()">Undo <span class="ksc">Ctrl+Z</span></div>
-          <div class="dd-item" onclick="event.stopPropagation();redo();closeMenus()">Redo <span class="ksc">Ctrl+Y</span></div>
+          <div class="dd-item" onclick="event.stopPropagation();appUndo();closeMenus()">Undo <span class="ksc">Ctrl+Z</span></div>
+          <div class="dd-item" onclick="event.stopPropagation();appRedo();closeMenus()">Redo <span class="ksc">Ctrl+Y</span></div>
           <div class="dd-item" onclick="event.stopPropagation();openQuickMats();closeMenus()">Quick materials…</div>
           <div class="dd-item" onclick="event.stopPropagation();openPricing();closeMenus()">Pricing settings…</div>
           <div class="dd-item" onclick="event.stopPropagation();openMatColors();closeMenus()">Material colours…</div>
@@ -1146,7 +1146,7 @@
     services={design:0,cutting:0,assembly:0};machine={};sprayAddons={sq:false,hg:false,gg:false,prep:0};vatOn=true;
     sheetPriceOv={};sheetSizeOv={};matSizeDef={};sheetMarginOv={};sheetGapOv={};keepSheetOv=false;
     placements=null;selKey=null;if(typeof selSheets!=='undefined'&&selSheets.clear)selSheets.clear();
-    if(typeof pnPlanHist!=='undefined')pnPlanHist.length=0;
+    if(typeof pnPlanHist!=='undefined')pnPlanHist.length=0;if(typeof pnPlanRedo!=='undefined')pnPlanRedo.length=0;
     undoStack.length=0;redoStack.length=0;lastSnap=null;
     project={client:'',phone:'',email:'',number:'',date:localToday(),notes:''};
     panelRooms=(pr&&pr.length)?pr:[];pnSel={room:0,wall:0,kind:'room',id:null};
@@ -1329,7 +1329,7 @@
     sheetPriceOv={};if(typeof sheetSizeOv!=='undefined')sheetSizeOv={};if(typeof matSizeDef!=='undefined')matSizeDef={};
     placements=null;editMode=false;
     undoStack.length=0;if(typeof redoStack!=='undefined')redoStack.length=0;
-    if(typeof pnPlanHist!=='undefined')pnPlanHist.length=0;                       // builder history belongs to the old job (audit #9)
+    if(typeof pnPlanHist!=='undefined')pnPlanHist.length=0;if(typeof pnPlanRedo!=='undefined')pnPlanRedo.length=0;                       // builder history belongs to the old job (audit #9)
     if(typeof cloudJob!=='undefined')cloudJob=null;if(typeof cloudChip==='function')cloudChip();   // a NEW job must never "Update" the previously open cloud job (audit #2)
     project={client:'',phone:'',email:'',number:'',date:localToday(),notes:''};   // number is generated lazily on first save/print (audit #14)
     syncClientBar();
@@ -2976,7 +2976,7 @@
     if(sc){text=tkShortcut(sc[1]);raw=raw.slice(sc[0].length).trim();}
     let m=raw.match(/(?:^|\s)(\d{1,2})\s*x\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*x\s*(\d+(?:\.\d+)?)/i);
     if(m)return {quantity:+m[1],width:Math.round(+m[2]),height:Math.round(+m[3]),text};
-    m=raw.match(/(?:^|\s)(\d+(?:\.\d+)?)\s*(?:mm)?\s*x\s*(\d+(?:\.\d+)?)(?:\s*mm)?\s*x\s*(\d{1,2})/i);
+    m=raw.match(/(?:^|\s)(\d+(?:\.\d+)?)\s*(?:mm)?\s*x\s*(\d+(?:\.\d+)?)(?:\s*mm)?\s*x\s*(\d{1,2})(?!\d)/i);   // (?!\d): "x 400" must NOT read as qty 40 (E2E-caught bug)
     if(m)return {quantity:+m[3],width:Math.round(+m[1]),height:Math.round(+m[2]),text};
     m=raw.match(/(?:^|\s)(\d+(?:\.\d+)?)\s*(?:mm)?\s*x\s*(\d+(?:\.\d+)?)/i);
     if(m)return {quantity:1,width:Math.round(+m[1]),height:Math.round(+m[2]),text};
@@ -3008,16 +3008,60 @@
     return list.reduce((s,p)=>s+Math.max(1,+p.quantity||1),0);
   }
   // Smart Takeoff lives inline in Order entry (below "New order") — no modal, no separate tab.
-  // Takeoff never loses lines silently (audit #13): understood lines become parts, the rest STAY in the box
-  function tkAddText(){const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');
-    const src=t.value,isCk=!!parseChecklistPaste(src);
-    const n=addTakeoffItems(parseTakeoffText(src));
-    if(!n){st.textContent='No dimensions found.';return;}
-    if(isCk){t.value='';st.textContent='Added '+n+' part(s) from the checklist.';return;}
-    const bad=String(src||'').replace(/\r/g,'\n').split(/\n+/).map(x=>x.trim()).filter(Boolean)
-      .filter(l=>{const p=parseTakeoffLine(l);return !(p&&p.width>0&&p.height>0);});
-    t.value=bad.join('\n');
-    st.textContent='Added '+n+' part(s).'+(bad.length?' ⚠ '+bad.length+' line(s) not understood — left in the box for you to fix.':'');}
+  // Smart Takeoff PREVIEW (audit #13, final form): every line is shown with HOW it was understood
+  // (qty × W × H + text), editable inline, BEFORE anything is created. Ambiguous lines (extra numbers,
+  // e.g. "100 x 600 x 400") are flagged instead of silently misread; unticked/broken lines stay in the box.
+  let tkPrev=null;
+  function tkAddText(){
+    const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');
+    const src=t.value;
+    if(!String(src||'').trim()){st.textContent='Nothing to read.';return;}
+    if(parseChecklistPaste(src)){const n=addTakeoffItems(parseTakeoffText(src));t.value='';st.textContent='Added '+n+' part(s) from the checklist.';return;}   // checklist paste is exact — no preview needed
+    const lines=String(src||'').replace(/\r/g,'\n').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    if(!lines.length){st.textContent='Nothing to read.';return;}
+    tkPrev=lines.map(raw=>{
+      const p=parseTakeoffLine(raw);
+      const nums=(raw.match(/\d+(?:\.\d+)?/g)||[]);
+      const row={raw:raw,on:!!(p&&p.width>0&&p.height>0),q:p?Math.max(1,Math.round(+p.quantity||1)):'',w:p?p.width:'',h:p?p.height:'',text:p?(p.text||''):'',note:''};
+      if(!row.on)row.note='not understood — type W and H to include it';
+      else{
+        const qtyExplicit=nums.length>=3&&((+nums[0]===row.q)||(+nums[nums.length-1]===row.q));
+        const used=2+(qtyExplicit?1:0);
+        if(nums.length>used)row.note='⚠ '+(nums.length-used)+' number(s) ignored — check Qty / W / H';
+      }
+      return row;
+    });
+    tkPrevOpen();
+  }
+  function tkPrevOpen(){
+    const rows=tkPrev.map((r,i)=>`<tr style="${r.on?'':'opacity:.55'}">
+      <td><input type="checkbox" ${r.on?'checked':''} onchange="tkPrevSet(${i},'on',this.checked)" aria-label="Include this line"></td>
+      <td><input type="number" min="1" value="${r.q}" style="width:52px" onchange="tkPrevSet(${i},'q',this.value)"></td>
+      <td><input type="number" min="1" value="${r.w}" style="width:68px" onchange="tkPrevSet(${i},'w',this.value)"></td>
+      <td><input type="number" min="1" value="${r.h}" style="width:68px" onchange="tkPrevSet(${i},'h',this.value)"></td>
+      <td><input type="text" value="${esc(r.text)}" style="width:110px" onchange="tkPrevSet(${i},'text',this.value)"></td>
+      <td class="sub" style="max-width:190px;overflow-wrap:anywhere">${esc(r.raw)}${r.note?'<br><b style="color:#b45309">'+esc(r.note)+'</b>':''}</td></tr>`).join('');
+    openModal('Smart Takeoff — check each line before adding',
+      '<div class="sub" style="margin-bottom:6px">Each line shows HOW Kabacal understood it. Fix Qty / W / H inline; untick what you don\'t want. Unticked and not-understood lines stay in the box afterwards.</div>'
+      +'<div style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px"><table class="ptbl" style="font-size:12px;margin:0"><thead><tr><th></th><th>Qty</th><th>W (mm)</th><th>H (mm)</th><th>Text</th><th>Original line</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      +'<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" onclick="tkPrev=null;closeModal()">Cancel</button><button class="btn primary" onclick="tkPrevConfirm()">Add ticked parts</button></div>',true);
+  }
+  function tkPrevSet(i,k,v){const r=tkPrev&&tkPrev[i];if(!r)return;
+    if(k==='on')r.on=!!v;
+    else if(k==='text')r.text=v;
+    else r[k]=(String(v).trim()==='')?'':Math.max(1,Math.round(+v||0));
+    if((k==='w'||k==='h')&&+r.w>0&&+r.h>0&&!r.on){r.on=true;r.note='';tkPrevOpen();}}   // fixing a broken line re-includes it
+  function tkPrevConfirm(){
+    if(!tkPrev)return;
+    const take=tkPrev.filter(r=>r.on&&+r.w>0&&+r.h>0);
+    if(!take.length){alert('Nothing ticked with a valid width and height.');return;}
+    const n=addTakeoffItems(take.map(r=>({quantity:Math.max(1,+r.q||1),width:+r.w,height:+r.h,text:r.text||''})));
+    const keep=tkPrev.filter(r=>!(r.on&&+r.w>0&&+r.h>0)).map(r=>r.raw);
+    const t=document.getElementById('tkText'),st=document.getElementById('tkStatus');
+    if(t)t.value=keep.join('\n');
+    if(st)st.textContent='Added '+n+' part(s).'+(keep.length?' '+keep.length+' line(s) left in the box.':'');
+    tkPrev=null;closeModal();
+  }
   // OCR: tesseract.js is loaded on demand from the CDN only when an image is used (app stays a single file)
   let _tessP=null;
   function loadTesseract(){
@@ -5051,7 +5095,17 @@
       const names=vis.map(p=>esc(p.name)).join(' + ');
       const warn=(function(){let w='';vis.forEach(pp=>{const cd=pp.params.cutDepth;
         if(cd!=null&&cd>f.th+0.01&&tpPathParts(f,pp).some(p=>pp.kind!=='drill'||(p.hinge&&p.hinge.on)))w='⚠ cuts '+(cd-f.th).toFixed(1)+'mm into the bed';});return w;})();   // only when the path actually cuts THIS sheet — a drill op needs a hinged part here (cam-reviewer notes)
-      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}</div></div>
+      // gap × kerf guard (cam-reviewer chip): the OUTSIDE profile kerf reaches Ø + allowance + lastPass from
+      // each face; parts pack at the sheet's gap. Reach > gap = the cut grazes the NEIGHBOUR's finished face.
+      const gapWarn=(function(){let mx=0,pn=(f.sh.parts||[]).filter(p=>!p.isBack).length;
+        if(pn<2)return '';                                            // one part per sheet = no neighbour to graze
+        vis.forEach(pp=>{if((pp.kind||'profile')!=='profile')return;const P=pp.params;
+          if((P.side||'outside')!=='outside'||((P.layer||'OUT')!=='OUT'))return;
+          if(!tpPathParts(f,pp).length)return;const tool=toolById(pp.toolId);if(!tool)return;
+          const reach=(+tool.dia||0)+(+P.allowance||0)+((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
+          if(reach>mx)mx=reach;});
+        return (mx>f.sh.g+0.001)?('⚠ kerf reaches '+mx.toFixed(2)+'mm but parts are packed at '+f.sh.g+'mm — neighbouring faces get grazed '+(mx-f.sh.g).toFixed(2)+'mm. Set Spacing/gap ≥ '+(Math.ceil(mx*10)/10)+'mm in Nesting.'):'';})();
+      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
     openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><div class="tpl-list">${rows}</div>`,true);
@@ -6784,13 +6838,22 @@
   // granular builder undo (item 8): one snapshot per discrete action (draw wall, place opening, move, lock
   // toggle, delete, field edit). Ctrl+Z in the Top view pops ONE — it never rolls back the whole project (the
   // doors-scope undo is isolated from the builder). Stack holds deep-cloned {room, plan}, most-recent last.
-  let pnPlanHist=[];
+  let pnPlanHist=[],pnPlanRedo=[];
   function pnPlanSnapshot(){const room=pnRoomObj();if(!room||!room.plan)return;
     try{pnPlanHist.push({room:pnSel.room,plan:JSON.parse(JSON.stringify(room.plan))});}catch(_){}
-    if(pnPlanHist.length>80)pnPlanHist.shift();}
+    if(pnPlanHist.length>80)pnPlanHist.shift();
+    pnPlanRedo.length=0;}                                             // a new action invalidates the redo branch
   function pnPlanUndo(){
     if(!pnPlanHist.length){pnPlanMsg='Nothing left to undo in the builder.';renderPanels();return;}
+    const cur=pnRoomObj();if(cur&&cur.plan)try{pnPlanRedo.push({room:pnSel.room,plan:JSON.parse(JSON.stringify(cur.plan))});}catch(_){}
     const snap=pnPlanHist.pop(),room=panelRooms[snap.room];if(!room){renderPanels();return;}
+    room.plan=snap.plan;pnSel.room=snap.room;pnPlanSel=null;pnPlanMsg='';
+    room.walls=pnPlanCompile(room);pnSave();renderPanels();}
+  // builder REDO (audit #9): mirror of undo — current state goes back on the undo stack, redo snap applies
+  function pnPlanRedoFn(){
+    if(!pnPlanRedo.length){pnPlanMsg='Nothing to redo in the builder.';renderPanels();return;}
+    const cur=pnRoomObj();if(cur&&cur.plan)try{pnPlanHist.push({room:pnSel.room,plan:JSON.parse(JSON.stringify(cur.plan))});}catch(_){}
+    const snap=pnPlanRedo.pop(),room=panelRooms[snap.room];if(!room){renderPanels();return;}
     room.plan=snap.plan;pnSel.room=snap.room;pnPlanSel=null;pnPlanMsg='';
     room.walls=pnPlanCompile(room);pnSave();renderPanels();}
   function pnKeepSquare(room){return !(room&&room.plan)||room.plan.keepSquare!==false;}   // ON by default
@@ -7295,8 +7358,12 @@
     if(!(curView==='panels'&&pnView==='plan'))return;
     if(pnInEditable(e.target))return;
     const z=(e.key==='z'||e.key==='Z'),y=(e.key==='y'||e.key==='Y'),mod=e.ctrlKey||e.metaKey;
-    if(mod&&(z||y)){e.preventDefault();e.stopImmediatePropagation();if(z&&!e.shiftKey)pnPlanUndo();}
+    if(mod&&(z||y)){e.preventDefault();e.stopImmediatePropagation();if(z&&!e.shiftKey)pnPlanUndo();else pnPlanRedoFn();}   // Ctrl+Y / Ctrl+Shift+Z = builder redo (audit #9)
   },true);
+  // context-routed Edit menu (audit #9): in the Top view the menu drives the SAME builder history as the
+  // keyboard; everywhere else it drives the app history. One stack per context, no cross-firing.
+  function appUndo(){if(curView==='panels'&&typeof pnView!=='undefined'&&pnView==='plan'){pnPlanUndo();return;}undo();}
+  function appRedo(){if(curView==='panels'&&typeof pnView!=='undefined'&&pnView==='plan'){pnPlanRedoFn();return;}redo();}
   window.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&pnMeasureOn){pnMeasureOn=false;pnMeasA=null;pnMeasFix=null;if(curView==='panels')renderPanels();return;}
     // Delete the selected UNLOCKED builder item (item 7): Top view, wall/opening/object. A wall with a locked

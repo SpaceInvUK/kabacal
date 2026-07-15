@@ -519,6 +519,86 @@ if (process.argv.includes('--pre-commit')) {
   } catch (e) { failures.push('pre-commit git checks failed to run: ' + (e && e.message || e)); }
 }
 
+// 8. E2E behavioural sandbox (audit rec #10): execute the WHOLE app script in node with DOM/storage
+//    stubs and assert the job-lifecycle + pricing + NC behaviours that the grep tripwires can't see.
+//    Skipped in --hook mode (runs on every full check / CI).
+if (html && !process.argv.includes('--hook')) {
+  try {
+    const src = (html.match(/<script[^>]*>([\s\S]*?)<\/script>/i) || [])[1] || '';
+    const mkEl = () => { const el = { style: {}, dataset: {}, children: [], value: '', innerHTML: '', textContent: '', checked: false, options: [],
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+      setAttribute() {}, getAttribute: () => null, appendChild(c) { el.children.push(c); return c; }, removeChild() {}, remove() {}, insertBefore() {},
+      addEventListener() {}, removeEventListener() {}, focus() {}, select() {}, click() {}, closest: () => null,
+      querySelector: () => mkEl(), querySelectorAll: () => [], getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+      scrollIntoView() {}, contains: () => false }; return el; };
+    const doc = { createElement: () => mkEl(), getElementById: () => mkEl(), querySelector: () => null, querySelectorAll: () => [],
+      addEventListener() {}, removeEventListener() {}, body: mkEl(), documentElement: mkEl(), activeElement: null, write() {}, close() {} };
+    const mkStore = () => { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), clear: () => m.clear() }; };
+    const ls = mkStore(), ss = mkStore();
+    const alerts = []; const win = { addEventListener() {}, removeEventListener() {}, open: () => null, matchMedia: () => ({ matches: false, addEventListener() {} }), location: { href: '', search: '', origin: 'http://x', reload() {} } };
+    win.window = win;
+    // browsers expose every id="..." as an implicit global (the app leans on this, e.g. sItems/qaW) —
+    // recreate that in node by pre-seeding globalThis with fake elements for every id in the markup
+    new Set([...html.matchAll(/id="([A-Za-z_$][\w$]*)"/g)].map(m => m[1])).forEach(id => { if (!(id in globalThis)) globalThis[id] = mkEl(); });
+    const api = new Function('window', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'prompt', 'navigator', 'location', 'fetch', 'setTimeout', 'clearTimeout',
+      src + `;return {
+        get items(){return items}, get camPaths(){return camPaths}, get project(){return project},
+        get services(){return services}, get vatOn(){return vatOn}, get panelRooms(){return panelRooms},
+        get toolDb(){return toolDb}, get nestNote(){return nestNote}, get camJob(){return camJob}, get selSet(){return selSet},
+        loadFastCnc, calcQuote, mkItem, addTakeoffItems, parseTakeoffText, parseTakeoffLine, clearSel, render,
+        priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem
+      }`)(win, doc, ls, ss, m => alerts.push(String(m)), () => true, () => null, { userAgent: 'node' }, win.location, () => Promise.reject(new Error('offline')), () => 0, () => {});
+
+    // (a) boot: empty job, LAZY order number (no sequence consumed at page-open)
+    must(api.items.length === 0, 'e2e boot: items must start empty');
+    must(api.project.number === '', 'e2e boot: order number must be empty (lazy)');
+    must(ls.getItem('kab_seq') === null, 'e2e boot: no sequence number consumed at open');
+
+    // (b) pricing invariants at runtime: the standard basket = £300 sub / £360 inc VAT, 12 parts
+    api.addTakeoffItems(api.parseTakeoffText('600 x 400 x 6\n715 x 495 x 2\n300 x 300 x 4')); api.render();
+    const qa = api.calcQuote();
+    must(qa.sub === 300 && qa.vat === 60 && qa.total === 360 && qa.partN === 12, `e2e pricing: standard basket must be 300/60/360 with 12 parts (got ${qa.sub}/${qa.vat}/${qa.total}/${qa.partN})`);
+    must(api.priceForSheet('MDF 18mm', '10x4') === 75, 'e2e pricing: MDF 18mm on 10x4 must be exactly 75');
+
+    // (c) GOLDEN NC at runtime — regenerate the standard job and byte-compare with tests/golden
+    api.camPaths.length = 0;
+    api.camPaths.push({ id: 'tp_golden', on: true, kind: 'profile', name: 'Profile 1', toolId: 't1', params: api.tpDefaults() });
+    Object.assign(api.camJob, { zZero: 'bed', datum: 'll', rapidGap: 20, approach: 5, orient: 'portrait' });
+    const ncLL = api.ncPegasus(api.tpSegsForSheet(api.tpSheets()[0]));
+    const goldLL = readFileSync(join(root, 'tests', 'golden', 'GOLDEN_S1_18mm_datum-ll.nc'), 'utf8');
+    must(ncLL === goldLL, 'e2e golden: regenerated datum-ll NC must be byte-identical to tests/golden');
+
+    // (d) transactional load: a rejected file must not touch the current job
+    api.camPaths.length = 0;
+    api.items.length = 0; api.clearSel();
+    api.items.push(api.mkItem('flat', 600, 400, 2, 'MDF 18mm', '8x4', { t: 0, r: 0, b: 0, l: 0 }, null, 'KEEP', { on: false }, { offsetName: 'None' })); api.render();
+    api.camPaths.push({ id: 'tp_keep', on: true, kind: 'profile', name: 'Keep', toolId: 't1', params: api.tpDefaults() });
+    api.services.design = 3;
+    api.loadFastCnc({ blocks: [{ autoGenerated: false, parts: [] }] });
+    must(api.items.length === 1 && api.items[0].text === 'KEEP' && api.camPaths.length === 1 && api.services.design === 3,
+      'e2e transactional: a rejected .fastcnc must leave items/camPaths/services untouched');
+
+    // (e) full reset on load + Tool DB policy (library wins, unknown tools added, notice set)
+    const t1feed = api.toolById('t1').feed;
+    api.vatOn === true; api.services.design = 3; api.panelRooms.push({ name: 'X', walls: [] });
+    api.loadFastCnc({ blocks: [{ material: 'MDF', thickness: '18mm', size: '8x4', frameSize: 50, parts: [{ width: '700', height: '500', quantity: '1', doorType: 'no' }] }],
+      kabacalQuote: { camTools: [Object.assign({}, api.toolById('t1'), { feed: 1234 }), { id: 'tz_e2e', name: 'File tool', num: 9, dia: 10, feed: 5000, plunge: 2000, rpm: 12000, passDepth: 5 }] } });
+    must(api.services.design === 0 && api.vatOn === true && api.panelRooms.length === 0, 'e2e reset: services/VAT/panels must reset when a file is loaded');
+    must(api.toolById('t1').feed === t1feed, 'e2e tool policy: the machine library must win an id conflict');
+    must(!!api.toolById('tz_e2e'), 'e2e tool policy: unknown file tools must be ADDED');
+    must(/DIFFERENT settings/.test(api.nestNote || ''), 'e2e tool policy: the conflict notice must be shown');
+    must(api.project.number === '', 'e2e lazy number: loading a file without a number must not generate one');
+    api.ensureOrderNumber();
+    must(api.project.number !== '' && ls.getItem('kab_seq') === '1', 'e2e lazy number: first save-path call generates it and consumes seq 1');
+
+    // (f) takeoff parser contract (incl. the documented ambiguous case)
+    const p1 = api.parseTakeoffLine('600 x 400 x 6'); must(p1 && p1.quantity === 6 && p1.width === 600 && p1.height === 400, 'e2e takeoff: "600 x 400 x 6" = 600×400 qty 6');
+    const p2 = api.parseTakeoffLine('3 x 600 x 400'); must(p2 && p2.quantity === 3 && p2.width === 600, 'e2e takeoff: "3 x 600 x 400" = qty 3');
+    const p3 = api.parseTakeoffLine('100 x 600 x 400'); must(p3 && p3.width === 100 && p3.height === 600 && p3.quantity === 1, 'e2e takeoff: "100 x 600 x 400" parses W100 H600 qty1 (extra number flagged in the preview)');
+    must(api.parseTakeoffLine('no dimensions here') === null, 'e2e takeoff: rubbish lines must parse to null');
+  } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
+}
+
 if (failures.length) {
   console.error('KABACAL CHECK FAILED:\n - ' + failures.join('\n - '));
   process.exit(2);
