@@ -422,6 +422,15 @@
   .pn-step b{min-width:30px;text-align:center;font-size:12px;color:var(--ink)}
   .pn-status{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)}
   .pn-status b{color:var(--ink)}
+  /* shared quote/PDF blocks (also defined in the print window) so the Panels extras style the same on-screen */
+  .quote .qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid var(--line);padding-bottom:3px;margin:12px 0 6px}
+  .quote .msum{width:100%;border-collapse:collapse;margin:6px 0}
+  .quote .msum th,.quote .msum td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;font-size:11px}
+  .quote .msum th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
+  .quote .msum td.r,.quote .msum th.r{text-align:right}.quote .msum td.c,.quote .msum th.c{text-align:center}
+  .quote .dwg-sheet{border:1px solid var(--line);border-radius:7px;padding:5px;margin-bottom:6px}
+  .quote .dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}
+  .quote .q-sheetprev{max-height:360px;overflow:auto}
   .pn-hint{font-size:11px;color:var(--muted)}
   .pn-views{position:absolute;top:10px;right:10px;display:flex;gap:4px;z-index:2}
   .pn-mini{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:7px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer}
@@ -6232,6 +6241,52 @@
       +'</tbody></table>'
       +'<table class="msum"><tbody><tr><td><b>Doors total</b></td><td class="r"><b>'+moneyP(d.bodyTot)+'</b></td></tr><tr><td><b>Panels total</b></td><td class="r"><b>'+moneyP(d.panels.total)+'</b></td></tr></tbody></table>';
   }
+  // ---- Panels square metres (2026-07-15) ----
+  // Material area = the physical bounding rectangle you cut: w × h (matches the DXF/nesting piece). Painted
+  // FRONT area = the visible front face = the same rectangle MINUS any window cut-out (piece.notches) — one
+  // face only, never doubled for front/back. Both sum the REAL pieces from pnRoom, so Panel On/Off, splits,
+  // vertical zones and gap/overlap are already accounted for, and walls with no panels contribute nothing.
+  function pnPieceArea(p){const rect=Math.max(0,+p.w||0)*Math.max(0,+p.h||0);
+    let notch=0;(p.notches||[]).forEach(n=>{notch+=Math.max(0,+n.w||0)*Math.max(0,+n.h||0);});
+    return {mat:rect, painted:Math.max(0,rect-notch)};}
+  function pnQuoteAreas(){
+    const rooms=[];let matMM=0,paintedMM=0,count=0;
+    (panelRooms||[]).forEach(room=>{let L;try{L=pnRoom(room);}catch(e){return;}
+      if(!L.pieces.length)return;
+      let rm=0,rp=0;L.pieces.forEach(p=>{const a=pnPieceArea(p);rm+=a.mat;rp+=a.painted;});
+      matMM+=rm;paintedMM+=rp;count+=L.pieces.length;
+      rooms.push({room:room,L:L,mat:rm/1e6,painted:rp/1e6,count:L.pieces.length});});
+    return {mat:matMM/1e6, painted:paintedMM/1e6, count:count, rooms:rooms};
+  }
+  // Panels cut list — Wall / Panel ID (existing Wall NA naming) / Width / Height / Thickness / Area m². Grouped
+  // by room when there is more than one.
+  function pnCutListHtml(areas){
+    let body='';
+    areas.rooms.forEach(r=>{const th=pnThick(r.room.mat)||18;
+      if(areas.rooms.length>1)body+='<tr><td colspan="6" style="font-weight:800;background:#f8fafc">'+esc(r.room.name||'Room')+'</td></tr>';
+      r.L.pieces.forEach(p=>{body+='<tr><td>Wall '+(p.wi+1)+'</td><td>Wall '+(p.wi+1)+(p.letter||'')+'</td><td class="c">'+Math.round(p.w)+'</td><td class="c">'+Math.round(p.h)+'</td><td class="c">'+th+'mm</td><td class="r">'+((+p.w||0)*(+p.h||0)/1e6).toFixed(2)+'</td></tr>';});});
+    return '<table class="msum"><thead><tr><th>Wall</th><th>Panel ID</th><th class="c">Width</th><th class="c">Height</th><th class="c">Thick</th><th class="r">Area m²</th></tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  // Quote/PDF Panels extras — the SAME block for the Quote tab and the printed PDF: summary + (optional)
+  // panorama + (optional) sheet preview + cut list. Empty when there are no panels → doors-only quote unchanged.
+  let pnQuotePano=true, pnQuoteSheets=true;   // Quote/PDF toggles (default ON when panels exist)
+  function setPnQuoteOpt(k,v){if(k==='pano')pnQuotePano=!!v;else if(k==='sheets')pnQuoteSheets=!!v;renderQuoteView();}
+  function pnQuotePanelsExtra(){
+    const areas=pnQuoteAreas();if(!areas.count)return '';
+    const multi=areas.rooms.length>1;
+    let h='<div class="qsec">Wall Panels</div>'
+      +'<table class="msum"><tbody>'
+      +'<tr><td>Total panels</td><td class="r"><b>'+areas.count+'</b></td></tr>'
+      +'<tr><td>Panel material area</td><td class="r"><b>'+areas.mat.toFixed(2)+' m²</b></td></tr>'
+      +'<tr><td>Painted front area (front only)</td><td class="r"><b>'+areas.painted.toFixed(2)+' m²</b></td></tr>'
+      +'</tbody></table>';
+    if(pnQuotePano){h+='<div class="qsec">Panels — panoramic view</div>';
+      areas.rooms.forEach(r=>{h+='<div class="dwg-sheet">'+(multi?'<div class="dwg-cap">'+esc(r.room.name||'Room')+'</div>':'')+pnPanoSvg(r.room,r.L,true)+'</div>';});}
+    if(pnQuoteSheets){h+='<div class="qsec">Panels — sheet preview</div>';
+      areas.rooms.forEach(r=>{h+='<div class="dwg-sheet q-sheetprev">'+(multi?'<div class="dwg-cap">'+esc(r.room.name||'Room')+'</div>':'')+pnSheetsSvg(r.room,r.L)+'</div>';});}
+    h+='<div class="qsec">Panel cut list</div>'+pnCutListHtml(areas);
+    return h;
+  }
   // ---- Panels DXF export — same discipline as the Doors writer (portrait doc, SHEET caption inside the
   // sheet, OUT outline, OFFSET_A per shaker cavity (or enabled A–G inset lines), INSIDE for window
   // cut-outs, PART_NUMBER corner + fitted size/name text; 7mm margins/gaps come from the nesting) ----
@@ -6767,9 +6822,14 @@
     });
     return '<svg viewBox="0 0 '+vbW+' '+Math.round(y+4)+'" style="width:100%;display:block">'+s+'</svg>';
   }
-  // panoramic room view: every wall side by side, click a wall to open it
-  function pnPanoSvg(room,L){
-    const walls=room.walls||[];if(!walls.length)return '<div class="pn-hint">No walls.</div>';
+  // panoramic room view: every wall side by side, click a wall to open it.
+  // quote=true (Quote tab / PDF only): HIDE walls with no panels and pack the rest tight (real wall numbers
+  // kept), and use a print-friendly, height-capped outer style. The editor call (quote falsy) is unchanged.
+  function pnPanoSvg(room,L,quote){
+    const allWalls=room.walls||[];if(!allWalls.length)return '<div class="pn-hint">No walls.</div>';
+    const walls=quote?allWalls.filter((w,wi)=>L.pieces.some(p=>p.wi===wi)):allWalls;
+    if(!walls.length)return '<div class="pn-hint" style="padding:14px;text-align:center;color:#64748b">No panelled walls in this room.</div>';
+    const wiOf=w=>allWalls.indexOf(w);   // ORIGINAL wall index (labels + piece lookup) even after filtering
     const lines=pnLinesFor(room);   // scope-aware offset set — Room view must show the SAME offsets as Wall view / DXF (2026-07-13)
     const gap=160;   // compact panoramic spacing (2026-07-10): was 420 — cut well over half so walls read at a glance (each label stays centred within its own wall, so no overlap)
     let totW=0,maxH=0;walls.forEach(w=>{totW+=Math.max(200,+w.w||0);maxH=Math.max(maxH,+w.h||0);});
@@ -6779,11 +6839,13 @@
     const floorY=maxH*sc+26;
     const vbH=Math.round(floorY+labH);
     let x=pad;
-    let s='<svg viewBox="0 0 '+vbW+' '+vbH+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;flex:1;min-height:0">';
+    const outStyle=quote?'width:100%;height:auto;max-height:80mm;display:block':'width:100%;height:100%;display:block;flex:1;min-height:0';
+    let s='<svg viewBox="0 0 '+vbW+' '+vbH+'" preserveAspectRatio="xMidYMid meet" style="'+outStyle+'">';
     s+='<line x1="'+(pad-14)+'" y1="'+floorY+'" x2="'+(vbW-pad+14)+'" y2="'+floorY+'" stroke="var(--muted)" stroke-width="1"/>';
-    walls.forEach((w,wi)=>{
+    walls.forEach((w)=>{
+      const wi=wiOf(w);
       const W=Math.max(200,+w.w||0),H=Math.max(200,+w.h||0),wpx=W*sc,hpx=H*sc,x0=x,y0=floorY-hpx;
-      const on=wi===pnSel.wall;
+      const on=!quote&&wi===pnSel.wall;
       s+='<g class="pnw" data-wi="'+wi+'" style="cursor:pointer">';
       s+='<rect x="'+x0+'" y="'+y0+'" width="'+wpx+'" height="'+hpx+'" fill="var(--bg)" stroke="'+(on?'#2563eb':'var(--muted)')+'" stroke-width="'+(on?1.6:0.8)+'"/>';
       L.pieces.filter(p=>p.wi===wi).forEach(p=>{
@@ -7771,7 +7833,16 @@
     let status='';
     try{
       const pcs=L?L.pieces.length:0;
-      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span></div>';
+      // discreet m² footer under the drawing (2026-07-15): this room's total + painted-front area, and — when a
+      // single wall is in focus — that wall's area too. Uses the same pnPieceArea as the quote (material = w×h,
+      // painted front = w×h − window notches).
+      let rMat=0,rP=0,wMat=0,wP=0;
+      (L?L.pieces:[]).forEach(p=>{const a=pnPieceArea(p);rMat+=a.mat;rP+=a.painted;if(p.wi===pnSel.wall){wMat+=a.mat;wP+=a.painted;}});
+      const areaTxt='Total panel area <b>'+(rMat/1e6).toFixed(2)+' m²</b> · Painted front area <b>'+(rP/1e6).toFixed(2)+' m²</b>';
+      const wallTxt=(pnSel.kind!=='room'&&wMat>0)?' &nbsp;·&nbsp; Wall panel area <b>'+(wMat/1e6).toFixed(2)+' m²</b> · Wall painted front area <b>'+(wP/1e6).toFixed(2)+' m²</b>':'';
+      status='<div class="pn-status"><span><b>'+esc(room.name||'Room')+'</b> · Wall '+(pnSel.wall+1)+' — '+pcs+' panel'+(pcs===1?'':'s')+'</span>'
+        +'<span style="flex:1"></span>'
+        +'<span style="font-size:11px;color:var(--muted)">'+areaTxt+wallTxt+'</span></div>';
     }catch(e){status='';}
     const roomBtn=(pnSel.kind==='room'&&pnView!=='sheets')?'<div style="text-align:center;margin-top:4px;flex:none"><button class="pn-mini" onclick="pnDownloadRoomDxf('+pnSel.room+')" title="Sheet DXF for ONLY this room — panels numbered in the visual order shown here">⬇ '+esc(room.name||'room')+' Sheet DXF</button> <button class="pn-mini" onclick="pnDownloadWallLayoutDxf('+pnSel.room+')" title="Wall Layout DXF for ONLY this room — walls in order with panels inside (visual, not for cutting)">⬇ '+esc(room.name||'room')+' Wall DXF</button></div>':'';
     // AUTO-SCROLL FIX (2026-07-11): renderPanels rebuilds root.innerHTML, which used to reset the inspector's
@@ -7872,6 +7943,12 @@
         +d.panels.rows.map(r=>{const szs=Object.keys(r.szs).map(k=>r.szs[k]+'× '+k).join(' · ');
           return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'<div class="sub" style="font-size:11px;color:#64748b">'+szs+' · material '+(r.matOv!=null?money(r.matOv)+'/sheet':'book')+' · CNC '+money(r.cncRate)+'/sheet</div></td><td style="text-align:center">'+r.sheets+'</td><td style="text-align:center">'+r.parts+'</td><td style="text-align:right">'+money(r.mc)+'</td><td style="text-align:right">'+money(r.cncEff)+'</td><td style="text-align:right;font-weight:700">'+money(r.total)+'</td></tr>';}).join('')
         +'</tbody></table>'):'')
+      +(d.panels&&d.panels.rows.length?(
+        '<div class="sub" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:6px 0 2px">'
+        +'<label style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(pnQuotePano?'checked':'')+' onchange="setPnQuoteOpt(\'pano\',this.checked)"> Show Panels panoramic view</label>'
+        +'<label style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" '+(pnQuoteSheets?'checked':'')+' onchange="setPnQuoteOpt(\'sheets\',this.checked)"> Show sheet preview</label>'
+        +'<span style="color:#64748b">— appears here and on the PDF</span></div>'
+        +pnQuotePanelsExtra()):'')
       +'<div class="sub" style="margin:8px 0 3px;font-weight:700">Additional services</div>'
       +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">'+svcInput('Design','design',d.svc.design,'£'+rateOf('design',35)+'/hr')+svcInput('Cutting list','cutting',d.svc.cutting,'£'+rateOf('cutting',25)+'/hr')+svcInput('Assembly','assembly',d.svc.assembly,'£'+rateOf('assembly',50)+'/hr')+'</div>'
       +(d.spray.parts?('<div class="sub" style="margin:8px 0 3px;font-weight:700">Spray finish</div>'
@@ -7899,7 +7976,7 @@
   function openPrintWindow(title,inner){
     const w=window.open('','_blank');
     if(!w){alert('Popup blocked — allow popups for this page to print / save the PDF.');return;}
-    const css='*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-page{break-inside:avoid}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}.dwg-page{break-after:page}.dwg-page:last-child{break-after:auto}}.qph{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px;margin-bottom:10px}.qlogo{max-width:220px;max-height:52px;object-fit:contain;filter:brightness(0);display:block;margin:0 auto 6px}.qcompany{font-size:10.5px;color:#475569;line-height:1.5}.qcname{font-weight:900;font-size:13px;color:#0f172a;letter-spacing:.4px}';
+    const css=':root{--bg:#fff;--ink:#0f172a;--muted:#94a3b8;--card:#fff;--line:#e8edf3}*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-page{break-inside:avoid}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}.dwg-page{break-after:page}.dwg-page:last-child{break-after:auto}}.qph{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px;margin-bottom:10px}.qlogo{max-width:220px;max-height:52px;object-fit:contain;filter:brightness(0);display:block;margin:0 auto 6px}.qcompany{font-size:10.5px;color:#475569;line-height:1.5}.qcname{font-weight:900;font-size:13px;color:#0f172a;letter-spacing:.4px}';
     w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+css+'</style></head><body><div class="doc"><div class="toolbar"><button class="primary" onclick="window.print()">Print / Save as PDF</button><button onclick="window.close()">Close</button></div>'+inner+'</div></body></html>');
     w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
   }
@@ -7958,6 +8035,7 @@
         :('<div class="qsec">Materials &amp; service · '+d.partN+' parts · '+d.sheetN+' sheets</div>'
       +'<table class="msum"><thead><tr><th>Material / sheet type</th><th class="c">Sheets</th><th class="c">Parts</th><th class="r">Material</th><th class="r">CNC / service</th><th class="r">Total</th></tr></thead><tbody>'+matRows+'</tbody></table>'))
       +pnQuoteHtmlSection(d)
+      +pnQuotePanelsExtra()
       +svcTable
       +totals
       +'<div class="qsec">Parts</div>'+partsTableHtml()

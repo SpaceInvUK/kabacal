@@ -5,7 +5,7 @@ App: `index.html` (antigo `order-entry-beta.html`). URL: https://spaceinvuk.gith
 > Este arquivo é o LIVRO DE REGRAS confirmadas com o Ednei — decisões de negócio, append-only.
 > Specs técnicas de interface ficam em `docs/` (CONTRACT-CAM, CONTRACT-DXF, PRICING); em conflito, ESTE arquivo ganha sobre o comportamento e os contracts ganham sobre o formato.
 >
-> **Índice:** Doors (Bottom part ABSOLUTO) · Panels (medidas · otimizador 8x4/10x4 · shakers/correntes · vertical · aberturas/sill/skirting · offset lines · DXF · preço · persistência/nomes) · Nesting · Offcut (tamanho mínimo · forma/L · texto · chanfro · layers) · Flushback (geometria + templates + regra do binário INVERTIDO) · Templates por peça física (role) · Offset Depth/pockets.
+> **Índice:** Doors (Bottom part ABSOLUTO) · Panels (medidas · otimizador 8x4/10x4 · shakers/correntes · vertical · aberturas/sill/skirting · offset lines · DXF · preço · persistência/nomes · quote m²/cut list/panorama) · Nesting · Offcut (tamanho mínimo · forma/L · texto · chanfro · layers) · Flushback (geometria + templates + regra do binário INVERTIDO) · Templates por peça física (role) · Offset Depth/pockets.
 
 ## Doors — painéis internos: "Bottom part" é ABSOLUTO (confirmado 2026-07-15)
 
@@ -20,6 +20,16 @@ Em portas com 2+ painéis internos, o campo **Bottom part** (Right part quando a
 ## Panels (modo Panels — confirmado 2026-07-07)
 
 Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`panelRooms`, localStorage `kab_panels`); os painéis NUNCA entram na lista de parts do Doors. O Quote é o ponto de encontro: seção "Wall panelling" própria + Doors subtotal + Panels subtotal + total combinado; serviços/spray/VAT aplicam UMA vez no job. **Job só-Doors tem que sair byte-idêntico** (panels.total=0 — invariante no check.mjs e provado vs HEAD).
+
+### Quote/PDF de Panels — m², cut list, panorama, sheet preview (confirmado 2026-07-15)
+
+Quando o job tem Wall Panels, o Quote (tela) E o PDF ganham uma seção **"Wall Panels"**. Duas áreas em m² (o relatório explica a fórmula):
+- **Panel material area** = `Σ(largura física × altura física de CADA peça) ÷ 1.000.000`. É o retângulo que se corta (bate com a peça do DXF/nesting). Respeita Panel On/Off, splits, vertical e gap/overlap por construção — soma as peças REAIS do `pnRoom` (`pnPieceArea.mat = w×h`); paredes sem painel (`noPanel`) não geram peça, logo não contam.
+- **Painted front area (front only)** = a mesma soma MENOS os recortes de janela de cada peça (`piece.notches`) — só a FACE da frente, NUNCA dobrada para frente+verso (`pnPieceArea.painted = w×h − Σ notch`). Sem janela na peça, painted = material.
+- **Toggles** no Quote (default ON quando há painéis): "Show Panels panoramic view" e "Show sheet preview" — controlam a tela E o PDF juntos (`pnQuotePano`/`pnQuoteSheets` + `setPnQuoteOpt`).
+- **Panorama do Quote/PDF**: segue a ordem das paredes mas **ESCONDE paredes sem painel** (sem caixas vazias); a numeração mantém o índice REAL da parede (Wall 1, Wall 3…) — consistente com o cut list e o editor. Vale SÓ para o Quote/PDF: `pnPanoSvg(room,L,quote=true)`; o editor de Panels continua mostrando TODAS as paredes (comportamento intocado).
+- **Cut list**: colunas Wall / Panel ID / Width / Height / Thick / Area m², com o nome existente (Wall 1, Wall 1A…), nunca renomeando por letra só.
+- **Só display**: não muda pricing, DXF, NC nem geometria. Job só-Doors não ganha nada (`pnQuotePanelsExtra()` retorna `''`). Editor de Panels ganhou só um rodapé DISCRETO de m² sob o desenho (total do room + painted; ao focar uma parede, área da parede também). Goldens byte-idênticos (PANELS_18mm 10030, WALL_LAYOUT 3428); doors basket 300/60/360 + £75 intactos.
 
 ### Medidas de peça (números confirmados)
 
