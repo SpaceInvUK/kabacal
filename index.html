@@ -4093,18 +4093,27 @@
       let mv=tpPathMovesForSheet(f,pp,tool);if(!mv.length)return;
       mv=tpXform(mv,f.sh.S);
       const last=segs[segs.length-1];
-      if(last&&last.num===tool.num)last.moves=last.moves.concat(mv);
-      else segs.push({num:Math.round(tool.num||1),rpm:Math.round(tool.rpm||18000),moves:mv});
+      if(last&&last.num===tool.num){last.moves=last.moves.concat(mv);last.names.push(pp.name);}
+      else segs.push({num:Math.round(tool.num||1),rpm:Math.round(tool.rpm||18000),moves:mv,names:[pp.name]});
     });
     return segs;
   }
   // Pegasus (Syntec) post — HEADER/TOOLCHANGE/FOOTER exactly as the validated .pp / the machine reference .nc
-  function ncPegasus(segs){
+  // meta (optional, Tier 2 2026-07-15): {comments:true, header:[..lines..]} → emit () production comments after the
+  // :1248 header + one before each tool segment. Comments NEVER consume an N-number, so the machining program is
+  // BYTE-IDENTICAL with or without them (only () lines are added). ASCII / single-line / parens stripped. `:1248`
+  // itself is untouched. Default (no meta) = the validated file, unchanged.
+  function ncPegasus(segs,meta){
     let n=0;const md={X:null,Y:null,Z:null,F:null},out=[];const f3=v=>(+v).toFixed(3),f1=v=>(+v).toFixed(1);
     const L=(hasN,t)=>{out.push((hasN?('N'+n):'')+t);n+=10;};
-    L(false,'%');L(false,':1248');L(false,'G90');
+    const on=!!(meta&&meta.comments);
+    const C=t=>{if(!on)return;out.push('('+String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[()\r\n]/g,' ').replace(/[^\x20-\x7E]/g,' ').replace(/\s+/g,' ').trim()+')');};
+    L(false,'%');L(false,':1248');
+    (on?(meta.header||[]):[]).forEach(C);
+    L(false,'G90');
     L(true,'G0X0Y0');L(true,'G40G17G80G49');
     segs.forEach((sg,i)=>{
+      C('OP'+((i+1)*10)+' T'+sg.num+' S'+sg.rpm+(sg.names&&sg.names.length?' '+[...new Set(sg.names)].join(' + '):''));
       if(i>0)L(true,'G53Z0');
       L(true,'T'+sg.num+(i===0?'M6':'M06'));L(true,'G90G54');L(true,'G43H'+sg.num);
       L(true,'G0X0.000Y0.000S'+sg.rpm+'M3');md.X=0;md.Y=0;md.Z=null;md.F=null;
@@ -5131,12 +5140,31 @@
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
-    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" onclick="tpExportPackage()">${ic('export',13)} Production package (.zip)</button><span class="sub">all NCs + labels + <b>manifest.csv</b> in one order folder — the same ID everywhere, for SYNTEC ScanMode / Workinglist</span></div><div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><div class="tpl-list">${rows}</div>`,true);
+    openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" onclick="tpExportPackage()">${ic('export',13)} Production package (.zip)</button><span class="sub">all NCs + labels + <b>manifest.csv</b> in one order folder — the same ID everywhere, for SYNTEC ScanMode / Workinglist</span></div><div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><label class="tg" style="display:block;margin-bottom:10px;font-size:12px"><input type="checkbox" ${camJob.ncComments?'checked':''} onchange="camJob.ncComments=this.checked;saveCamState()"> Add <b>()</b> production comments to the NC — job / client / material / parts + a line per operation. <span style="color:#b45309">Opt-in: <b>air-cut first</b> — the SYNTEC must accept () comments (machine parameter). The machining lines are byte-identical; only () lines are added. <code>:1248</code> is untouched.</span></label><div class="tpl-list">${rows}</div>`,true);
   }
   // AIR-CUT (dry-run) export: the EXACT same file with every Z lifted by +N mm — the machine runs the full
   // toolpath in the air above the sheet, so the P0 validation (STATUS.md) can be done without material.
   // Z only; X/Y, feeds, order, toolchanges, header/footer identical to the real file.
-  function tpAirLift(segs,mm){return segs.map(s=>({num:s.num,rpm:s.rpm,moves:s.moves.map(m=>{const o=Object.assign({},m);if(o.z!==undefined)o.z=+(o.z+mm).toFixed(3);return o;})}));}
+  function tpAirLift(segs,mm){return segs.map(s=>({num:s.num,rpm:s.rpm,names:s.names,moves:s.moves.map(m=>{const o=Object.assign({},m);if(o.z!==undefined)o.z=+(o.z+mm).toFixed(3);return o;})}));}
+  // Production () comment header for ONE sheet's NC (Tier 2). ASCII lines (ncPegasus sanitises). The NC cuts a whole
+  // SHEET, so PARTS lists the pieces on it. EST_TIME arrives with Tier 4. Built here so ncPegasus stays generic.
+  function ncHeaderFor(f,ncFile){
+    const parts=(f.sh.parts||[]).filter(p=>!p.isBack);
+    const nm=p=>String(p.text||p.name||(p.pnPiece&&p.pnPiece.name)||('P'+(p.pnum||''))).trim();
+    const names=[...new Set(parts.map(nm))].slice(0,8).join(', ');
+    return [
+      'JOB '+(project.number||'JOB'),
+      'NC_FILE '+ncFile,
+      'CLIENT '+(project.client||''),
+      'MATERIAL '+String(f.mat||'').toUpperCase(),
+      'THICKNESS '+f.th+'MM',
+      'SHEET_SIZE '+((f.sh.S&&(f.sh.S.label||f.sh.sz))||''),
+      'PARTS '+parts.length+(names?': '+names:''),
+      'DATUM '+String(TP_ANCH[camJob.datum]||'centre').toUpperCase().replace(/[ -]/g,'_')+' G54',
+      'Z_ZERO '+(camJob.zZero==='bed'?'MACHINE_BED':'MATERIAL_SURFACE'),
+      'CREATED '+(project.date||localToday())
+    ];
+  }
   function tpDownloadNC(i,air){
     const f=tpVisibleSheets()[i];if(!f)return;
     let segs=tpSegsForSheet(f);if(!segs.length){alert('No toolpath applies to this sheet.');return;}
@@ -5146,8 +5174,8 @@
       const lift=Math.max(10,Math.round(+((el&&el.value))||50));
       segs=tpAirLift(segs,lift);suffix='_AIRCUT+'+lift;
     }
-    const nc=ncPegasus(segs);
     const nm=((project&&project.number)||'JOB').replace(/[^A-Za-z0-9_-]/g,'_')+'_S'+(i+1)+'_'+f.th+'mm'+suffix+'.nc';
+    const nc=ncPegasus(segs,camJob.ncComments?{comments:true,header:ncHeaderFor(f,nm)}:null);
     dlBlob(nc,'text/plain;charset=utf-8',nm);
   }
   // store-only ZIP writer (2026-07-15): no dependency, no compression — bundles a few small text files into one
@@ -5184,7 +5212,7 @@
     all.forEach((f,i)=>{
       const segs=tpSegsForSheet(f);if(!segs.length)return;
       const nc_file=order+'_S'+(i+1)+'_'+f.th+'mm.nc';
-      files.push({name:order+'/'+nc_file,data:ncPegasus(segs)});ncCount++;
+      files.push({name:order+'/'+nc_file,data:ncPegasus(segs,camJob.ncComments?{comments:true,header:ncHeaderFor(f,nc_file)}:null)});ncCount++;
       (f.sh.parts||[]).filter(p=>!p.isBack).forEach(p=>{
         const it=items[parseInt(p.key,10)];
         const nm=String(p.text||p.name||(p.pnPiece&&p.pnPiece.name)||(it&&it.text)||('Part '+(p.pnum||''))).replace(/[\r\n,]+/g,' ').trim();

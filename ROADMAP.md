@@ -2,6 +2,18 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-15 (g) — SYNTEC Tier 2: comentários () opcionais no NC (header + por-operação) + regen dos goldens TPL
+
+Segunda melhoria SYNTEC. **Toggle opt-in** no modal Save NC ("Add () production comments"). **Default OFF = o NC validado atual byte-idêntico** (goldens intocados). Quando ON, `ncPegasus(segs,meta)` emite comentários `()` **que NÃO consomem N-number** — a usinagem sai byte-idêntica com ou sem (só adiciona linhas `()`; provado: remover as linhas `()` do ON == OFF, os N-numbers são idênticos). ASCII, 1 linha, parênteses/acentos removidos. O `:1248` fica **intocado** (os comentários entram DEPOIS dele).
+
+- **Header** (após `:1248`, antes do `G90`): JOB, NC_FILE, CLIENT, MATERIAL, THICKNESS, SHEET_SIZE, PARTS (lista as peças da chapa), DATUM G54, Z_ZERO, CREATED (`ncHeaderFor(f,ncFile)`). O NC corta a chapa inteira → PARTS lista as peças dela. EST_TIME chega no Tier 4.
+- **Por operação**: uma linha antes de cada troca de ferramenta com o(s) nome(s) real(is) do toolpath — ex.: `(OP40 T1 S18000 6mm OUT 22mm + 6mm Offcut 22mm)` (segmentos merjados mostram os dois nomes). `tpSegsForSheet` passou a guardar `names` por segmento; `tpAirLift` preserva.
+- Emitido por `tpDownloadNC` e `tpExportPackage` (pacote Tier 1) quando `camJob.ncComments`. **Air-cut obrigatório antes de produção** — o SYNTEC precisa aceitar `()` (parâmetro de máquina); o aviso está no modal.
+- **Também: regen dos goldens `GOLDEN_TPL_S1/S2`** (fora do escopo do Tier 2, mas necessário): estavam **DEFASADOS desde o `a06702e`** — o fix de segurança do Fork no Flushback all-live (as layers não-mapeadas IN_22MM/POKET_INSERT/SHADOW cortavam o CONTORNO da porta; o fix passou a cortar a geometria real da cavidade). O Fork re-verificou só os goldens ll/c e deixou os TPL nos meus valores antigos (bugados). Regenerados pra bater com o código atual (mais seguro): **2788→3258 / 1174→1611**, minZ=0 (nada abaixo da mesa), sem Z negativo.
+
+### Testado (g)
+`node tools/check.mjs` verde ✓ · **OFF byte-idêntico**: 6 goldens NC OK (standard ll/c, Ogee, Plain Shaker intocados + TPL regenerados) ✓ · **strip-invariant** (ON sem as linhas `()` == OFF) provado em Plain Shaker E Flushback; N-numbers idênticos ON/OFF ✓ · `:1248` intacto (linha 2) ✓ · sanitizer: "José Ção (Bedroom)"→`(CLIENT Jose Cao Bedroom)`, "Panel Á"→"Panel A" ✓ · header + por-op corretos com nomes reais dos toolpaths ✓ · sem erros no console. Só `index.html` + docs + 2 goldens (TPL).
+
 ## 2026-07-15 (f) — SYNTEC Tier 1: pacote de produção por pedido (.zip com NCs + etiquetas + manifest)
 
 Primeira das melhorias do fluxo **SYNTEC 60W-E** (análise do Ednei: os NCs hoje são "anônimos" — sem cliente/pedido/peça/rastreabilidade; o `:1248` é fixo, não é ID). Tier escolhido pra começar por ter **maior valor e ZERO risco de máquina** (não toca nos bytes do NC). Botão **"⤓ Production package (.zip)"** no modal de export de Toolpaths: gera **um .zip por pedido** onde o MESMO ID (`genOrderNumber` = INICIAIS-AAAAMMDD-SEQ) aparece na pasta, em TODO nome de NC, nas etiquetas e no manifest — pra o ScanMode/Workinglist e a rastreabilidade baterem.
