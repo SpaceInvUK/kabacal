@@ -746,7 +746,10 @@
   function blockColor(mat,size){const key=(mat||'')+'|'+(size||'8x4');let h=0;for(let i=0;i<key.length;i++)h=(h*31+key.charCodeAt(i))>>>0;return BLOCK_PALETTE[h%BLOCK_PALETTE.length];}
   // editable per-material background colour (item 4): hash colour by default, override + save locally
   let matColors={};try{matColors=JSON.parse(localStorage.getItem('kab_matColors')||'{}');}catch(e){matColors={};}
-  function matColor(mat){return matColors[mat]||blockColor(mat,'');}
+  // factory colours for the quick-bar five — guaranteed distinct from each other (hash fallback can collide).
+  // A user pick in "Material colours" still wins.
+  const MAT_COLOR_DEFAULTS={'MDF Hidrofugo 18mm':'#2563eb','MDF Hidrofugo 22mm':'#16a34a','Veneered Chipboard 19mm':'#d97706','MR MDF 18mm':'#9333ea','MR MDF 22mm':'#db2777'};
+  function matColor(mat){return matColors[mat]||MAT_COLOR_DEFAULTS[mat]||blockColor(mat,'');}
   function setMatColor(mat,hex){matColors[mat]=hex;try{localStorage.setItem('kab_matColors',JSON.stringify(matColors));}catch(e){}buildMatUI();render();}
   function openMatColors(){const set=[];favMats.forEach(m=>set.indexOf(m)<0&&set.push(m));items.forEach(it=>set.indexOf(it.mat)<0&&set.push(it.mat));const rows=set.map(m=>'<div class="mc-row"><input type="color" value="'+matColor(m)+'" onchange="setMatColor(\''+esc(m)+'\',this.value)"><span class="chip" style="background:'+matColor(m)+'22;color:'+matColor(m)+';border-color:'+matColor(m)+'55">'+esc(m)+'</span></div>').join('');openModal('Material colours','<div class="sub">Pick a clear background colour for each material. Used in the order list, the material tag and the nesting sheets. Saved on this computer.</div><div class="mc-list">'+rows+'</div>');}
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -1616,10 +1619,12 @@
   }
 
   // ---- pricing tables (sample of the production book) ----
-  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
-  const FAVS_DEFAULT=['MDF 18mm','MDF Hidrofugo Plus 18mm','MR MDF 18mm','Veneered Chipboard 18mm','MFC 18mm'];
-  let favMats=(function(){try{const s=JSON.parse(localStorage.getItem('kab_favs'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return FAVS_DEFAULT.slice();})();
-  function saveFavs(){try{localStorage.setItem('kab_favs',JSON.stringify(favMats));}catch(e){}}
+  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo':{'18mm':60,'22mm':70},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'19mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
+  // Ednei's bar (2026-07-16), in this exact order. kab_favs_v marks lists saved AFTER this change:
+  // stored favs from before it are ignored once (one-time reset to the requested five), then edits stick again.
+  const FAVS_DEFAULT=['MDF Hidrofugo 18mm','MDF Hidrofugo 22mm','Veneered Chipboard 19mm','MR MDF 18mm','MR MDF 22mm'];
+  let favMats=(function(){try{const s=JSON.parse(localStorage.getItem('kab_favs'));if(Array.isArray(s)&&s.length&&localStorage.getItem('kab_favs_v')==='2')return s;}catch(e){}return FAVS_DEFAULT.slice();})();
+  function saveFavs(){try{localStorage.setItem('kab_favs',JSON.stringify(favMats));localStorage.setItem('kab_favs_v','2');}catch(e){}}
   // hidden materials: removed from every PICKER but never from PRICES — prices, rules and old jobs keep working
   let hiddenMats=(function(){try{const s=JSON.parse(localStorage.getItem('kab_hidden_mats'));if(Array.isArray(s))return new Set(s);}catch(e){}return new Set();})();
   function saveHiddenMats(){try{localStorage.setItem('kab_hidden_mats',JSON.stringify([...hiddenMats]));}catch(e){}}
@@ -1645,7 +1650,7 @@
     const m=parseMat(combined),th=m.th,n=parseInt(th)||18;
     const birch=/birch|plywood/i.test(m.name);
     if(birch){if(n<=12)return 65;if(n<=18)return 95;return 100;}
-    if(th==='18mm'||th==='22mm')return 85;
+    if(th==='18mm'||th==='19mm'||th==='22mm')return 85;   // 19mm priced like 18mm (Ednei 2026-07-16, Veneered Chipboard 19)
     if(n<=12)return 65;if(n<=15)return 95;return 120;
   }
   function matOptionsHtml(sel){const all=[];Object.keys(PRICES).forEach(n=>Object.keys(PRICES[n]).forEach(t=>{const c=n+' '+t;if(!hiddenMats.has(c))all.push(c);}));if(sel&&all.indexOf(sel)<0)all.unshift(sel);return all.map(c=>`<option ${c===sel?'selected':''}>${esc(c)}</option>`).join('');}
@@ -1859,11 +1864,12 @@
   function openGroupPicker(mode){
     const inUse=[...new Set(items.map(it=>it.mat))];
     let mats;
-    if(mode==='move')mats=inUse;
+    // "click to change" offers the quick-bar favourites too (Ednei 2026-07-16) — favourites first, then in-use
+    if(mode==='move')mats=[...new Set([...favMats.filter(m=>!hiddenMats.has(m)),...inUse])];
     else{const all=allMats();mats=[...new Set([...favMats,...all])].filter(m=>!hiddenMats.has(m)||inUse.indexOf(m)>=0);}
     const rows=mats.map(m=>`<div class="tpl-item" style="cursor:pointer;align-items:center" onclick="moveSelTo('${esc(m)}')"><i style="width:12px;height:12px;border-radius:3px;background:${matColor(m)};display:inline-block"></i><div class="tpl-meta"><b>${esc(m)}</b>${inUse.indexOf(m)>=0?'<div class="sub">in use</div>':''}</div></div>`).join('');
     openModal(mode==='move'?('Move '+selSet.size+' part'+(selSet.size===1?'':'s')+' to group'):'New group — pick its material',
-      `<div class="sub" style="margin-bottom:8px">${mode==='move'?'Choose the existing group (material) to move the selected parts into.':'A group = a material + thickness. Pick the material for the new group — the selected parts move into it and nest together.'}</div><div class="tpl-list">${rows}</div>`);
+      `<div class="sub" style="margin-bottom:8px">${mode==='move'?'Choose the group (material) to move the selected parts into — quick-bar favourites first, then the materials already in use.':'A group = a material + thickness. Pick the material for the new group — the selected parts move into it and nest together.'}</div><div class="tpl-list">${rows}</div>`);
   }
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
