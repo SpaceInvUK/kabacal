@@ -39,6 +39,16 @@ Pedido do Ednei: "improve Panels information in Quote tab and PDF quotation" —
 ### Testado (e)
 `node tools/check.mjs` verde (script inteiro parseia+roda; **golden NC datum-ll byte-idêntico** em runtime; basket 300/60/360 + 12 peças; MDF18 10x4 = £75). **Sandbox node dedicado 30/30**: (1) doors-only → `pnQuotePanelsExtra()===''` e `pnQuoteAreas()` tudo zero; (2) fórmula `pnPieceArea` (sem notch painted=material; notch 200×100 → 500000/480000); (3) room real 3 paredes (janela + parede `noPanel`) → peças nas paredes 1&2, parede OFF sem peça, `areas.mat===Σ(w×h)/1e6`, `areas.painted===Σ(w×h−notch)/1e6`, janela → painted < material; (4) panorama quote esconde a parede OFF mas o panorama do EDITOR mostra todas; room 100% OFF → "No panelled walls"; (5) cut list com Wall 1A e sem a parede OFF; (6) toggles ligam/desligam panorama e sheet preview de forma independente. **Goldens DXF regenerados das receitas e byte-idênticos**: `GOLDEN_PANELS_18mm.dxf` 10030 e `GOLDEN_WALL_LAYOUT.dxf` 3428. `git status`: só `index.html` mudou, nenhum golden tocado. Verificação 100% local (Node + leitura) — o browser do PC estava noutra máquina/rede; não precisou.
 
+## 2026-07-16 (b) — Editor de Doors reorganizado: Dimensions + Frame & Panels
+
+Só organização/condicionais — zero mudança de geometria, preço, DXF, CAM, quantity ou persistência (goldens byte-idênticos).
+
+- **Parts → Dimensions**: agora só Width, Height e Text (Quantity continua no stepper da linha da peça — não moveu nem duplicou). O editor duplicado de outer frame + rail + bottom part que aparecia ali em portas multi-painel foi embora.
+- **Offset → Frame & Panels**, com os controles nesta ordem: **Frame** (editor existente, mesmo comportamento) → **Mid rail** → **Panels** (movido de Parts, sem duplicata) → **Bottom part**. Depois seguem preview, presets, FRONT offsets, BACKSIDE e reeded como antes. Referências de texto ("save presets in the Offset section") atualizadas.
+- **Mid rail SEMPRE visível**: com 1 painel fica desabilitado (tooltip "needs 2+ panels"); com 2+ vira editável. **Bottom part** idem: desabilitado com 1 painel, disponível com 2+ (cálculo/semântica ABSOLUTA de 2026-07-15 intactos).
+- **Group edit preservado**: Width/Height bloqueados em multi-seleção; Frame, Panels, Mid rail e Bottom part aplicam a todos os selecionados via propagateMulti (MULTI_FIELDS já os tinha); Text segue igual.
+- Testado (browser + `node tools/check.mjs` verde): seções na ordem ("Dimensions"/"Frame & Panels"); Dimensions sem Panels; 1 controle Panels no inspector todo; 1 painel = mid+bottom disabled, 2 painéis = editáveis (50/400 exibidos); multi-seleção com primário correto propaga Panels/Mid/Bottom/Frame para todos (verificado item a item) e W/H ficam intactos; geometria pós-edição idêntica nos dois (upper 1395 / lower 455 @ frame 45, mid 60, bottom 500); console limpo; goldens byte-idênticos.
+
 ## 2026-07-16 — Quick material bar do Ednei: 5 favoritos fixos, 3 materiais novos, cores garantidas, favoritos no "click to change"
 
 - **Barra de favoritos** agora é exatamente, nesta ordem: MDF Hidrofugo 18mm · MDF Hidrofugo 22mm · Veneered Chipboard 19mm · MR MDF 18mm · MR MDF 22mm. `FAVS_DEFAULT` trocado + reset one-time: `kab_favs` antigo é ignorado uma vez (novo `kab_favs_v='2'`, aditivo); quem re-personalizar depois volta a mandar.
