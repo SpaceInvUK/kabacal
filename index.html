@@ -1936,9 +1936,9 @@
     if(has){
       secs.push(['part','Dimensions',secParts(i,it),St.part]);
       secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
-      secs.push(['grain','Grain',secGrain(i,it),St.grain]);
       secs.push(['offset','Frame & Panels',tabOffset(i,it),St.offset]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
+      secs.push(['grain','Grain',secGrain(i,it),St.grain]);   // Ednei 2026-07-16: Grain is less important — sits below Hinges
       secs.push(['groove','Groove',secGroove(i,it),St.groove]);
       secs.push(['scribe','Scribe',secScribe(i,it),St.scribe]);
       secs.push(['spray','Spray',tabSpray(i,it),St.spray]);
@@ -2199,13 +2199,18 @@
     // deeper bottom band). Previously only the offset lines were drawn, so a framed door with no offset line —
     // or an uneven frame — looked like a plain rectangle (the "frame disappears" bug). Cut geometry is unchanged.
     s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
+    // one opening per REAL cavity (Ednei 2026-07-16): 2 panels show 2 openings, mid rail visible —
+    // doorCavities is the same source the sheets/DXF/toolpaths use, so the thumbnail always agrees.
     const iw=(+it.w||0)-f.l-f.r, ih=(+it.h||0)-f.t-f.b;
-    if(iw>0&&ih>0){const cw=iw*sc,ch=ih*sc;
-      if(cw>1&&ch>1)s+=`<rect x="${(x0+f.l*sc).toFixed(1)}" y="${(y0+f.t*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>cavity ${Math.round(iw)}×${Math.round(ih)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;}
+    const cavs=(iw>0&&ih>0)?doorCavities(it):[];
+    cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
+      if(cw>1&&ch>1)s+=`<rect x="${(x0+c.x*sc).toFixed(1)}" y="${(y0+c.y*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening ${Math.round(c.w)}×${Math.round(c.h)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;});
     enabledLines(it).forEach(l=>{
       const li=OFFLINES.findIndex(o=>o.L===l.L),lr=it.lines[li];
-      const rx=x0+(f.l+lr.mm)*sc, ry=y0+(f.t+lr.mm)*sc, rw=bw-(f.l+f.r+2*lr.mm)*sc, rh=bh-(f.t+f.b+2*lr.mm)*sc;
-      if(rw>1&&rh>1) s+=`<rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${lr.rd?2:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="1.4"/>`;
+      cavs.forEach(c=>{
+        const rx=x0+(c.x+lr.mm)*sc, ry=y0+(c.y+lr.mm)*sc, rw=(c.w-2*lr.mm)*sc, rh=(c.h-2*lr.mm)*sc;
+        if(rw>1&&rh>1) s+=`<rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${lr.rd?2:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="1.4"/>`;
+      });
     });
     s+=`</svg>`;
     return s;
@@ -2277,10 +2282,76 @@
   let _zoom=null;
   let _zoomIdx=0;
   let zoomEdit=false;   // Edit mode inside the zoom overlay (shows the editing accordion as a side drawer)
-  function openZoom(i){const d=nestSvgs[i];if(!d)return;_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
+  // ---- zoom RULER (Ednei 2026-07-16): same UX as the Panels measure tool, on the zoomed sheet ----
+  // click two points to measure in mm; snaps to sheet, part and opening (cavity) edges; Esc exits.
+  // Sheet SVGs are drawn at mm/10, so 1 SVG unit = 10mm (sc = 0.1 units per mm).
+  let zMeasOn=false,zMeasA=null,zMeasFix=null,zSnapGeo=null;
+  function toggleZoomMeas(){zMeasOn=!zMeasOn;zMeasA=null;if(!zMeasOn)zMeasFix=null;const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}
+  function zBuildSnapGeo(){
+    zSnapGeo=null;
+    const d=nestSvgs[_zoomIdx],inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');
+    if(!svg)return;
+    const vb=String(svg.getAttribute('viewBox')||'0 0 1 1').split(/\s+/).map(Number);
+    const pts=[],VX=new Set(),VY=new Set();
+    const addRect=(x,y,w,h)=>{const x1=x/10,y1=y/10,x2=(x+w)/10,y2=(y+h)/10;VX.add(x1);VX.add(x2);VY.add(y1);VY.add(y2);pts.push({x:x1,y:y1},{x:x2,y:y1},{x:x1,y:y2},{x:x2,y:y2});};
+    VX.add(0);VX.add(vb[2]);VY.add(0);VY.add(vb[3]);pts.push({x:0,y:0},{x:vb[2],y:0},{x:0,y:vb[3]},{x:vb[2],y:vb[3]});
+    ((d&&d.parts)||[]).forEach(p=>{addRect(p.x,p.y,p.w,p.h);try{placedCavs(p).forEach(c=>addRect(p.x+c.x,p.y+c.y,c.w,c.h));}catch(e){}});
+    zSnapGeo={pts,vx:[...VX],vy:[...VY],sc:0.1};
+  }
+  function zSnap(svg,ev){
+    const vb=String(svg.getAttribute('viewBox')||'0 0 1 1').split(/\s+/).map(Number),r=svg.getBoundingClientRect();
+    let px,py;const m=svg.getScreenCTM&&svg.getScreenCTM();
+    if(m){const q=svg.createSVGPoint();q.x=ev.clientX;q.y=ev.clientY;const t=q.matrixTransform(m.inverse());px=t.x;py=t.y;}
+    else{px=vb[0]+(ev.clientX-r.left)/r.width*vb[2];py=vb[1]+(ev.clientY-r.top)/r.height*vb[3];}
+    const R=12*(vb[2]/Math.max(1,r.width));   // ~12px snap radius, in SVG units at the current zoom
+    let x=px,y=py,snapped=false;
+    if(zSnapGeo){
+      let bp=null,bd=R;
+      zSnapGeo.pts.forEach(p=>{const d=Math.hypot(p.x-px,p.y-py);if(d<bd){bd=d;bp=p;}});
+      if(bp){x=bp.x;y=bp.y;snapped=true;}
+      else{
+        let bx=null,bdx=R;zSnapGeo.vx.forEach(v=>{const d=Math.abs(v-px);if(d<bdx){bdx=d;bx=v;}});
+        let by=null,bdy=R;zSnapGeo.vy.forEach(v=>{const d=Math.abs(v-py);if(d<bdy){bdy=d;by=v;}});
+        if(bx!=null){x=bx;snapped=true;}
+        if(by!=null){y=by;snapped=true;}
+      }
+    }
+    return {x,y,snapped};
+  }
+  function zMeasVal(a,b){
+    const dx=Math.abs(b.x-a.x),dy=Math.abs(b.y-a.y),mm=v=>v/((zSnapGeo&&zSnapGeo.sc)||0.1);
+    if(dx>=dy*4)return mm(dx);        // near-horizontal measures lock to the X distance (same rule as Panels)
+    if(dy>=dx*4)return mm(dy);
+    return mm(Math.hypot(dx,dy));
+  }
+  function zMeasDraw(svg,cur){
+    let g=svg.querySelector('#zMeas');
+    if(!g){g=document.createElementNS('http://www.w3.org/2000/svg','g');g.setAttribute('id','zMeas');g.style.pointerEvents='none';svg.appendChild(g);}
+    const m=svg.getScreenCTM&&svg.getScreenCTM(),k=m&&m.a?Math.max(0.4,12/m.a):2;   // ≈12px on screen at any zoom level
+    let h='';
+    const seg=(a,b,live)=>{
+      const val=Math.round(zMeasVal(a,b)*10)/10,mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;let ox=-dy/len,oy=dx/len;
+      if(oy>0.01){ox=-ox;oy=-oy;}else if(Math.abs(oy)<=0.01&&ox<0){ox=-ox;}
+      const lx=mx+ox*1.5*k,ly=my+oy*1.5*k;
+      h+='<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#e11d48" stroke-width="'+(k/9).toFixed(2)+'"'+(live?' stroke-dasharray="'+(k/3).toFixed(2)+' '+(k/4).toFixed(2)+'"':'')+'/>';
+      h+='<circle cx="'+a.x+'" cy="'+a.y+'" r="'+(k/4.5).toFixed(2)+'" fill="#e11d48"/><circle cx="'+b.x+'" cy="'+b.y+'" r="'+(k/4.5).toFixed(2)+'" fill="#e11d48"/>';
+      h+='<rect x="'+(lx-2.4*k)+'" y="'+(ly-0.68*k)+'" width="'+(4.8*k)+'" height="'+(1.36*k)+'" rx="'+(0.25*k)+'" fill="var(--card)" stroke="#e11d48" stroke-width="'+(k/16).toFixed(2)+'"/>';
+      h+='<text x="'+lx+'" y="'+(ly+0.34*k)+'" text-anchor="middle" font-size="'+(0.95*k).toFixed(2)+'" font-weight="700" fill="#e11d48">'+val+' mm</text>';
+    };
+    if(zMeasFix)seg(zMeasFix.a,zMeasFix.b,false);
+    if(zMeasA&&cur)seg(zMeasA,cur,true);
+    else if(cur){
+      h+='<line x1="'+(cur.x-0.5*k)+'" y1="'+cur.y+'" x2="'+(cur.x+0.5*k)+'" y2="'+cur.y+'" stroke="#e11d48" stroke-width="'+(k/9).toFixed(2)+'"/><line x1="'+cur.x+'" y1="'+(cur.y-0.5*k)+'" x2="'+cur.x+'" y2="'+(cur.y+0.5*k)+'" stroke="#e11d48" stroke-width="'+(k/9).toFixed(2)+'"/>';
+      if(cur.snapped)h+='<circle cx="'+cur.x+'" cy="'+cur.y+'" r="'+(k/3).toFixed(2)+'" fill="none" stroke="#e11d48" stroke-width="'+(k/12).toFixed(2)+'"/>';
+    }
+    g.innerHTML=h;
+  }
+  function zMeasRedraw(){const inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');if(svg)zMeasDraw(svg,null);}
+  function openZoom(i){const d=nestSvgs[i];if(!d)return;if(i!==_zoomIdx){zMeasA=null;zMeasFix=null;}_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
-    ov.classList.add('show');setupZoomPanZoom();if(zoomEdit)renderInspector();}
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zMeasOn?'primary':'ghost'} tiny" onclick="toggleZoomMeas()" title="Ruler — click two points to measure in mm; snaps to sheet, part and opening edges (Esc to exit)">📏 Ruler: ${zMeasOn?'ON':'OFF'}</button> <button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zMeasOn?'Ruler — click two points to measure (snaps to edges) · Esc exits the ruler · ':''}${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.classList.add('show');setupZoomPanZoom();zBuildSnapGeo();if(zMeasOn)zMeasRedraw();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
   function zoomSheetSel(key,on){toggleSheetSel(key,on);openZoom(_zoomIdx);}   // tick the zoomed sheet as the active/target sheet
   function toggleZoomEdit(){
@@ -2293,6 +2364,7 @@
   function zoomReNest(){placements=null;materialize();render();const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}   // manual re-pack while staying in Edit mode
   function closeZoom(){const ov=document.getElementById('zoomOverlay');if(ov)ov.classList.remove('show');_zoom=null;}
   document.addEventListener('keydown',e=>{const ov=document.getElementById('zoomOverlay');if(!ov||!ov.classList.contains('show'))return;
+    if(e.key==='Escape'&&zMeasOn){e.preventDefault();zMeasOn=false;zMeasA=null;zMeasFix=null;openZoom(_zoomIdx);return;}   // Esc leaves the ruler first, the zoom stays open
     if(e.key==='Escape'){e.preventDefault();closeZoom();return;}
     if(/^(INPUT|SELECT|TEXTAREA)$/.test((e.target&&e.target.tagName)||''))return;   // don't hijack arrows while editing fields in the drawer
     if(e.key==='ArrowLeft'){e.preventDefault();navZoom(-1);}else if(e.key==='ArrowRight'){e.preventDefault();navZoom(1);}});
@@ -2301,6 +2373,7 @@
   function setupZoomPanZoom(scrollId,innerId){
     const scroll=document.getElementById(scrollId||'zoomScroll'),inner=document.getElementById(innerId||'zoomInner');if(!scroll||!inner)return null;
     const svg=inner.querySelector('svg');if(!svg)return;
+    const isMain=!scrollId;   // ruler hooks only apply to the main nesting zoom
     const vb=(svg.getAttribute('viewBox')||'0 0 1 1').split(/\s+/).map(Number),aspect=(vb[2]&&vb[3])?vb[2]/vb[3]:1;
     scroll.style.overflow='hidden';scroll.style.position='relative';scroll.style.cursor='grab';
     inner.style.position='absolute';inner.style.left='0';inner.style.top='0';inner.style.transformOrigin='0 0';
@@ -2312,12 +2385,17 @@
     function apply(){clampPan();inner.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.s})`;const p=document.getElementById('zoomPct');if(p)p.textContent=Math.round(st.s*100)+'%';}
     function fit(){const vw=scroll.clientWidth,vh=scroll.clientHeight,pad=14;let bw=vw-2*pad,bh=bw/aspect;if(bh>vh-2*pad){bh=vh-2*pad;bw=bh*aspect;}st.bw=bw;st.bh=bh;sizeSvg();st.s=1;st.tx=(vw-bw)/2;st.ty=(vh-bh)/2;apply();}
     function zoomAt(cx,cy,f){const ns=Math.min(20,Math.max(1,st.s*f));if(Math.abs(ns-st.s)<1e-4)return;const px=(cx-st.tx)/st.s,py=(cy-st.ty)/st.s;st.s=ns;st.tx=cx-px*ns;st.ty=cy-py*ns;apply();}
-    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);},{passive:false});
+    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);if(isMain&&zMeasOn)zMeasRedraw();},{passive:false});
     let drag=null;
+    if(isMain)scroll.addEventListener('pointermove',e=>{if(zMeasOn&&!drag){const s2=inner.querySelector('svg');if(s2)zMeasDraw(s2,zSnap(s2,e));}});
     scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty,moved:false};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
     scroll.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)>3||Math.abs(dy)>3)drag.moved=true;st.tx=drag.tx+dx;st.ty=drag.ty+dy;apply();});
     // a click (not a pan) while Edit mode is ON selects the part under the cursor — Ctrl/Cmd+click adds to the selection
     const end=e=>{const d=drag;drag=null;scroll.style.cursor='grab';
+      if(d&&!d.moved&&isMain&&zMeasOn&&e&&e.clientX!=null){                       // ruler click: place A, then fix A→B (pan still works by dragging)
+        const s2=inner.querySelector('svg');
+        if(s2){const pt=zSnap(s2,e);if(!zMeasA){zMeasA={x:pt.x,y:pt.y};zMeasFix=null;}else{zMeasFix={a:zMeasA,b:{x:pt.x,y:pt.y}};zMeasA=null;}zMeasDraw(s2,pt);}
+        return;}
       if(d&&!d.moved&&zoomEdit&&e&&e.clientX!=null){
         const el=document.elementFromPoint(e.clientX,e.clientY),g=(el&&el.closest)?el.closest('.npart'):null;
         if(g&&g.getAttribute('data-key')!=null){const key=g.getAttribute('data-key');if(itemOfKey(key)>=0)nestPick(key,e);}
@@ -2325,7 +2403,7 @@
     scroll.addEventListener('pointerup',end);
     scroll.addEventListener('pointercancel',()=>{drag=null;scroll.style.cursor='grab';});
     scroll.addEventListener('pointerleave',()=>{drag=null;scroll.style.cursor='grab';});
-    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();}};
+    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();if(isMain&&zMeasOn){zBuildSnapGeo();zMeasRedraw();}}};
     if(!scrollId)_zoom=ctrl;          // default ids = the main nesting zoom keeps its global handle
     fit();
     return ctrl;
@@ -2772,7 +2850,7 @@
           const lr=rects.slice().sort((a,b)=>b.w*b.h-a.w*a.h)[0],ow=lr.w/10,oh=lr.h/10;
           if(Math.min(ow,oh)>=8){const lx=lr.x/10+ow/2,ly=lr.y/10+oh/2;svg+=`<text x="${lx.toFixed(1)}" y="${(ly-0.6).toFixed(1)}" font-size="${Math.max(2.6,Math.min(6.5,Math.min(ow,oh)*0.16)).toFixed(1)}" font-family="Arial" font-weight="800" text-anchor="middle" fill="#0d9488">OFFCUT</text><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" font-size="${Math.max(2.3,Math.min(5.5,Math.min(ow,oh)*0.13)).toFixed(1)}" font-family="Arial" text-anchor="middle" fill="#0d9488">${esc(o.label)}</text>`;}}
         svg+='</svg>';
-        nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg,key:mat+'#'+idx});
+        nestSvgs.push({label:parseMat(mat).name+' · '+parseMat(mat).th+' · '+S.label+' · '+sh.margin+'mm margin · '+sh.g+'mm gap',svg,key:mat+'#'+idx,parts:sh.parts});
         const ssel=selSheets.has(mat+'#'+idx);
         html+=`<div class="sheet-card${ssel?' sheet-sel':''}" style="border-left:5px solid ${bcolSheet}"><div class="sheet-head"><span><input type="checkbox" class="ssel" ${ssel?'checked':''} onchange="selSheetCb('${esc(mat)}',${idx},this.checked)" title="Select this sheet — Sheet Size / Nesting then change only the selected sheets"> ${matInp} ${sizeSel} ${priceChip} <span style="color:#94a3b8">· ${sh.parts.length} part${sh.parts.length===1?'':'s'} · ${sh.margin}mm margin · ${sh.g}mm gap</span></span><span>${used.toFixed(0)}% used</span></div>${svg}</div>`;
         // paired BACK SHEET right below its front sheet — visual only (no material, no sheet count)
@@ -2781,9 +2859,10 @@
           const backNo=nSheets;
           let bsvg=`<svg class="sheet-svg back-sheet" viewBox="0 0 ${vbW} ${vbH}"><rect x="0.25" y="0.25" width="${(vbW-0.5).toFixed(1)}" height="${(vbH-0.5).toFixed(1)}" fill="#fff1f2" stroke="#fca5a5" stroke-width="0.5"/>`;
           bsvg+=`<text x="${(vbW/2).toFixed(1)}" y="${(vbH/2+9).toFixed(1)}" font-size="26" font-family="Arial" font-weight="900" text-anchor="middle" fill="#dc26261f">BACK</text>`;
-          bps.forEach(p=>{bsvg+=drawPart(mirrorBackPart(p,S),false);});
+          const mps=bps.map(p=>mirrorBackPart(p,S));
+          mps.forEach(p=>{bsvg+=drawPart(p,false);});
           bsvg+='</svg>';
-          nestSvgs.push({label:'BACK of Sheet '+backNo+' · '+parseMat(mat).name+' · machining only',svg:bsvg});
+          nestSvgs.push({label:'BACK of Sheet '+backNo+' · '+parseMat(mat).name+' · machining only',svg:bsvg,parts:mps});
           html+=`<div class="sheet-card back-card"><div class="sheet-head"><span><b style="color:#dc2626">⬒ BACK SHEET — back of Sheet ${backNo}</b> <span style="color:#ef4444">· machining only, no material charged · mirrored view</span></span><span style="color:#dc2626">${bps.length} part${bps.length===1?'':'s'}</span></div>${bsvg}</div>`;
         }
       });
