@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-17 (h) — Doors-online Etapa 2: engine headless (`order-engine.mjs`) — pedido do site → NC/DXF/.fastcnc sem browser
+
+`tools/order-engine.mjs` (novo): carrega o script INTEIRO do `index.html` em Node com stubs de DOM/storage (o mesmo padrão do sandbox E2E do check.mjs — **zero mudança no index.html**, nenhum marker novo) e expõe `orderToFiles(kabacal-order/v1)`: pedido do WooCommerce (spec `docs/FASTCNC_DOORS_ONLINE_V1.md` no repo cnc-calculator) → items com preset Plain Shaker + dobradiças (count/side do pedido) → nesting → `.fastcnc` + DXF por espessura + NC por chapa (CAM pinado como nos goldens: bed/ll/portrait/rapidGap 20/approach 5; templates `tpl_plainshaker18/22`; frame 50 = o validado vs o NC de referência). v1: só `plain-shaker`, 18/22mm. **Node-only por enquanto**: usa `new Function` (Deno Deploy/Edge Functions bloqueia code-gen em runtime — empacotar como módulo estático é o follow-up da Etapa 3). `tools/order-smoke.mjs` (novo) é a prova.
+
+- Testado: `node tools/order-smoke.mjs` → **GOLDEN_PLAINSHAKER_S1_18mm.nc byte-idêntico (2570B)** e **GOLDEN_18mm.dxf byte-idêntico (4517B)**, ambos regenerados 100% headless; pedido real #4004 (2× Plain Shaker 600×400×18, 2 furos, lado esq.) → 1 chapa, NC 4950B com segmentos T12/T1/T2, DXF 18mm com layer `hinges`, `.fastcnc` com round-trip (recarrega 1 item 400×600 q2); `node tools/check.mjs` **ok** (index.html e goldens intocados).
+- Nota de projeto: o quote interno do engine (£184) ≠ preço pago no site (£136) — por design; o dinheiro é o snapshot do pedido, os arquivos Kabacal são fabricação (spec §Order Schema).
+- Risco 1 (air-cut) inalterado: nada disto corta material sem o protocolo.
+
 ## 2026-07-15 (g) — SYNTEC Tier 2: comentários () opcionais no NC (header + por-operação) + regen dos goldens TPL
 
 Segunda melhoria SYNTEC. **Toggle opt-in** no modal Save NC ("Add () production comments"). **Default OFF = o NC validado atual byte-idêntico** (goldens intocados). Quando ON, `ncPegasus(segs,meta)` emite comentários `()` **que NÃO consomem N-number** — a usinagem sai byte-idêntica com ou sem (só adiciona linhas `()`; provado: remover as linhas `()` do ON == OFF, os N-numbers são idênticos). ASCII, 1 linha, parênteses/acentos removidos. O `:1248` fica **intocado** (os comentários entram DEPOIS dele).
