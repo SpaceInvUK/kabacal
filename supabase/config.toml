@@ -416,3 +416,8 @@ enabled = true
 # Stripe calls the webhook unauthenticated — the signature header is the auth (docs/SAAS.md Phase 4)
 [functions.stripe-webhook]
 verify_jwt = false
+
+# The FastCNC site bridge calls order-intake unauthenticated — the X-FCNC-Secret header is the
+# auth (doors-online Etapa 3; spec in the cnc-calculator repo docs/FASTCNC_DOORS_ONLINE_V1.md)
+[functions.order-intake]
+verify_jwt = false

@@ -73,3 +73,23 @@ What it proves — two users A and B, each with their own account; using **B's J
 | Any of the above with **no** Authorization header (anon) | 401/403/`[]` |
 
 All nine must fail closed. Re-run after ANY policy or grant change.
+
+## order-intake (doors-online Etapa 3 — 2026-07-17)
+
+FastCNC site bridge -> production files. Spec: cnc-calculator repo `docs/FASTCNC_DOORS_ONLINE_V1.md`.
+
+**Pieces:** `migrations/0003_fastcnc_orders.sql` (table `fastcnc_orders`, RLS deny-all, bucket `fastcnc-orders`) + `functions/order-intake/` (**GENERATED** — `node tools/build-intake.mjs` embeds the index.html engine statically; Deno Deploy blocks `new Function`; strict-mode proven by `tools/strict-probe.mjs`; handler tested by `tools/intake-smoke.mjs`). `verify_jwt=false` (config.toml) — auth is the `X-FCNC-Secret` header.
+
+**Deploy (CLI, needs SUPABASE_ACCESS_TOKEN):**
+
+```bash
+node tools/build-intake.mjs                     # regenerate after any index.html engine change
+npx supabase functions deploy order-intake --project-ref rvmyalrtoblxmxciiovd --use-api
+# migration: npx supabase db push  (or paste 0003 into the dashboard SQL editor)
+```
+
+**Secrets (dashboard -> Edge Functions -> Secrets):** `FCNC_BRIDGE_SECRET` (shared with the site wp-config) · optional `RESEND_API_KEY` + `FCNC_MAIL_FROM`/`FCNC_MAIL_TO` (default services@fastcnc.co.uk) — without the key the function stores files and skips e-mail.
+
+**Site side (wp-config.php):** `define('FCNC_BRIDGE_URL','https://rvmyalrtoblxmxciiovd.supabase.co/functions/v1/order-intake'); define('FCNC_BRIDGE_SECRET','<same>');` — the `fastcnc-order-bridge.php` mu-plugin (cnc-calculator repo `site/mu-plugins/`) POSTs on `woocommerce_order_status_processing`, idempotent via `_fcnc_bridge_sent`.
+
+**E2E check:** place/re-fire a paid test order -> row in `fastcnc_orders` (status `files_generated`), files under `orders/FC-{n}/` in the bucket, order note "delivered" on the Woo order.
