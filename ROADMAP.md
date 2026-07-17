@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-17 (i) — Doors-online Etapa 3 LIVE: `order-intake` no Supabase — pedido pago do site → arquivos no Storage
+
+Edge Function **`order-intake` deployada** (via dashboard editor; código GERADO por `tools/build-intake.mjs` com o engine embutido estaticamente — Deno bloqueia `new Function`), `verify_jwt` OFF na UI + config.toml (auth = header `X-FCNC-Secret`; **segredo salvo pelo Ednei** — cofre é human-only, o classifier bloqueou o agente, como esperado). Migration 0003 aplicada no hosted via SQL editor (`fastcnc_orders` RLS deny-all + bucket privado `fastcnc-orders`). Site teste ligado: `FCNC_BRIDGE_URL/SECRET` no wp-config; a ponte `fastcnc-order-bridge.php` (repo cnc-calculator) POSTa no `woocommerce_order_status_processing`.
+
+- Testado: `dispatch(4004)` real → HTTP 2xx + nota "Kabacal bridge: order delivered to production intake" + `_fcnc_bridge_sent`; **replay → `{ok,duplicate:true}`** (prova a linha `files_generated`, gravada só após os 3 uploads OK: `.fastcnc.json` + DXF + NC em `orders/FC-4004/`); **sem header → 401**. Handler também provado local (`tools/intake-smoke.mjs`: 401/200+3 files/idempotente).
+- E-mail p/ services@fastcnc.co.uk: **skipped** — sem `RESEND_API_KEY` (mesmo pendente SMTP do SaaS). Configurar chave → e-mail sai com os anexos automaticamente.
+- Manutenção: mudou o engine no `index.html` → `node tools/build-intake.mjs` + redeploy da função (runbook em supabase/README.md).
+
 ## 2026-07-17 (h) — Doors-online Etapa 2: engine headless (`order-engine.mjs`) — pedido do site → NC/DXF/.fastcnc sem browser
 
 `tools/order-engine.mjs` (novo): carrega o script INTEIRO do `index.html` em Node com stubs de DOM/storage (o mesmo padrão do sandbox E2E do check.mjs — **zero mudança no index.html**, nenhum marker novo) e expõe `orderToFiles(kabacal-order/v1)`: pedido do WooCommerce (spec `docs/FASTCNC_DOORS_ONLINE_V1.md` no repo cnc-calculator) → items com preset Plain Shaker + dobradiças (count/side do pedido) → nesting → `.fastcnc` + DXF por espessura + NC por chapa (CAM pinado como nos goldens: bed/ll/portrait/rapidGap 20/approach 5; templates `tpl_plainshaker18/22`; frame 50 = o validado vs o NC de referência). v1: só `plain-shaker`, 18/22mm. **Node-only por enquanto**: usa `new Function` (Deno Deploy/Edge Functions bloqueia code-gen em runtime — empacotar como módulo estático é o follow-up da Etapa 3). `tools/order-smoke.mjs` (novo) é a prova.
