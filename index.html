@@ -5694,6 +5694,22 @@
   // the existing height rule (8x4 <=2400 tall, else 10x4). Only fires for panels the user deliberately made wide —
   // a normal AUTO layout never exceeds PN_CROSS, so goldens stay byte-identical.
   function pnVSheet(w,h){ if(w>PN_VW.s105+0.5)return 'special'; if(w>PN_CROSS+0.5)return '10x5'; return (h>PN_CAP['8x4'])?'10x4':'8x4'; }
+  // Vertical column widths for a span SL from pinned widths (pinsIn[i] = mm to pin column i, null/0 = flex). Pinned
+  // columns keep their width (clamped 60..2000); the leftover divides EQUALLY among the flex columns, adding flex
+  // columns so none breaks the 2000 max. If the pins alone fill/overflow the wall they're scaled to fit exactly
+  // (scaled:true) with no flex. This is the "pin the ones I set, the rest divide equally" reflow (Ednei 2026-07-18).
+  function pnVColLayout(SL,pinsIn){
+    const clampW=w=>Math.min(PN_VW.max,Math.max(60,+w||0));
+    let arr=(pinsIn||[]).map(w=>(+w>0)?clampW(w):null);
+    const pinSum=arr.reduce((s,w)=>s+(w||0),0);
+    let flexN=arr.filter(w=>w==null).length;
+    if(pinSum>=SL-1){const k=pinSum>0?SL/pinSum:1;return {widths:arr.filter(w=>w!=null).map(w=>w*k),scaled:pinSum>SL+1};}
+    let rem=SL-pinSum;
+    if(flexN===0){flexN=Math.max(1,Math.ceil(rem/PN_VW.max));arr=arr.concat(Array(flexN).fill(null));}
+    while(rem/flexN>PN_VW.max+0.5){arr.push(null);flexN++;}
+    const fw=rem/flexN;
+    return {widths:arr.map(w=>w==null?fw:w),scaled:false};
+  }
   function pnThick(mat){const m=String(mat||'').match(/(\d+(?:\.\d+)?)mm/);return m?+m[1]:18;}
   function pnRoomDefs(room){
     const rSkOn=room.skirtOn!==false, rSkH=+(room.skirtH!=null?room.skirtH:225)||0, walls=room.walls||[];
@@ -5998,11 +6014,18 @@
       // Column count: AUTO (no vCols) keeps the standard-sheet split (<=PN_CROSS) — byte-identical to before. A
       // requested vCols is now HONOURED even when it makes wide columns (up to the 2000 hard max) so the user can
       // build 10x5 / special-order vertical panels; extra columns are only forced past 2000mm.
-      let n=(+wall.vCols>0)?Math.max(Math.round(+wall.vCols),Math.ceil(SL/PN_VW.max)):Math.max(1,Math.ceil(SL/PN_CROSS));
-      const cw=SL/n,vsheet=pnVSheet(cw,H);
-      for(let i=0;i<n;i++){
-        const lRule=i===0?sp.lr:'joint',rRule=i===n-1?sp.rr:'joint',sk=D.skirtFor(wi);
-        const p={wi,dir:'v',x0:sp.x0+i*cw,x1:sp.x0+(i+1)*cw,y0:0,y1:H,w:cw,h:H,sheet:vsheet,
+      // Per-column WIDTHS: an explicit wall.vColW (pinned mm per column position, null = flex) lets the user size
+      // individual vertical panels — pinned columns keep their width, the rest divide the remainder EQUALLY (columns
+      // added if a flex/pin would break the 2000 max). No pin → the uniform vCols/auto split, byte-identical to before.
+      let widths;
+      if(wall.vColW&&wall.vColW.some(w=>+w>0)){const rr=pnVColLayout(SL,wall.vColW);widths=rr.widths;
+        if(rr.scaled)warns.push('Vertical panel widths on Wall '+(wi+1)+' exceed the wall — scaled to fit.');}
+      else{const n=(+wall.vCols>0)?Math.max(Math.round(+wall.vCols),Math.ceil(SL/PN_VW.max)):Math.max(1,Math.ceil(SL/PN_CROSS));widths=Array(n).fill(SL/n);}
+      const nC=widths.length;let cx=sp.x0;
+      for(let i=0;i<nC;i++){
+        const cw=widths[i],vsheet=pnVSheet(cw,H);
+        const lRule=i===0?sp.lr:'joint',rRule=i===nC-1?sp.rr:'joint',sk=D.skirtFor(wi);
+        const p={wi,dir:'v',x0:cx,x1:cx+cw,y0:0,y1:H,w:cw,h:H,sheet:vsheet,
           sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
         if(vsheet==='special')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
         else if(vsheet==='10x5')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
@@ -6022,6 +6045,7 @@
           rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;for(let c=0;c<nc;c++)p.cells.push({x:p.sides.l.mm+c*(ccw+f),y:ry[0],w:ccw,h:ry[1]-ry[0]});});
         }
         pieces.push(p);
+        cx+=cw;
       }
     });
   }

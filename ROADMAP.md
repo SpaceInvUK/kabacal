@@ -14,6 +14,12 @@ Pedido: alterar a largura das PEÇAS FÍSICAS individualmente (as outras da pare
 ### Testado (j, parte 1)
 `node tools/check.mjs` verde · **goldens DXF byte-idênticos** (PANELS_18mm 10030, WALL_LAYOUT 3428) — feature inerte sem peça larga · **sandbox 26/26**: tiers `pnVSheet` (≤1206 std · 1207–1520 10x5 · >1520 special); AUTO inalterado (1000→10x4, 2600→3×866 como o golden); `vCols=1` em 1400 → coluna 1400 sheet 10x5 nested+precificada+warn; 1800 → special flagged, chapa sob medida 1814×3014; 2500 `vCols=1` → 2 colunas ≤2000 (hard cap).
 
+**Parte 2 — vertical: largura individual + reflow (commit 2):**
+- Campo aditivo `wall.vColW` (largura fixada por posição de coluna, null = flex) + helper `pnVColLayout(SL,pins)`: colunas fixadas mantêm a largura (clamp 60..2000), o resto divide a sobra IGUALMENTE, adicionando colunas de flex se alguma passar de 2000; se as fixadas já enchem/estouram a parede, são escaladas pra caber (+warn). `pnLayoutVWall` usa `vColW` quando há pin, senão o split uniforme (byte-idêntico). Cada coluna recebe seu tier (`pnVSheet` pela largura). NÃO toca `panelOv` (bloco de override de célula intacto).
+
+### Testado (j, parte 2)
+**sandbox 38/38** (inclui: pin col1=1500 em 3000 → [1500,750,750] Σ=3000, tiers 10x5+10x4; all-flex = uniforme; pin 2000 → [2000,1000] special+10x4; over-constrained 1500+1500 em 2000 → escala [1000,1000]+warn; flex respeita 2000 numa parede 5000) · `check.mjs` verde · goldens DXF byte-idênticos.
+
 ## 2026-07-17 (i) — Doors-online Etapa 3 LIVE: `order-intake` no Supabase — pedido pago do site → arquivos no Storage
 
 Edge Function **`order-intake` deployada** (via dashboard editor; código GERADO por `tools/build-intake.mjs` com o engine embutido estaticamente — Deno bloqueia `new Function`), `verify_jwt` OFF na UI + config.toml (auth = header `X-FCNC-Secret`; **segredo salvo pelo Ednei** — cofre é human-only, o classifier bloqueou o agente, como esperado). Migration 0003 aplicada no hosted via SQL editor (`fastcnc_orders` RLS deny-all + bucket privado `fastcnc-orders`). Site teste ligado: `FCNC_BRIDGE_URL/SECRET` no wp-config; a ponte `fastcnc-order-bridge.php` (repo cnc-calculator) POSTa no `woocommerce_order_status_processing`.
