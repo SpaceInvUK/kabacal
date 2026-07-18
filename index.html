@@ -5687,7 +5687,13 @@
   // Pure geometry engine — no DOM, no storage, no app globals (tools/check.mjs executes this block).
   const PN_CAP={'8x4':2400,'10x4':3000};      // usable piece length per sheet class (confirmed rule numbers)
   const PN_CROSS=1206;                        // max piece cross dimension (fits the 1220 sheet width with margins)
+  const PN_VW={s105:1520,max:2000};           // vertical panel WIDTH tiers (columns): >PN_CROSS needs a 10x5, >s105 a special-order sheet, hard max 2000mm
   const PN_SHK={min:150,max:700,target:350};  // shaker cavity width limits + auto target
+  // Sheet class for a VERTICAL panel by physical width w (cross) and height h (length on the sheet): a column wider
+  // than the standard 1206 needs a 10x5 (fits 1525), wider than 1520 a special-order sheet. Standard columns keep
+  // the existing height rule (8x4 <=2400 tall, else 10x4). Only fires for panels the user deliberately made wide —
+  // a normal AUTO layout never exceeds PN_CROSS, so goldens stay byte-identical.
+  function pnVSheet(w,h){ if(w>PN_VW.s105+0.5)return 'special'; if(w>PN_CROSS+0.5)return '10x5'; return (h>PN_CAP['8x4'])?'10x4':'8x4'; }
   function pnThick(mat){const m=String(mat||'').match(/(\d+(?:\.\d+)?)mm/);return m?+m[1]:18;}
   function pnRoomDefs(room){
     const rSkOn=room.skirtOn!==false, rSkH=+(room.skirtH!=null?room.skirtH:225)||0, walls=room.walls||[];
@@ -5989,14 +5995,18 @@
     const f=D.frame,H=D.vPanelH;
     pnWallSpans(wall,D).forEach(sp=>{
       const SL=sp.x1-sp.x0;if(SL<40)return;
-      let n=(+wall.vCols>0)?Math.round(+wall.vCols):Math.max(1,Math.ceil(SL/PN_CROSS));
-      n=Math.max(n,Math.ceil(SL/PN_CROSS));                    // max-width rule beats a requested column count
-      const cw=SL/n;
+      // Column count: AUTO (no vCols) keeps the standard-sheet split (<=PN_CROSS) — byte-identical to before. A
+      // requested vCols is now HONOURED even when it makes wide columns (up to the 2000 hard max) so the user can
+      // build 10x5 / special-order vertical panels; extra columns are only forced past 2000mm.
+      let n=(+wall.vCols>0)?Math.max(Math.round(+wall.vCols),Math.ceil(SL/PN_VW.max)):Math.max(1,Math.ceil(SL/PN_CROSS));
+      const cw=SL/n,vsheet=pnVSheet(cw,H);
       for(let i=0;i<n;i++){
         const lRule=i===0?sp.lr:'joint',rRule=i===n-1?sp.rr:'joint',sk=D.skirtFor(wi);
-        const p={wi,dir:'v',x0:sp.x0+i*cw,x1:sp.x0+(i+1)*cw,y0:0,y1:H,w:cw,h:H,sheet:H>PN_CAP['8x4']?'10x4':'8x4',
+        const p={wi,dir:'v',x0:sp.x0+i*cw,x1:sp.x0+(i+1)*cw,y0:0,y1:H,w:cw,h:H,sheet:vsheet,
           sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
-        if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(H)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
+        if(vsheet==='special')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
+        else if(vsheet==='10x5')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
+        else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(H)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
         const inner=cw-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+wall.vRows||2)),cy0=p.sides.b,cy1=H-f;
         if(inner>=80&&cy1-cy0>=60){
           const nc=pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
@@ -6121,7 +6131,7 @@
       const dR=(ov.sideR==='gap')?pt:((ov.sideR==='overlap')?-pt:0);
       if(dL||dR){const nx0=p.x0+dL,nx1=p.x1-dR;
         if(nx1-nx0>=80){p.x0=nx0;p.x1=nx1;p.w=p.x1-p.x0;p.ovPhys=true;
-          p.sheet=(Math.max(p.w,p.h)>PN_CAP['8x4'])?'10x4':'8x4';}
+          p.sheet=(p.dir==='v')?pnVSheet(p.w,p.h):((Math.max(p.w,p.h)>PN_CAP['8x4'])?'10x4':'8x4');}
         else p.ovNote='gap/overlap ignored — the panel would be under 80mm wide';}
       const seen={},bands=[];
       (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
@@ -6135,7 +6145,7 @@
         const hh=Math.min(Math.max(+ov.h,minH),maxH);
         if(Math.abs(hh-(+ov.h))>0.5)p.ovNote='height clamped to '+Math.round(hh)+'mm (sheet limit '+Math.round(maxH)+')';
         p.y1=p.y0+hh;p.h=hh;p.ovH=hh;
-        if(p.dir==='v')p.sheet=(p.h>PN_CAP['8x4'])?'10x4':'8x4';
+        if(p.dir==='v')p.sheet=pnVSheet(p.w,p.h);
       }
       // per-panel FRAME — internal grid only (top/bottom margins + cell gaps); joint halves stay 40/40
       if(+ov.frame>0){const sk=D.skirtFor(p.wi,p.pid);p.sides.t=fL;p.sides.b=(p.y0<=0.5&&sk.on&&!p.isCap&&!p.isLower)?(sk.h+fL):fL;p.ovFrame=fL;}
@@ -6351,8 +6361,13 @@
   // 10x4 sheets (offcut sharing), only then open 8x4 sheets. 7mm margin + 7mm gap (production rule).
   function pnNestRoom(room,pieces){
     const parts=pieces.map((p,i)=>({key:'pn'+i,w:Math.max(1,Math.round(p.w)),h:Math.max(1,Math.round(p.h)),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false},label:p.name||('P'+(i+1)),pnPiece:p}));
-    const big=parts.filter(p=>Math.max(p.w,p.h)>PN_CAP['8x4']);
-    const small=parts.filter(p=>Math.max(p.w,p.h)<=PN_CAP['8x4']).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+    // A wide vertical panel needs a bigger sheet than 8x4/10x4: 10x5 (<=1520 wide) or a bespoke special-order
+    // sheet (<=2000). Pull those out FIRST so they never overflow a standard bin; std pieces nest exactly as before,
+    // so a job with no wide panels leaves this branch inert and is byte-identical.
+    const cls=p=>{const s=p.pnPiece&&p.pnPiece.sheet;return (s==='10x5'||s==='special')?s:'std';};
+    const std=parts.filter(p=>cls(p)==='std'),p105=parts.filter(p=>cls(p)==='10x5'),pSpecial=parts.filter(p=>cls(p)==='special');
+    const big=std.filter(p=>Math.max(p.w,p.h)>PN_CAP['8x4']);
+    const small=std.filter(p=>Math.max(p.w,p.h)<=PN_CAP['8x4']).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
     const bins10=big.length?packMulti(big,SHEETS['10x4'],7,7):[];
     const rest=[];
     small.forEach(p=>{
@@ -6361,9 +6376,14 @@
       if(!placed)rest.push(p);
     });
     const bins8=rest.length?packMulti(rest,SHEETS['8x4'],7,7):[];
+    const bins105=p105.length?packMulti(p105,SHEETS['10x5'],7,7):[];
     const sheets=[];
     bins10.forEach(b=>sheets.push({sz:'10x4',S:SHEETS['10x4'],g:7,margin:7,parts:b.parts}));
     bins8.forEach(b=>sheets.push({sz:'8x4',S:SHEETS['8x4'],g:7,margin:7,parts:b.parts}));
+    bins105.forEach(b=>sheets.push({sz:'10x5',S:SHEETS['10x5'],g:7,margin:7,parts:b.parts}));
+    // special-order (oversize) vertical panels: one bespoke sheet each, sized to the panel + 7mm margins, FLAGGED
+    // for the quote/production. Priced as a 10x5 placeholder (flag-only per spec — a real special price is set later).
+    pSpecial.forEach(p=>sheets.push({sz:'10x5',special:true,S:{w:Math.round(p.w)+14,h:Math.round(p.h)+14},g:7,margin:7,parts:[Object.assign({},p,{x:7,y:7})]}));
     let cost=0,area=0,sheetA=0;
     sheets.forEach(s=>{cost+=priceForSheet(room.mat,s.sz);sheetA+=s.S.w*s.S.h;s.parts.forEach(p=>{area+=p.w*p.h;});});
     return {sheets,cost,waste:Math.max(0,sheetA-area)};
