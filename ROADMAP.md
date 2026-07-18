@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-18 (k) — Quote/PDF: sheet preview dos painéis em 2 colunas proporcionais
+
+Pedido do Ednei: o panorama estava bom, mas as chapas do "Panels — sheet preview" saíam ridiculamente grandes no PDF (uma por linha, largura total — ~258mm de altura por room no documento, mais de uma página A4 só de chapas).
+
+- **`pnSheetsSvg` reescrito (display-only)**: no máximo **2 chapas lado a lado por linha**, todas na MESMA escala mm (âncora 3050) — 8x4 sai visivelmente mais estreita que 10x4, proporcional de verdade. Cada linha é um `<svg>` próprio dentro de `break-inside:avoid` → o PDF pagina entre linhas em vez de fatiar uma imagem gigante. Legenda por chapa (n · tamanho · parts · £) mantida; labels das peças com threshold ajustado à escala menor.
+- **Números**: room com 3 chapas: antes 940×1206 (≈258mm no PDF); depois 2 linhas de 940×218 (≈47mm cada, ≈94mm por room). Job exemplo (2 rooms): ~516mm → **188mm** de chapas no PDF.
+- Zona guardada Print docs: evidência antes/depois numérica + HTML do documento de impressão inspecionado (2-up confirmado, proporção confirmada, panorama intocado com max-height 80mm). Pricing/DXF/NC/geometria intocados.
+- Testado: `node tools/check.mjs` verde (goldens byte-idênticos); browser com storage limpo + `rich-doors-and-panels`: 2 rooms × 2 linhas (2+1 chapas), viewBox 940×218 por linha, preços por chapa, console limpo; tela continua com scroll de 360px no Quote.
+
 ## 2026-07-18 (j) — Painéis: largura de peça individual + chapas 10x5 / especial (pedido do Ednei)
 
 Pedido: alterar a largura das PEÇAS FÍSICAS individualmente (as outras da parede se reajustam — fixa as setadas, resto divide igual), com limites: horizontal máx 3m; vertical ≤1200 = stock normal, >1200 → **10x5**, >1520 → **chapa especial** encomendada (só flag), máx 2000. Trigger >1200: visor no editor + linha no Quote/PDF. Camada de layout/nesting — **opt-in**: sem peça larga e sem pin, tudo byte-idêntico. (Multi-commit; entradas Testado somam por parte.)

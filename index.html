@@ -7115,20 +7115,28 @@
   function pnSheetsSvg(room,L){
     const nest=pnNestRoom(room,L.pieces);
     if(!nest.sheets.length)return '<div class="pn-hint" style="padding:30px 10px;text-align:center">No panels to nest yet.</div>';
-    const pad=16,vbW=940,sc=(vbW-2*pad)/3050,capH=18;
-    let y=pad,s='';
-    nest.sheets.forEach((sh,i)=>{
-      const shH=sh.S.h*sc;
-      s+='<text x="'+pad+'" y="'+(y+11)+'" font-size="11" font-weight="700" fill="var(--ink)">Sheet '+(i+1)+' · '+sh.sz+' · '+sh.parts.length+' parts · '+money(priceForSheet(room.mat,sh.sz))+'</text>';
-      y+=capH;
-      s+='<rect x="'+pad+'" y="'+y+'" width="'+(sh.S.w*sc)+'" height="'+shH+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="0.8"/>';
-      sh.parts.forEach(p=>{
-        s+='<rect x="'+(pad+p.x*sc)+'" y="'+(y+p.y*sc)+'" width="'+(p.w*sc)+'" height="'+(p.h*sc)+'" fill="rgba(37,99,235,.16)" stroke="#2563eb" stroke-width="0.6"/>';
-        if(p.w*sc>46&&p.h*sc>10)s+='<text x="'+(pad+(p.x+p.w/2)*sc)+'" y="'+(y+(p.y+p.h/2)*sc+3)+'" text-anchor="middle" font-size="8.5" fill="var(--ink)">'+esc(String(p.label||'').replace(/^.*Wall /,'W'))+'</text>';
+    // Quote/PDF layout (Ednei 2026-07-18): MAX 2 sheets side by side per row, all on ONE shared mm scale
+    // (anchored to the 3050 sheet) so different sheet sizes stay proportional to each other. Each row is its
+    // own <svg> in a break-inside:avoid wrapper → the printed PDF paginates between rows instead of slicing
+    // one giant image (the old one-sheet-per-line full-width stack came out ~258mm tall per room).
+    const pad=16,gut=20,vbW=940,cellW=(vbW-2*pad-gut)/2,sc=cellW/3050,capH=16,out=[];
+    for(let i=0;i<nest.sheets.length;i+=2){
+      const row=nest.sheets.slice(i,i+2);
+      let s='',rowH=0;
+      row.forEach((sh,k)=>{
+        const x=pad+k*(cellW+gut),shH=sh.S.h*sc;
+        s+='<text x="'+x+'" y="'+(pad+10)+'" font-size="10" font-weight="700" fill="var(--ink)">Sheet '+(i+k+1)+' · '+sh.sz+' · '+sh.parts.length+' parts · '+money(priceForSheet(room.mat,sh.sz))+'</text>';
+        s+='<rect x="'+x+'" y="'+(pad+capH)+'" width="'+(sh.S.w*sc)+'" height="'+shH+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="0.8"/>';
+        sh.parts.forEach(p=>{
+          s+='<rect x="'+(x+p.x*sc)+'" y="'+(pad+capH+p.y*sc)+'" width="'+(p.w*sc)+'" height="'+(p.h*sc)+'" fill="rgba(37,99,235,.16)" stroke="#2563eb" stroke-width="0.6"/>';
+          if(p.w*sc>34&&p.h*sc>9)s+='<text x="'+(x+(p.x+p.w/2)*sc)+'" y="'+(pad+capH+(p.y+p.h/2)*sc+2.6)+'" text-anchor="middle" font-size="7.5" fill="var(--ink)">'+esc(String(p.label||'').replace(/^.*Wall /,'W'))+'</text>';
+        });
+        rowH=Math.max(rowH,shH);
       });
-      y+=shH+14;
-    });
-    return '<svg viewBox="0 0 '+vbW+' '+Math.round(y+4)+'" style="width:100%;display:block">'+s+'</svg>';
+      const vbH=Math.round(pad+capH+rowH+8);
+      out.push('<div style="break-inside:avoid">'+'<svg viewBox="0 0 '+vbW+' '+vbH+'" style="width:100%;display:block">'+s+'</svg></div>');
+    }
+    return out.join('');
   }
   // panoramic room view: every wall side by side, click a wall to open it.
   // quote=true (Quote tab / PDF only): HIDE walls with no panels and pack the rest tight (real wall numbers
