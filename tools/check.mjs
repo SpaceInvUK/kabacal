@@ -645,6 +645,24 @@ if (html && !process.argv.includes('--hook')) {
     must(+api.items[0].panelSize === 400, 'bottom part legacy import: inner 350 + bottom frame 50 must convert to absolute 400');
     const bpCs3 = api.doorCavities(api.items[0]);
     must(bpCs3.length === 2 && bpCs3[1].h === 350 && bpCs3[1].y === 1600 && bpCs3[0].h === 1500, 'bottom part legacy import: geometry must render identical to before the fix');
+
+    // (h) ABSOLUTE midrails (2026-07-19): [{c,th}] measured from the bottom (right when landscape),
+    // each rail with its own thickness; openings are the gaps. 2000 tall · frame 50 · rails c400/th50 +
+    // c1000/th30 ⇒ openings top-down 935 / 560 / 325.
+    const mrDoor = api.mkItem('trad', 600, 2000, 1, 'MDF 18mm', '8x4', { t: 50, r: 50, b: 50, l: 50 }, null, 'MR', { on: false },
+      { offsetName: 'Plain Shaker', panels: 1, midrails: [{ c: 400, th: 50 }, { c: 1000, th: 30 }] });
+    const mrCs = api.doorCavities(mrDoor);
+    must(mrCs.length === 3, 'midrails: 2 rails must yield 3 openings');
+    must(mrCs[0].y === 50 && mrCs[0].h === 935 && mrCs[1].y === 1015 && mrCs[1].h === 560 && mrCs[2].y === 1625 && mrCs[2].h === 325,
+      `midrails: openings must be 935@50 / 560@1015 / 325@1625, got ${mrCs.map(c => c.h + '@' + c.y).join(' / ')}`);
+    api.items.length = 0; api.clearSel(); api.items.push(mrDoor); api.render();
+    const mrDoc = api.buildFastCnc();
+    const mrPart = mrDoc.blocks.flatMap(b => b.parts || [])[0];
+    must(Array.isArray(mrPart.kabMidrails) && mrPart.kabMidrails.length === 2 && mrPart.kabMidrails[0].c === 400 && +mrPart.panels === 3 && mrPart.panelSize === '',
+      'midrails save: kabMidrails carries the list, panels falls back to rails+1 for old readers');
+    api.loadFastCnc(JSON.parse(JSON.stringify(mrDoc)));
+    const mrCs2 = api.doorCavities(api.items[0]);
+    must(JSON.stringify(mrCs2) === JSON.stringify(mrCs), 'midrails round-trip: reloaded geometry must be identical');
   } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
 }
 

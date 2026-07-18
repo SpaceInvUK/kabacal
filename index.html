@@ -767,6 +767,7 @@
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
       panels:Math.max(1,Math.round(+extra.panels||1)),midFrame:(extra.midFrame===''||extra.midFrame==null)?'':Math.max(0,+extra.midFrame||0),panelSize:(extra.panelSize===''||extra.panelSize==null)?'':Math.max(1,+extra.panelSize||0),
+      midrails:(Array.isArray(extra.midrails)&&extra.midrails.length)?extra.midrails.map(r=>({c:+r.c,th:+r.th})):undefined,
       offsetName:normPresetName(extra.offsetName||'Custom')};
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
@@ -780,6 +781,21 @@
   // frames and the rail NEVER move. '' = equal split.
   function panelsOf(it){return Math.max(1,Math.round(+(it&&it.panels)||1));}
   function midFrameOf(it){const v=(it&&it.midFrame!==''&&it.midFrame!=null)?+it.midFrame:NaN;return (!isNaN(v)&&v>=0)?v:resolveFrame(it).t;}
+  // ---- ABSOLUTE midrails (2026-07-19, configurator parity) ----
+  // it.midrails = [{c,th}] — each rail's CENTRE measured from the START of the piece (bottom edge portrait,
+  // right edge landscape — same datum as Bottom part), th = that rail's own thickness. A non-empty list
+  // OVERRIDES the panels/midFrame/panelSize path: openings are simply the gaps between frame and rails.
+  function midrailsOf(it){const a=(it&&Array.isArray(it.midrails))?it.midrails.filter(r=>r&&+r.c>0&&+r.th>0):[];return a.length?a.map(r=>({c:+r.c,th:+r.th})).sort((x,y)=>x.c-y.c):null;}
+  // openings between nearF/rails/farF, measured FROM THE NEAR END; rails clamp instead of exploding
+  function railBands(len,farF,nearF,rails){
+    const out=[];let pos=Math.max(0,+nearF||0);const top=len-Math.max(0,+farF||0);
+    rails.forEach(r=>{const lo=r.c-r.th/2,hi=r.c+r.th/2;
+      if(hi<=pos||lo>=top)return;
+      if(lo>pos)out.push({a:pos,b:lo});
+      pos=Math.max(pos,hi);});
+    if(top>pos)out.push({a:pos,b:top});
+    return out;
+  }
   function panelSegs(open,n,req){open=Math.max(0,+open||0);n=Math.max(1,Math.round(+n||1));
     if(open<=0)return [];
     if(n<=1)return [open];
@@ -791,6 +807,13 @@
   function cavsFor(w,h,f,pnl){
     const iw=w-f.l-f.r,ih=h-f.t-f.b;
     if(iw<=0||ih<=0)return [];
+    const rails=pnl&&pnl.rails;
+    if(rails&&rails.length){   // absolute midrails: openings = gaps, top-down / left-right order
+      const out=[];
+      if(h>=w){railBands(h,f.t,f.b,rails).forEach(g=>{const hh=g.b-g.a;if(hh>0)out.push({x:f.l,y:h-g.b,w:iw,h:hh});});out.sort((A,B)=>A.y-B.y);}
+      else{railBands(w,f.l,f.r,rails).forEach(g=>{const ww=g.b-g.a;if(ww>0)out.push({x:w-g.b,y:f.t,w:ww,h:ih});});out.sort((A,B)=>A.x-B.x);}
+      return out;
+    }
     const n=pnl?Math.max(1,pnl.n||1):1;
     if(n===1)return [{x:f.l,y:f.t,w:iw,h:ih}];
     const mid=Math.max(0,+pnl.mid||0),out=[];
@@ -801,7 +824,10 @@
     else{const req=(pnl.size===''||pnl.size==null)?'':Math.max(1,(+pnl.size||0)-f.r);
       const ws=panelSegs(iw-mid*(n-1),n,req);let cx=f.l;ws.forEach(ww=>{if(ww>0)out.push({x:cx,y:f.t,w:ww,h:ih});cx+=ww+mid;});}
     return out;}
-  function pnlOf(it){const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
+  function pnlOf(it){
+    const rails=midrailsOf(it);
+    if(rails)return {n:rails.length+1,mid:0,size:'',rails};
+    const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
   function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
   // Cavities of a PLACED (possibly rotated) part, in the part's LOCAL top-left / y-down coords (placed w/h).
   // The frame ALWAYS follows the LOGICAL width/height (top/bottom = height direction, left/right = width
@@ -817,6 +843,28 @@
   function setPanels(i,v){items[i].panels=Math.max(1,Math.min(8,Math.round(+v||1)));render();}
   function setMidFrame(i,v){items[i].midFrame=(String(v).trim()==='')?'':Math.max(0,Math.round(+v||0));render();}
   function setPanelSize(i,v){items[i].panelSize=(String(v).trim()==='')?'':Math.max(1,Math.round(+v||0));render();}
+  // ---- absolute midrails setters (presets compute rail centres so the OPENINGS come out as named) ----
+  function midrailDims(it){const f=resolveFrame(it),portrait=(+it.h||0)>=(+it.w||0);
+    return {portrait,near:portrait?f.b:f.r,far:portrait?f.t:f.l,len:portrait?(+it.h||0):(+it.w||0)};}
+  function setMidrailPreset(i,kind){const it=items[i];const d=midrailDims(it);const th=midFrameOf(it)||50;
+    const inner=d.len-d.near-d.far;
+    if(kind==='none'){delete it.midrails;}
+    else if(kind==='2eq'){it.midrails=[{c:Math.round(d.near+inner/2),th}];}
+    else if(kind==='3eq'){const o=(inner-2*th)/3;it.midrails=[{c:Math.round(d.near+o+th/2),th},{c:Math.round(d.near+2*o+th+th/2),th}];}
+    else if(kind==='6040'){it.midrails=[{c:Math.round(d.near+0.4*(inner-th)+th/2),th}];}   // 40% opening at the bottom/right, 60% above
+    else if(kind==='custom'&&!midrailsOf(it)){it.midrails=[{c:Math.round(d.len/2),th}];}
+    render();}
+  function addMidrail(i){const it=items[i];const d=midrailDims(it);const th=midFrameOf(it)||50;
+    const rails=midrailsOf(it)||[];
+    // drop the new rail in the middle of the biggest current opening
+    const bands=railBands(d.len,d.far,d.near,rails);let best=bands[0]||{a:d.near,b:d.len-d.far};
+    bands.forEach(b=>{if(b.b-b.a>best.b-best.a)best=b;});
+    rails.push({c:Math.round((best.a+best.b)/2),th});
+    it.midrails=rails.sort((x,y)=>x.c-y.c);render();}
+  function delMidrail(i,k){const it=items[i];const rails=midrailsOf(it)||[];rails.splice(k,1);
+    if(rails.length)it.midrails=rails;else delete it.midrails;render();}
+  function setMidrailField(i,k,field,v){const it=items[i];const rails=midrailsOf(it)||[];if(!rails[k])return;
+    rails[k][field]=Math.max(1,Math.round(+v||0));it.midrails=rails.sort((x,y)=>x.c-y.c);render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
   // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
   // (user rule 2026-07-07: front 3-4 offsets, back often just 1 — never force them to mirror.)
@@ -1145,6 +1193,7 @@
           // files carry only the INNER opening in panelSize → convert (+ frame) so old jobs render IDENTICAL
           panelSize:(part.kabBottomPart!=null&&+part.kabBottomPart>0)?Math.round(+part.kabBottomPart)
             :((part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)+((num(part.height,0)>=num(part.width,0))?f.b:f.r))),
+          midrails:(Array.isArray(part.kabMidrails)&&part.kabMidrails.length)?part.kabMidrails.map(r=>({c:+r.c,th:+r.th})).filter(r=>r.c>0&&r.th>0):undefined,
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
@@ -1252,6 +1301,9 @@
     // the corrected ABSOLUTE "Bottom part" travels in the additive kabBottomPart (2026-07-15 semantics fix)
     if(it.panelSize===''||it.panelSize==null){o.panelSize='';}
     else{const bf=((+it.h||0)>=(+it.w||0))?f.b:f.r;o.panelSize=String(Math.max(1,Math.round(+it.panelSize-bf)));o.kabBottomPart=+it.panelSize;}
+    // ABSOLUTE midrails (additive 2026-07-19): the full rail list travels in kabMidrails; the production
+    // fields fall back to an equal split with the same opening count so old readers stay sane.
+    const kmr=midrailsOf(it);if(kmr){o.kabMidrails=kmr.map(r=>({c:r.c,th:r.th}));o.panels=kmr.length+1;o.panelSize='';delete o.kabBottomPart;}
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -1874,7 +1926,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','backMode','backLines','scribe'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','midrails','backMode','backLines','scribe'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1971,6 +2023,8 @@
       <div class="ed-field" style="flex:1;min-width:88px"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
       <div class="ed-field" style="flex:1;min-width:88px"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
     </div>
+    ${(function(){const pm=parseMat(it.mat),ths=Object.keys(PRICES[pm.name]||{});if(ths.length<2)return '';
+      return '<div class="ed-field" style="margin-top:8px"><label>Thickness — '+esc(pm.name)+'</label><div class="preset-chips" style="margin-top:2px">'+ths.map(t=>'<button class="preset-chip '+(pm.th===t?'on':'')+'" title="Switch this door to '+esc(pm.name)+' '+t+' (price and cut templates follow)" onclick="upd('+i+',\'mat\',\''+esc(pm.name+' '+t)+'\')">'+t+'</button>').join('')+'</div></div>';})()}
     <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row. Frame, panels and rails are in <b>Frame &amp; Panels</b> below.</div>`;}
   function secGrain(i,it){const g=grainOf(it);return `
@@ -2071,7 +2125,7 @@
   // "Frame & Panels" (2026-07-16 reorg): Frame → Mid rail → Panels → Bottom part, then presets/offsets.
   // Mid rail and Bottom part stay VISIBLE at 1 panel but disabled (they only apply from 2 panels up) —
   // same setters as before (setMidFrame/setPanels/setPanelSize), zero geometry change.
-  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);return `
+  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);const rails=midrailsOf(it);return `
     ${bead?`<div class="ins-card" style="border-color:#b45309;background:#fffbeb;flex-wrap:wrap">
       <b style="color:#92400e">GLASS</b> — no insert; creates beading frame <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
       <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -2090,14 +2144,30 @@
         ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
         <span class="sub" style="flex-basis:100%" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
     <div class="sub" style="font-weight:700;margin:2px 0 0">Frame</div>
+    <div class="preset-chips" style="margin:3px 0 4px">${[['Micro',10],['Skinny',25],['Shaker',45],['Standard',50],['Classic',80]].map(p=>`<button class="preset-chip ${(it.frameLink&&f.t===p[1]&&f.r===p[1])?'on':''}" title="${p[0]} — ${p[1]}mm all sides" onclick="setFrame(${i},${p[1]})">${p[0]} ${p[1]}</button>`).join('')}</div>
     ${frameEditor(i,it,true)}
     <div class="sub" style="margin:0 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>
     <div style="display:flex;gap:8px;margin:0 0 4px;flex-wrap:wrap">
-      <div class="ed-field" style="flex:1;min-width:96px"><label>Mid rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${n>1?f.t:'—'}" ${n>1?'':'disabled'} onchange="setMidFrame(${i},this.value)" title="${n>1?'The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)':'Needs 2+ panels — set Panels to 2 to use a mid rail'}"></div>
-      <div class="ed-field" style="flex:1;min-width:64px;max-width:96px"><label>Panels</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
-      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} part (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="${n>1?'equal':'—'}" ${n>1?'':'disabled'} onchange="setPanelSize(${i},this.value)" title="${n>1?('ABSOLUTE distance from the '+(portrait?'bottom':'right')+' of the piece to the top of the '+(portrait?'lower':'right')+' section — INCLUDES the '+(portrait?'bottom':'right')+' frame (e.g. frame 50 + opening 350 = 400). The upper opening absorbs the rest; frames and rail never move. Empty = equal split.'):'Needs 2 panels — set Panels to 2 first'}"></div>
+      <div class="ed-field" style="flex:1;min-width:96px"><label>Mid rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${(n>1&&!rails)?f.t:'—'}" ${(n>1&&!rails)?'':'disabled'} onchange="setMidFrame(${i},this.value)" title="${rails?'Custom midrails active — edit the rail list below (each rail has its own thickness)':(n>1?'The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)':'Needs 2+ panels — set Panels to 2 to use a mid rail')}"></div>
+      <div class="ed-field" style="flex:1;min-width:64px;max-width:96px"><label>Panels</label><input type="number" min="1" max="8" value="${rails?rails.length+1:n}" ${rails?'disabled':''} onchange="setPanels(${i},this.value)" title="${rails?'Custom midrails active — the rail list below sets the openings (set Midrails to None to use this again)':'Internal openings inside the door — split along the long side'}"></div>
+      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} part (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="${(n>1&&!rails)?'equal':'—'}" ${(n>1&&!rails)?'':'disabled'} onchange="setPanelSize(${i},this.value)" title="${rails?'Custom midrails active — position the rails directly below':(n>1?('ABSOLUTE distance from the '+(portrait?'bottom':'right')+' of the piece to the top of the '+(portrait?'lower':'right')+' section — INCLUDES the '+(portrait?'bottom':'right')+' frame (e.g. frame 50 + opening 350 = 400). The upper opening absorbs the rest; frames and rail never move. Empty = equal split.'):'Needs 2 panels — set Panels to 2 first')}"></div>
     </div>
-    ${n>1?`<div class="sub" style="margin:0 0 8px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:''}
+    <div class="sub" style="font-weight:700;margin:6px 0 2px">Midrails <span style="font-weight:400">— centres measured from the ${portrait?'bottom':'right'} edge of the piece</span></div>
+    <div class="preset-chips" style="margin:0 0 4px">
+      <button class="preset-chip ${(!rails&&n===1)?'on':''}" title="No midrails" onclick="setMidrailPreset(${i},'none')">None</button>
+      <button class="preset-chip" title="One rail dead centre — two equal openings" onclick="setMidrailPreset(${i},'2eq')">Two equal</button>
+      <button class="preset-chip" title="Two rails — three equal openings" onclick="setMidrailPreset(${i},'3eq')">Three equal</button>
+      <button class="preset-chip" title="One rail — 60% opening on top, 40% at the ${portrait?'bottom':'right'}" onclick="setMidrailPreset(${i},'6040')">60 / 40</button>
+      <button class="preset-chip ${rails?'on':''}" title="Free rail list — add each rail with its own centre and thickness" onclick="setMidrailPreset(${i},'custom')">Custom</button>
+    </div>
+    ${rails?rails.map((r,k)=>`<div style="display:flex;gap:8px;margin:0 0 4px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="flex:1;min-width:130px"><label>Rail ${k+1} — centre (mm)</label><input type="number" min="1" value="${r.c}" onchange="setMidrailField(${i},${k},'c',this.value)" title="Centre of this rail measured from the ${portrait?'bottom':'right'} edge of the piece"></div>
+      <div class="ed-field" style="flex:1;min-width:100px"><label>Thickness (mm)</label><input type="number" min="1" value="${r.th}" onchange="setMidrailField(${i},${k},'th',this.value)"></div>
+      <button class="btn ghost tiny" style="margin-bottom:3px" onclick="delMidrail(${i},${k})" title="Remove this rail">✕</button>
+    </div>`).join('')+`<div style="margin:0 0 6px"><button class="btn ghost tiny" onclick="addMidrail(${i})">+ Add midrail</button></div>`:''}
+    ${(n>1||rails)?`<div class="sub" style="margin:0 0 8px">${(function(){const cs=doorCavities(it);const dir=portrait?'tall (top→bottom)':'wide (left→right)';
+      if(rails)return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rails at '+rails.map(r=>r.c+'mm (th '+r.th+')').join(', ')+' from the '+(portrait?'bottom':'right')+'.';
+      const side=portrait?'bottom':'right';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:''}
     <div style="max-width:130px;margin:0 auto 10px">${offsetPreview(it)}</div>
     <div class="prof-pick">
       <span class="sub" style="font-weight:700">Preset:</span>
@@ -5469,6 +5539,12 @@
       if(frameUsed&&(f.l+f.r>=w||f.t+f.b>=h))bad.push('frame ≥ part');
       else if(panelsOf(it)>1&&doorCavities(it).length<panelsOf(it))bad.push('rails don\'t fit');
       else if(panelsOf(it)>1&&it.panelSize!==''&&it.panelSize!=null&&+it.panelSize<=((h>=w)?f.b:f.r))bad.push('bottom part ≤ frame');   // the ABSOLUTE bottom part must exceed its own frame
+      const mrr=midrailsOf(it);
+      if(mrr){const dd=(h>=w)?{len:h,near:f.b,far:f.t}:{len:w,near:f.r,far:f.l};
+        if(mrr.some(r=>r.c-r.th/2<dd.near||r.c+r.th/2>dd.len-dd.far))bad.push('midrail outside opening');
+        let ov=false;for(let k=1;k<mrr.length;k++)if(mrr[k].c-mrr[k].th/2<mrr[k-1].c+mrr[k-1].th/2)ov=true;
+        if(ov)bad.push('midrails overlap');
+      }
       const hi=hingeInfo(it);
       if(hi.on&&Array.isArray(hi.custom)&&hi.custom.some(p=>p<0||p>hi.span))bad.push('hinge off part');
     }

@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 — Paridade com configuradores (rodada 1): midrails ABSOLUTOS individuais + presets de divisão + chips de frame + espessura por porta
+
+Benchmark: joinerysupply.co.uk/configurator (lista completa levantada em sessão). Pedido do Ednei: implementar tudo menos preço por porta.
+
+- **Midrails absolutos** (`it.midrails=[{c,th}]`): cada rail com CENTRO medido do fundo da peça (da direita na horizontal — mesmo datum do Bottom part) e espessura própria; lista não-vazia sobrepõe o caminho panels/midFrame/panelSize; aberturas = vãos entre frame e rails (`railBands`+`cavsFor`), com clamp em vez de explodir. Preview/DXF/toolpaths/inserts herdam via `pnlOf`→`genParts` (mesma fonte única).
+- **UI Frame & Panels**: subtítulo "Midrails" com presets **None / Two equal / Three equal / 60-40 / Custom** + linhas "Rail k — centre/thickness" com ✕ e "+ Add midrail" (novo rail cai no meio do maior vão); campos legados (Mid rail/Panels/Bottom part) ficam desabilitados com tooltip enquanto rails ativos.
+- **Chips de frame nomeados**: Micro 10 · Skinny 25 · Shaker 45 · Standard 50 · Classic 80 (1 clique = setFrame all-sides).
+- **Espessura por porta** (Dimensions): chips com TODAS as espessuras do material da porta (price book); trocar re-sincroniza template de corte (upd 'mat' → tplAutoSyncItem) e preço via material.
+- **Persistência aditiva**: `kabMidrails` no `.fastcnc` (produção recebe `panels=rails+1`, `panelSize=''` como fallback de divisão igual); import prefere `kabMidrails`. `MULTI_FIELDS` ganhou `midrails` (group-edit). Preflight novo: "midrail outside opening" e "midrails overlap".
+- Testado: `node tools/check.mjs` verde com **E2E cenário (h)** (2 rails c400/th50+c1000/th30 ⇒ 935@50/560@1015/325@1625, save kabMidrails+panels3, round-trip idêntico); browser: mesma matemática, presets (2eq 925/925 · 3eq 600×3 · 60/40 1110/740 = 40% embaixo), None limpa, add no maior vão, del, paisagem espelha da direita (325 @ x1625), preflight dispara nos 2 casos, UI com 5 chips de frame + 5 presets + linhas de rail + Panels desabilitado, chips de espessura 3–25mm; goldens byte-idênticos (nenhum job antigo usa rails).
+
 ## 2026-07-18 (k) — Quote/PDF: sheet preview dos painéis em 2 colunas proporcionais
 
 Pedido do Ednei: o panorama estava bom, mas as chapas do "Panels — sheet preview" saíam ridiculamente grandes no PDF (uma por linha, largura total — ~258mm de altura por room no documento, mais de uma página A4 só de chapas).
