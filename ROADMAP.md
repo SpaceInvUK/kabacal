@@ -2,6 +2,13 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (b) — Paridade (rodada 2): catálogo de dobradiças + badge recommended + vidro 4/6 com spec de rebaixo
+
+- **Catálogo de hardware de dobradiça** (`HINGE_MODELS`): Generic 35mm · Blum CLIP top · Blum Inserta · Hettich Sensys · Grass Tiomos — cada um com Ø do cup, **inset borda→centro** (K5 ⇒ 22.5mm, exatamente o valor antes hard-coded → jobs existentes byte-idênticos) e profundidade padrão do fabricante como DICA (a op de furação continua exigindo profundidade explícita — política de segurança mantida). Select "Model" no editor de Hinges + linha de spec; o inset flui `hingeInfo → genParts → tpDrillMoves`; persistência aditiva `kabHingeModel`.
+- **Badge "rec N"**: contagem manual diferente da recomendada (2 · >900→3 · >1500→4) mostra chip âmbar com a sugestão.
+- **Glazing**: seletor de **vidro 4/6mm** no card GLASS (`beading.glassTh`, aditivo — viaja no `kabBeading` existente) + linha de spec do rebaixo traseiro (lip · assento do vidro · assento do bead) e nota do beading de UMA peça.
+- Testado: check.mjs verde; browser: select com os 5 modelos, inset 22.5 no hingeInfo, badge "rec 4" (lado 2000 com count 2), spec Hettich renderizada, kabHingeModel round-trip; vidro 6mm salvo em kabBeading e restaurado, linha de rebaixo correta; goldens byte-idênticos.
+
 ## 2026-07-19 — Paridade com configuradores (rodada 1): midrails ABSOLUTOS individuais + presets de divisão + chips de frame + espessura por porta
 
 Benchmark: joinerysupply.co.uk/configurator (lista completa levantada em sessão). Pedido do Ednei: implementar tudo menos preço por porta.

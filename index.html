@@ -883,8 +883,8 @@
   // glass frame — NO insert; instead a BEADING picture-frame piece is generated on a thin block.
   // Defaults: beading size 19.85mm · thickness 3mm (or 6mm) · fit clearance 0.15mm (guide = size+clear) · round corners ON.
   function isGlassItem(it){return /\bGLASS\b/i.test(String(it&&it.text||''))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
-  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false};}
-  function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else it.beading[k]=Math.max(0,+v||0);render();}
+  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false,glassTh:(String(b.glassTh)==='6')?6:4};}
+  function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else if(k==='glassTh')it.beading.glassTh=(String(v)==='6')?6:4;else it.beading[k]=Math.max(0,+v||0);render();}
   // beading piece = cavity + size per side, nests on "<material name> 3mm/6mm"
   // one beading frame PER internal opening (multi-panel glass doors get one per cavity)
   function beadingSpecsFor(it){
@@ -962,6 +962,19 @@
     const out=[];for(let k=0;k<n;k++)out.push(first+(last-first)*k/(n-1));
     return out;
   }
+  // Hinge hardware catalogue (2026-07-19, configurator parity): per-model cup geometry for the drilling op.
+  // inset = edge → cup CENTRE (Ø35 cup: K + 17.5; K5 default ⇒ 22.5mm — exactly the value that was hard-coded
+  // before, so existing jobs are byte-identical). depth = the maker's standard cup drilling depth, shown as a
+  // HINT only — the drilling op still requires its own explicit depth (deliberate safety policy).
+  const HINGE_MODELS={
+    generic:{name:'Generic 35mm',cup:35,inset:22.5,depth:13},
+    blum:{name:'Blum CLIP top',cup:35,inset:22.5,depth:13},
+    blum_inserta:{name:'Blum Inserta',cup:35,inset:22.5,depth:13},
+    hettich:{name:'Hettich Sensys',cup:35,inset:22.5,depth:13},
+    grass:{name:'Grass Tiomos',cup:35,inset:22.5,depth:13.2}
+  };
+  function hingeModelOf(it){const m=it&&it.hinges&&it.hinges.model;return HINGE_MODELS[m]?m:'generic';}
+  function hingeRecommended(span){return span>1500?4:span>900?3:2;}
   function hingeInfo(it){
     if(!it.hinges||!it.hinges.on)return{on:false};
     const W=+it.w||0,H=+it.h||0;
@@ -969,10 +982,11 @@
     const side=resolveHingeSide(W,H,raw);
     const span=Math.max(W,H);
     const custom=(Array.isArray(it.hinges.custom)&&it.hinges.custom.length)?it.hinges.custom.slice():null;
-    let count=2; if(span>1500)count=4; else if(span>900)count=3;
+    let count=hingeRecommended(span);
     if(it.hinges.count&&it.hinges.count!=='auto')count=+it.hinges.count;
     if(custom)count=custom.length;
-    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,custom,auto:(!it.hinges.count||it.hinges.count==='auto')&&!custom};
+    const model=hingeModelOf(it);
+    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,custom,auto:(!it.hinges.count||it.hinges.count==='auto')&&!custom,model,inset:HINGE_MODELS[model].inset};
   }
 
   // ---- offset profiles (reusable line sets) ----
@@ -1197,7 +1211,7 @@
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
-          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
+          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined,model:(typeof part.kabHingeModel==='string'&&part.kabHingeModel)?part.kabHingeModel:undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
           offsetName:'Custom'
         };
@@ -1313,6 +1327,7 @@
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
     o.hinges=hi.on?'Yes':'No'; o.hingeSide=hi.side||'auto'; o.hingeOffset=num(hi.offset,100); o.hingeSpacing='';
+    if(hi.on&&hi.model&&hi.model!=='generic')o.kabHingeModel=hi.model;   // hardware model (additive 2026-07-19)
     o.pocketingEnabled=it.lines[0].en?'Yes':''; o.pocketRoundCorners=it.pocketRound||'No'; o.pocketSideMode=it.pocketSide||'front';
     if(backModeOf(it)==='custom'){o.kabBackMode='custom';o.kabBackLines=JSON.parse(JSON.stringify(it.backLines||[]));}   // additive Kabacal fields — production ignores them
     o.sprayFinish=it.spray?'Yes':'No'; o.spraySides=[];
@@ -1777,6 +1792,7 @@
   function roundAll(i,on){items[i].pocketRound=on?'Yes':'No';items[i].lines.forEach(l=>l.rd=on);render();}
   function setHingeOn(i,v){const h=items[i].hinges;h.on=v;if(v&&h.side!=='left'&&h.side!=='right')h.side='left';render();}
   function setHingeSide(i,v){items[i].hinges.side=v;render();}
+  function setHingeModel(i,v){items[i].hinges.model=HINGE_MODELS[v]?v:'generic';render();}
   function setHingeCount(i,v){const it=items[i];it.hinges.count=v;   // changing the count re-spreads evenly, keeping any custom first/last ends
     if(Array.isArray(it.hinges.custom)&&it.hinges.custom.length>=2){
       const span=Math.max(+it.w||0,+it.h||0),first=+it.hinges.custom[0],last=+it.hinges.custom[it.hinges.custom.length-1];
@@ -2132,7 +2148,9 @@
         <label class="sub">size <input type="number" step="0.01" value="${bcfg.size}" onchange="setBeading(${i},'size',this.value)" style="width:62px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
         <label class="sub">th <select onchange="setBeading(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px"><option value="3" ${bcfg.th===3?'selected':''}>3mm</option><option value="6" ${bcfg.th===6?'selected':''}>6mm</option></select></label>
         <label class="sub">fit gap <input type="number" step="0.01" value="${bcfg.clear}" onchange="setBeading(${i},'clear',this.value)" style="width:56px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
+        <label class="sub">glass <select onchange="setBeading(${i},'glassTh',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px" title="Glass pane thickness — sets the rear glass seat"><option value="4" ${bcfg.glassTh===4?'selected':''}>4mm</option><option value="6" ${bcfg.glassTh===6?'selected':''}>6mm</option></select></label>
         <label class="tg" style="font-size:11px"><input type="checkbox" ${bcfg.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
+        <span class="sub" style="flex-basis:100%">Rear rebate: front lip · ${bcfg.glassTh}mm glass seat · ${bcfg.th}mm bead seat — the one-piece beading frame is generated and nested automatically.</span>
       </span></div>`:''}
     ${ins?(function(){
       const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
@@ -2244,14 +2262,15 @@
     return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" checked onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <label class="sub">Model <select onchange="setHingeModel(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px" title="Hinge hardware — sets the cup geometry for the drilling op and travels with the job">${Object.keys(HINGE_MODELS).map(k=>`<option value="${k}" ${k===h.model?'selected':''}>${HINGE_MODELS[k].name}</option>`).join('')}</select></label>
       <label class="sub">Side <select onchange="setHingeSide(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['left','right'].map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select></label>
       <label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
-      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(h.count)?'selected':''}>${o}</option>`).join('')}</select></label>
+      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(h.count)?'selected':''}>${o}</option>`).join('')}</select>${(String(h.count)!=='auto'&&+h.count!==hingeRecommended(h.span))?` <span class="chip" style="background:#fef3c7;color:#92400e;border-color:#f59e0b55" title="For a ${h.span}mm side the recommended count is ${hingeRecommended(h.span)}">rec ${hingeRecommended(h.span)}</span>`:''}</label>
       ${hingeDiagram(it)}
     </div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">${rows}</div>
     <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost tiny" onclick="setHingeCount(${i},${n+1})">${ic('plus',12)} Add hinge</button>${h.custom?`<button class="btn ghost tiny" title="Reset both ends to ${h.offset}mm from each end and re-spread evenly" onclick="hingeAuto(${i})">${ic('reset',12)} Reset to symmetric</button>`:''}</div>
-    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
+    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · ${esc(HINGE_MODELS[h.model].name)}: Ø${HINGE_MODELS[h.model].cup} cup, centre ${HINGE_MODELS[h.model].inset}mm from the edge, maker's standard depth ${HINGE_MODELS[h.model].depth}mm (the drilling op still asks for its own depth) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}
@@ -4204,7 +4223,7 @@
     const finalZ=+(topZ-cutD).toFixed(3);
     const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
     const fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
-    const inset=22.5,side=resolveHingeSide(p.w,p.h,hi.rawSide),pts=[];
+    const inset=(+hi.inset>0)?+hi.inset:22.5,side=resolveHingeSide(p.w,p.h,hi.rawSide),pts=[];   // cup centre from the hinge model (22.5 = legacy default)
     if(side==='left'||side==='right'){const ex=(side==='left')?p.x+inset:p.x+p.w-inset;hingePositions(hi,p.h).forEach(pos=>pts.push([ex,p.y+pos]));}
     else{const ey=(side==='top')?p.y+inset:p.y+p.h-inset;hingePositions(hi,p.w).forEach(pos=>pts.push([p.x+pos,ey]));}
     const mY=y=>S.h-y;
