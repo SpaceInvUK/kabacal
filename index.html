@@ -6764,6 +6764,19 @@
     else ov[field]=val;
     pnRefresh();}
   function pnPieceAuto(){const w=pnWallObj();if(!w||!w.panelOv)return;delete w.panelOv[pnSel.id];pnRefresh();}
+  // per-VERTICAL-column physical WIDTH pin (wall.vColW, index = column position). Pin THIS column's width; the OTHER
+  // columns of the wall re-flow to fill it (pnVColLayout) — so the array is seeded to the CURRENT column count with
+  // nulls, keeping the other columns present. Empty/0 or the Auto button clears the pin; all-clear → back to auto.
+  function pnColWCount(){const r=pnRoomObj();if(!r)return 0;try{return pnRoom(r).pieces.filter(p=>p.wi===pnSel.wall&&p.dir==='v'&&!p.isCap&&!p.isLower&&!p.isZone).length;}catch(e){return 0;}}
+  function pnColWSet(val){const w=pnWallObj();if(!w)return;const k=parseInt(String(pnSel.id).split('p').pop());if(!(k>0))return;
+    const n=Math.max(k,pnColWCount());w.vColW=w.vColW||[];while(w.vColW.length<n)w.vColW.push(null);
+    const t=String(val).trim();w.vColW[k-1]=(t===''||+t<=0)?null:Math.min(PN_VW.max,Math.max(60,pnNum(t)));
+    if(w.vColW.every(x=>x==null))delete w.vColW;
+    pnRefresh();}
+  function pnColWAuto(){const w=pnWallObj();if(!w||!w.vColW)return;const k=parseInt(String(pnSel.id).split('p').pop());
+    if(k>0&&k<=w.vColW.length)w.vColW[k-1]=null;
+    if(w.vColW.every(x=>x==null))delete w.vColW;
+    pnRefresh();}
   // ---- mixed orientation: a physical VERTICAL panel = a vertical zone on the wall (wall.vZones) ----
   function pnZoneOf(wall,pid){if(!wall||String(pid).indexOf('vz')!==0)return null;const id=String(pid).slice(2);return (wall.vZones||[]).find(z=>String(z.id)===id)||null;}
   function pnPieceOrient(v){
@@ -7933,7 +7946,13 @@
           b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1)">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1)">+</button></span></div>';
           b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceOrient(\'h\')" style="font-weight:800">↺ Back to horizontal (remove vertical panel)</button></div>';
         } else {
-          b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
+          if((wall.dir||'h')==='v'&&!p.isCap&&!p.isLower){
+            const ci=parseInt(String(p.pid).split('p').pop())-1,pinned=!!(wall.vColW&&+wall.vColW[ci]>0);
+            const tier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
+            b+='<div class="pn-row"><label>Width</label><input type="number" min="60" max="2000" value="'+Math.round(p.w)+'" onchange="pnColWSet(this.value)" title="Physical width of THIS vertical panel. The other columns on the wall re-flow to fill the wall (pinned ones stay). Max 2000mm — over 1206 needs a 10x5, over 1520 a special-order sheet."><span class="sub" style="margin-left:4px">mm'+(pinned?' · pinned':' · auto')+tier+'</span>'+(pinned?' <button class="pn-mini" onclick="pnColWAuto()">Auto</button>':'')+'</div>';
+          } else {
+            b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
+          }
           b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
           b+='<div class="pn-row"><label>Shaker columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
           b+='<div class="pn-row"><label>Shaker rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';

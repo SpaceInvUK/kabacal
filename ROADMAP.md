@@ -20,6 +20,12 @@ Pedido: alterar a largura das PEÇAS FÍSICAS individualmente (as outras da pare
 ### Testado (j, parte 2)
 **sandbox 38/38** (inclui: pin col1=1500 em 3000 → [1500,750,750] Σ=3000, tiers 10x5+10x4; all-flex = uniforme; pin 2000 → [2000,1000] special+10x4; over-constrained 1500+1500 em 2000 → escala [1000,1000]+warn; flex respeita 2000 numa parede 5000) · `check.mjs` verde · goldens DXF byte-idênticos.
 
+**Parte 3 — vertical: input de largura no editor (commit 3):**
+- No painel selecionado (coluna de parede vertical) o campo **Width** virou editável: `pnColWSet(mm)` fixa a largura DESTA coluna (semeia `vColW` na contagem atual de colunas → as OUTRAS continuam e se reajustam), badge de tier "· 10x5 sheet" / "· SPECIAL-ORDER sheet", botão **Auto** limpa o pin (all-clear → volta ao automático). Peças horizontais/caps seguem read-only (largura vem dos joints) — horizontal vem na parte 4.
+
+### Testado (j, parte 3)
+**sandbox 43/43** (novo: `pnColWSet(1600)` na coluna 1 duma parede 3000 → `vColW=[1600,null,null]`, reflow MANTÉM 3 colunas [1600,700,700] tier special; `pnColWAuto` limpa → volta a auto) · `check.mjs` verde · goldens DXF byte-idênticos.
+
 ## 2026-07-17 (i) — Doors-online Etapa 3 LIVE: `order-intake` no Supabase — pedido pago do site → arquivos no Storage
 
 Edge Function **`order-intake` deployada** (via dashboard editor; código GERADO por `tools/build-intake.mjs` com o engine embutido estaticamente — Deno bloqueia `new Function`), `verify_jwt` OFF na UI + config.toml (auth = header `X-FCNC-Secret`; **segredo salvo pelo Ednei** — cofre é human-only, o classifier bloqueou o agente, como esperado). Migration 0003 aplicada no hosted via SQL editor (`fastcnc_orders` RLS deny-all + bucket privado `fastcnc-orders`). Site teste ligado: `FCNC_BRIDGE_URL/SECRET` no wp-config; a ponte `fastcnc-order-bridge.php` (repo cnc-calculator) POSTa no `woocommerce_order_status_processing`.
