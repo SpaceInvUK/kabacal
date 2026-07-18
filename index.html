@@ -5765,10 +5765,27 @@
   // Width capped at 1200 (under the 1206 sheet-cross), height default = room vertical panel height, ≤3000 (10x4).
   function pnZoneRect(z,wall,D){
     const W=Math.max(0,+wall.w||0);
-    const w=Math.max(120,Math.min(+z.w>0?+z.w:1200,1200,W||1200));
+    const w=Math.max(120,Math.min(+z.w>0?+z.w:1200,PN_VW.max,W||PN_VW.max));   // width follows the vertical tiers (2026-07-18): >1206 → 10x5 · >1520 → special-order · hard max 2000
     const x=Math.max(0,Math.min(Math.max(0,W-w),+z.x||0));
     const h=Math.max(300,Math.min(+z.h>0?+z.h:((D&&D.vPanelH)||3000),PN_CAP['10x4']));
     return {x0:x,x1:x+w,w:w,h:h};
+  }
+  // Sanitised zone rects for a WHOLE wall (2026-07-18): zones sorted by x and resolved so they never overlap each
+  // other or run past the wall — a later zone is pushed right of the previous one and, when no room is left, SHRUNK
+  // to the free gap (min 120, else dropped from the layout). Fixes "panel C rendered inside panel D" when zones were
+  // created/edited on top of each other. pnWallSpans and pnZonePieces share THIS one source so the horizontal band
+  // always agrees with the vertical panels. Non-overlapping zones pass through untouched (byte-identical).
+  function pnZoneRects(wall,D){
+    const W=Math.max(0,+wall.w||0),out={};let prevEnd=0,clash=false;
+    (wall.vZones||[]).map(z=>({z:z,r:pnZoneRect(z,wall,D)})).sort((a,b)=>a.r.x0-b.r.x0).forEach(e=>{
+      let x=e.r.x0,w=e.r.w;
+      if(x<prevEnd){x=prevEnd;clash=true;}
+      if(x+w>W){x=Math.max(prevEnd,W-w);if(x+w>W){w=W-x;clash=true;}}
+      if(w<120){out[e.z.id]=null;clash=true;return;}
+      out[e.z.id]={x0:x,x1:x+w,w:w,h:e.r.h};prevEnd=x+w;
+    });
+    out._clash=clash;
+    return out;
   }
   // coverage spans of one wall between doors/objects/vertical-zones (a window does NOT break coverage — it is a
   // cutout). A vertical zone is a hard stop with 40/40 joints on both sides, so the horizontal band auto-refills
@@ -5776,7 +5793,7 @@
   function pnWallSpans(wall,D){
     const W=Math.max(0,+wall.w||0);
     const stops=(wall.openings||[]).filter(o=>o.type==='door'||o.type==='object').map(o=>({r:pnOpRect(o,wall),t:o.type,o}));
-    if((wall.dir||'h')!=='v')(wall.vZones||[]).forEach(z=>stops.push({r:pnZoneRect(z,wall,D),t:'vzone',o:z}));
+    if((wall.dir||'h')!=='v'){const zr=pnZoneRects(wall,D);(wall.vZones||[]).forEach(z=>{const r=zr[z.id];if(r)stops.push({r:r,t:'vzone',o:z});});}
     stops.sort((a,b)=>a.r.x0-b.r.x0);
     const ruleOf=t=>t==='door'?'door':(t==='vzone'?'joint':'normal');
     const spans=[];let cur=0,lr=wall.sideL||'normal',lOpen=null;
@@ -6055,8 +6072,10 @@
   function pnZonePieces(wall,wi,D,pieces,warns){
     if((wall.dir||'h')==='v')return;
     const f=D.frame,W=Math.max(0,+wall.w||0),sk=D.skirtFor(wi);
+    const zr=pnZoneRects(wall,D);
+    if(zr._clash)warns.push('Vertical panels on Wall '+(wi+1)+' overlapped or ran past the wall — positions/widths auto-adjusted (check them).');
     (wall.vZones||[]).forEach(z=>{
-      const r=pnZoneRect(z,wall,D);
+      const r=zr[z.id];if(!r)return;
       // side margin = what ABUTS this zone edge (mirrors pnWallSpans for horizontal spans): the wall edge →
       // wall.sideL/R; a DOOR → the door allowance (doorAllow); an OBJECT → normal frame; another panel/zone
       // mid-wall → joint (frame/2). Previously a mid-wall edge was ALWAYS 'joint', so a vertical panel butting a
@@ -6066,9 +6085,11 @@
       const lRule=r.x0<=0.5?(wall.sideL||'normal'):abut(r.x0,'l');
       const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):abut(r.x1,'r');
       const p={wi,dir:'v',isZone:true,zid:z.id,x0:r.x0,x1:r.x1,y0:0,y1:r.h,w:r.w,h:r.h,
-        sheet:r.h>PN_CAP['8x4']?'10x4':'8x4',
+        sheet:pnVSheet(r.w,r.h),
         sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
-      if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
+      if(p.sheet==='special')warns.push('Vertical panel '+Math.round(r.w)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
+      else if(p.sheet==='10x5')warns.push('Vertical panel '+Math.round(r.w)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
+      else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
       const inner=r.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
       if(inner>=80&&cy1-cy0>=60){
         const nc=(+z.cols>0)?Math.max(1,Math.round(+z.cols)):pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
@@ -6121,6 +6142,52 @@
       }
     });
     pnChoose(stretches,D,walls,deps,basePieces).forEach(p=>pieces.push(p));
+    // Per-panel WIDTH pins on the horizontal band (wall.hColW, additive; index = band-panel position left→right,
+    // 2026-07-18). Pinned panels keep their width (200..3000, the 10x4 cap); the OTHER panels of the SAME contiguous
+    // stretch divide the remainder equally. Every internal cut stays a 40/40 joint (sides untouched) and each
+    // resized panel's shaker grid re-balances to the room target — "fix the ones I set, the rest split equally,
+    // frames respected, shakers follow organically". No pins → this pass is inert (slicing above byte-identical).
+    walls.forEach((w,wi)=>{
+      if(!w||w.noPanel||(w.dir||'h')==='v')return;
+      const pins=w.hColW;if(!pins||!pins.some(x=>+x>0))return;
+      const band=pieces.filter(p=>p.wi===wi&&p.dir==='h'&&!p.isCap&&!p.isLower&&!p.isZone).sort((a,b)=>a.x0-b.x0);
+      if(!band.length)return;
+      const capMax=PN_CAP['10x4'],f=D.frame;
+      const spans=[];let cur=[band[0]];
+      for(let i=1;i<band.length;i++){if(Math.abs(band[i].x0-band[i-1].x1)<=1.5)cur.push(band[i]);else{spans.push(cur);cur=[band[i]];}}
+      spans.push(cur);
+      let ord=0;
+      spans.forEach(sp=>{
+        const a=sp[0].x0,Lsp=sp[sp.length-1].x1-a;
+        const pinW=sp.map(()=>{const v=pins[ord++];return (+v>0)?Math.min(capMax,Math.max(200,+v)):null;});
+        if(!pinW.some(v=>v!=null))return;
+        let pinSum=0,flexN=0;pinW.forEach(v=>{if(v!=null)pinSum+=v;else flexN++;});
+        let widths;
+        if(flexN===0){const k=pinSum>0?Lsp/pinSum:1;widths=pinW.map(v=>v*k);
+          if(Math.abs(Lsp-pinSum)>1.5)warns.push('Panel widths on Wall '+(wi+1)+' don\'t add up to the wall — scaled to fit.');}
+        else{
+          const fw=(Lsp-pinSum)/flexN;
+          if(fw<150){const k=Math.max(0.1,(Lsp-150*flexN)/Math.max(1,pinSum));widths=pinW.map(v=>v!=null?v*k:150);
+            warns.push('Panel widths on Wall '+(wi+1)+' exceed the wall — pinned widths scaled to fit.');
+            const s=widths.reduce((t,v)=>t+v,0),adj=(Lsp-s)/flexN;widths=widths.map((v,i2)=>pinW[i2]==null?v+adj:v);}
+          else widths=pinW.map(v=>v==null?fw:v);
+        }
+        let x=a;
+        sp.forEach((p,i2)=>{
+          const wd=widths[i2];
+          p.x0=x;p.x1=x+wd;p.w=wd;x+=wd;
+          if(pinW[i2]!=null)p.hPinned=true;
+          p.sheet=(wd>PN_CAP['8x4'])?'10x4':'8x4';
+          if(wd>capMax+0.5)warns.push('Panel on Wall '+(wi+1)+' is '+Math.round(wd)+'mm — longer than a 10x4 sheet allows.');
+          const inner=wd-p.sides.l.mm-p.sides.r.mm,cy0=p.sides.b,cy1=p.h-p.sides.t;
+          p.cells=[];
+          if(inner>=PN_SHK.min*0.5&&cy1-cy0>=60){
+            const c=pnBalanceCount(inner,f,D.target),cw2=(inner-f*(c-1))/c;
+            for(let i3=0;i3<c;i3++)p.cells.push({x:p.sides.l.mm+i3*(cw2+f),y:cy0,w:cw2,h:cy1-cy0});
+          }
+        });
+      });
+    });
     walls.forEach((w,wi)=>{if(w&&w.noPanel)return;pnApplyNotches(w,wi,D,pieces);});
     // stable names per wall in VISUAL order (left→right, bottom→top): Wall 3A / 3B / 3C (+ room prefix).
     // p.vn = visual sequence number across the whole room — DXF part numbers follow it.
@@ -6315,6 +6382,8 @@
       if(prev.panelNotes)w.panelNotes=prev.panelNotes;
       if(prev.skirt)w.skirt=prev.skirt;
       if(prev.vZones)w.vZones=prev.vZones;
+      if(prev.vColW)w.vColW=prev.vColW;   // per-column width pins (2026-07-18) survive a plan recompile
+      if(prev.hColW)w.hColW=prev.hColW;
       walls.push(w);
     });
     const byEdge={};walls.forEach(w=>{byEdge[w._edge]=w;});
@@ -6416,7 +6485,7 @@
   // material £/sheet (default = price book per sheet size, overridable) + CNC service £/sheet
   // (default £330, overridable). Empty panelRooms = zero rows = doors-only quote unchanged.
   function pnQuote(){
-    const out={rows:[],total:0,sheetN:0,partN:0};
+    const out={rows:[],total:0,sheetN:0,partN:0,specialN:0,n105:0};
     if(!panelRooms||!panelRooms.length)return out;
     panelRooms.forEach(room=>{
       let L;try{L=pnRoom(room);}catch(e){return;}
@@ -6428,9 +6497,11 @@
       mc=Math.round(mc);
       const cncEff=Math.round(cncRate*nest.sheets.length);
       const total=mc+cncEff;
-      const szs={};nest.sheets.forEach(s=>{szs[s.sz]=(szs[s.sz]||0)+1;});
-      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,matOv,cncRate,cncEff,total,szs});
-      out.total+=total;out.sheetN+=nest.sheets.length;out.partN+=L.pieces.length;
+      // szs label: bespoke special-order sheets show as their own bucket, not as a normal 10x5 (display only —
+      // money math above is untouched; no special/10x5 sheets → identical output, QUOTE goldens byte-identical)
+      const szs={};let spN=0,n105=0;nest.sheets.forEach(s=>{const k2=s.special?'special order':s.sz;szs[k2]=(szs[k2]||0)+1;if(s.special)spN++;else if(s.sz==='10x5')n105++;});
+      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,matOv,cncRate,cncEff,total,szs,specialN:spN,n105});
+      out.total+=total;out.sheetN+=nest.sheets.length;out.partN+=L.pieces.length;out.specialN+=spN;out.n105+=n105;
     });
     return out;
   }
@@ -6442,6 +6513,8 @@
       +d.panels.rows.map(r=>{const szs=Object.keys(r.szs).map(k=>r.szs[k]+'× '+k).join(' · ');
         return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'</td><td class="c">'+r.sheets+'<div style="font-size:9px;color:#64748b">'+szs+'</div></td><td class="c">'+r.parts+'</td><td class="r">'+moneyP(r.mc)+'</td><td class="r">'+moneyP(r.cncEff)+'</td><td class="r">'+moneyP(r.total)+'</td></tr>';}).join('')
       +'</tbody></table>'
+      +(d.panels.specialN?'<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;padding:6px 9px;font-size:11px;margin:6px 0">⚠ '+d.panels.specialN+' SPECIAL-ORDER sheet'+(d.panels.specialN>1?'s':'')+' required — vertical panel over 1520mm (10x5 width limit). Sheet must be bought/ordered; confirm supply and price before production.</div>':'')
+      +(d.panels.n105?'<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;padding:6px 9px;font-size:11px;margin:6px 0">⚠ '+d.panels.n105+' × 10x5 sheet'+(d.panels.n105>1?'s':'')+' required (panel wider than 1206mm) — check stock.</div>':'')
       +'<table class="msum"><tbody><tr><td><b>Doors total</b></td><td class="r"><b>'+moneyP(d.bodyTot)+'</b></td></tr><tr><td><b>Panels total</b></td><td class="r"><b>'+moneyP(d.panels.total)+'</b></td></tr></tbody></table>';
   }
   // ---- Panels square metres (2026-07-15) ----
@@ -6477,11 +6550,15 @@
   function pnQuotePanelsExtra(){
     const areas=pnQuoteAreas();if(!areas.count)return '';
     const multi=areas.rooms.length>1;
+    // wide-panel sheet triggers (2026-07-18): panels over 1206mm need a 10x5, over 1520mm a special-order sheet
+    let w105=0,wSp=0;areas.rooms.forEach(r=>r.L.pieces.forEach(p=>{if(p.sheet==='special')wSp++;else if(p.sheet==='10x5')w105++;}));
     let h='<div class="qsec">Wall Panels</div>'
       +'<table class="msum"><tbody>'
       +'<tr><td>Total panels</td><td class="r"><b>'+areas.count+'</b></td></tr>'
       +'<tr><td>Panel material area</td><td class="r"><b>'+areas.mat.toFixed(2)+' m²</b></td></tr>'
       +'<tr><td>Painted front area (front only)</td><td class="r"><b>'+areas.painted.toFixed(2)+' m²</b></td></tr>'
+      +(w105?'<tr><td style="color:#b45309">Panels needing a 10x5 sheet (&gt;1206mm)</td><td class="r"><b style="color:#b45309">'+w105+'</b></td></tr>':'')
+      +(wSp?'<tr><td style="color:#b45309">⚠ Panels needing a SPECIAL-ORDER sheet (&gt;1520mm)</td><td class="r"><b style="color:#b45309">'+wSp+'</b></td></tr>':'')
       +'</tbody></table>';
     if(pnQuotePano){h+='<div class="qsec">Panels — panoramic view</div>';
       areas.rooms.forEach(r=>{h+='<div class="dwg-sheet">'+(multi?'<div class="dwg-cap">'+esc(r.room.name||'Room')+'</div>':'')+pnPanoSvg(r.room,r.L,true)+'</div>';});}
@@ -6777,6 +6854,19 @@
     if(k>0&&k<=w.vColW.length)w.vColW[k-1]=null;
     if(w.vColW.every(x=>x==null))delete w.vColW;
     pnRefresh();}
+  // per-HORIZONTAL-band-panel physical WIDTH pin (wall.hColW; index = the panel's position among this wall's band
+  // panels, left→right). Pinned panels keep their width; the other panels of the SAME contiguous stretch re-flow to
+  // fill it (equal shares), joints stay 40/40, the shaker grid re-balances. Max 3000 (10x4 cap). Empty/0/Auto clears.
+  function pnHBandOf(){const r=pnRoomObj();if(!r)return [];try{return pnRoom(r).pieces.filter(p=>p.wi===pnSel.wall&&p.dir==='h'&&!p.isCap&&!p.isLower&&!p.isZone).sort((a,b)=>a.x0-b.x0);}catch(e){return [];}}
+  function pnHColWSet(val){const w=pnWallObj();if(!w)return;const band=pnHBandOf();const k=band.findIndex(p=>p.pid===pnSel.id);if(k<0)return;
+    w.hColW=w.hColW||[];while(w.hColW.length<band.length)w.hColW.push(null);
+    const t=String(val).trim();w.hColW[k]=(t===''||+t<=0)?null:Math.min(PN_CAP['10x4'],Math.max(200,pnNum(t)));
+    if(w.hColW.every(x=>x==null))delete w.hColW;
+    pnRefresh();}
+  function pnHColWAuto(){const w=pnWallObj();if(!w||!w.hColW)return;const band=pnHBandOf();const k=band.findIndex(p=>p.pid===pnSel.id);
+    if(k>=0&&k<w.hColW.length)w.hColW[k]=null;
+    if(w.hColW.every(x=>x==null))delete w.hColW;
+    pnRefresh();}
   // ---- mixed orientation: a physical VERTICAL panel = a vertical zone on the wall (wall.vZones) ----
   function pnZoneOf(wall,pid){if(!wall||String(pid).indexOf('vz')!==0)return null;const id=String(pid).slice(2);return (wall.vZones||[]).find(z=>String(z.id)===id)||null;}
   function pnPieceOrient(v){
@@ -6786,7 +6876,7 @@
     if(v==='v'&&!p.isZone){
       // turn THIS panel into a physical vertical panel; the wall auto-refills the rest as horizontal
       w.vZones=w.vZones||[];
-      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:Math.min(Math.round(p.w),1200),h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
+      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:Math.min(Math.round(p.w),PN_VW.max),h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
       w.vZones.push(z);
       pnSel={room:pnSel.room,wall:pnSel.wall,kind:'piece',id:'vz'+z.id};
       pnRefresh();
@@ -6798,15 +6888,17 @@
   }
   function pnZoneSet(field,val){
     const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;const n=pnNum(val);
-    if(field==='w')z.w=Math.max(120,Math.min(1200,n));
+    if(field==='w')z.w=Math.max(120,Math.min(PN_VW.max,n));   // vertical tiers: >1206 → 10x5 · >1520 → special-order · max 2000 (2026-07-18)
     else if(field==='h')z.h=Math.max(300,Math.min(PN_CAP['10x4'],n));
     else if(field==='x')z.x=Math.max(0,n);
     pnRefresh();
   }
-  function pnZoneStep(field,d){
+  function pnZoneStep(field,d,cur){
     const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;
-    if(field==='cols')z.cols=Math.max(0,Math.round(+z.cols||0)+d);
-    else z.rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)+d);
+    // seed from the DISPLAYED count (cur) — from AUTO, "−" now goes to shown−1 instead of being stuck at auto,
+    // so a single wide shaker (1 column) is reachable. Min 1.
+    if(field==='cols')z.cols=Math.max(1,Math.round(+z.cols>0?+z.cols:(+cur||1))+d);
+    else z.rows=Math.max(1,Math.round(+z.rows>0?+z.rows:(+cur||2))+d);
     pnRefresh();
   }
   // ---- per-wall skirting override (room default unless the wall sets its own) ----
@@ -7939,17 +8031,23 @@
         if(p.ovNote)b+='<div class="pn-warn" style="margin:4px 0">⚠ '+esc(p.ovNote)+'</div>';
         b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],isZone?'v':'h','pnPieceOrient(\'%V\')')+'</div>';
         if(isZone){
-          b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel — stands upright on the 10x4 vertical sheet, max 1200 wide × 3000 high. The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
-          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="1200" value="'+Math.round(p.w)+'" onchange="pnZoneSet(\'w\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 1200</span></div>';
+          b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel. Up to 1206 wide = standard sheet; 1207–1520 = 10x5 sheet; 1521–2000 = special-order sheet (flagged). The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
+          const zTier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
+          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="2000" value="'+Math.round(p.w)+'" onchange="pnZoneSet(\'w\',this.value)" title="Physical width. Over 1206 needs a 10x5 sheet, over 1520 a special-order sheet, max 2000."><span class="sub" style="margin-left:4px">mm · ≤ 2000'+zTier+'</span></div>';
           b+='<div class="pn-row"><label>Height</label><input type="number" min="300" max="3000" value="'+Math.round(p.h)+'" onchange="pnZoneSet(\'h\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 3000</span></div>';
-          b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1)">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1)">+</button></span></div>';
-          b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1)">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1)">+</button></span></div>';
+          b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1,'+colsNow+')">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1,'+colsNow+')">+</button></span></div>';
+          b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1,'+bandsN+')">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1,'+bandsN+')">+</button></span></div>';
           b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceOrient(\'h\')" style="font-weight:800">↺ Back to horizontal (remove vertical panel)</button></div>';
         } else {
           if((wall.dir||'h')==='v'&&!p.isCap&&!p.isLower){
             const ci=parseInt(String(p.pid).split('p').pop())-1,pinned=!!(wall.vColW&&+wall.vColW[ci]>0);
             const tier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
             b+='<div class="pn-row"><label>Width</label><input type="number" min="60" max="2000" value="'+Math.round(p.w)+'" onchange="pnColWSet(this.value)" title="Physical width of THIS vertical panel. The other columns on the wall re-flow to fill the wall (pinned ones stay). Max 2000mm — over 1206 needs a 10x5, over 1520 a special-order sheet."><span class="sub" style="margin-left:4px">mm'+(pinned?' · pinned':' · auto')+tier+'</span>'+(pinned?' <button class="pn-mini" onclick="pnColWAuto()">Auto</button>':'')+'</div>';
+          } else if(p.dir==='h'&&!p.isCap&&!p.isLower){
+            const hband=(L?L.pieces:[]).filter(x=>x.wi===pnSel.wall&&x.dir==='h'&&!x.isCap&&!x.isLower&&!x.isZone).sort((x,y)=>x.x0-y.x0);
+            const hk=hband.findIndex(x=>x.pid===p.pid);
+            const hPinned=!!(wall.hColW&&hk>=0&&+wall.hColW[hk]>0);
+            b+='<div class="pn-row"><label>Width</label><input type="number" min="200" max="3000" value="'+Math.round(p.w)+'" onchange="pnHColWSet(this.value)" title="Physical width of THIS panel. The joints stay 40/40 frames; the other panels of this stretch re-flow to fill the wall (pinned ones keep their width) and the shaker grid re-balances. Max 3000mm (10x4)."><span class="sub" style="margin-left:4px">mm'+(hPinned?' · pinned':' · auto')+(p.w>PN_CAP['8x4']+0.5?' · <b style="color:#b45309">10x4</b>':'')+'</span>'+(hPinned?' <button class="pn-mini" onclick="pnHColWAuto()">Auto</button>':'')+'</div>';
           } else {
             b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
           }

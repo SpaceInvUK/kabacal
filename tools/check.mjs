@@ -181,8 +181,20 @@ if (html) {
         const band = L.pieces.filter(p => p.wi === 0 && !p.isZone);
         must(band.length >= 2 && band.every(p => p.dir === 'h'), 'the rest of the wall must auto-refill with horizontal panels');
         must(band.some(p => p.x1 <= z.x0 + 0.6) && band.some(p => p.x0 >= z.x1 - 0.6), 'horizontal panels must sit on BOTH sides of the vertical panel');
+        // 2026-07-18 (Ednei): zone width follows the vertical sheet tiers — up to 2000 allowed; >1206 needs a
+        // 10x5, >1520 a special-order sheet (flagged). Height still clamps to 3000 (10x4 length).
         const wide = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z2', x: 100, w: 1600, h: 3500 }] })])).pieces.find(p => p.isZone);
-        must(wide.w <= 1200.6 && wide.h <= 3000.6, `zone must clamp to 1200×3000 (got ${wide.w}×${wide.h})`);
+        must(Math.abs(wide.w - 1600) < 0.6 && wide.h <= 3000.6, `zone 1600 wide must be HONOURED (special tier), height clamps to 3000 (got ${wide.w}×${wide.h})`);
+        must(wide.sheet === 'special', `zone 1600 wide → sheet "special" (got ${wide.sheet})`);
+        const z105 = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z3', x: 100, w: 1400, h: 3000 }] })])).pieces.find(p => p.isZone);
+        must(z105 && z105.sheet === '10x5', `zone 1400 wide → sheet 10x5 (got ${z105 && z105.sheet})`);
+        const zBig = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z4', x: 100, w: 2600, h: 3000 }] })])).pieces.find(p => p.isZone);
+        must(zBig && zBig.w <= 2000.6, `zone width must hard-cap at 2000 (got ${zBig && zBig.w})`);
+        // overlapping zones auto-resolve (2026-07-18 "C inside D" fix): the later zone shifts right + warning
+        const ovl = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'za', x: 1000, w: 1000, h: 3000 }, { id: 'zb', x: 1500, w: 1000, h: 3000 }] })]));
+        const za = ovl.pieces.find(p => p.zid === 'za'), zb = ovl.pieces.find(p => p.zid === 'zb');
+        must(!!za && !!zb && zb.x0 >= za.x1 - 0.6, `overlapping zones must not overlap after layout (za ends ${za && Math.round(za.x1)}, zb starts ${zb && Math.round(zb.x0)})`);
+        must(ovl.warns.some(w => /overlapped|auto-adjusted/.test(w)), 'overlapping zones must raise a warning');
         const noZoneGeom = JSON.stringify(plain.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         const stillPlain = JSON.stringify(api.pnLayoutRoom(room([wall({ w: 5000, vZones: [] })])).pieces.map(p => [Math.round(p.x0), Math.round(p.x1)]));
         must(noZoneGeom === stillPlain, 'empty vZones array must equal no-zone geometry (byte-identical safety)');

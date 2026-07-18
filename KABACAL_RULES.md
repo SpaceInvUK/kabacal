@@ -21,6 +21,18 @@ Em portas com 2+ painéis internos, o campo **Bottom part** (Right part quando a
 
 Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`panelRooms`, localStorage `kab_panels`); os painéis NUNCA entram na lista de parts do Doors. O Quote é o ponto de encontro: seção "Wall panelling" própria + Doors subtotal + Panels subtotal + total combinado; serviços/spray/VAT aplicam UMA vez no job. **Job só-Doors tem que sair byte-idêntico** (panels.total=0 — invariante no check.mjs e provado vs HEAD).
 
+### Largura individual de painel + chapas 10x5/especial (confirmado 2026-07-18)
+
+O usuário pode fixar a largura de PEÇAS FÍSICAS individualmente; as outras da mesma parede/trecho se reajustam — **"fixa as que eu setar, o resto divide igual"**. Frames respeitados (joints seguem 40/40) e o grid de shakers re-balanceia organicamente (alvo do room).
+
+- **Horizontal (banda)**: pin em `wall.hColW[posição]` (aditivo), aplicado num post-pass após o slicer; painéis fixados 200..**3000** (cap 10x4); os demais do MESMO trecho contíguo dividem a sobra igualmente; sem pin = fatiamento intocado (byte-idêntico). Sobre-restrição → escala + warn.
+- **Vertical (colunas de parede `dir:'v'`)**: pin em `wall.vColW[coluna]` (`pnVColLayout`); colunas fixadas 60..2000, flex divide igual, coluna extra se algum flex passaria de 2000.
+- **Vertical zones (painel vertical embutido)**: largura da zone segue os MESMOS tiers; zones NUNCA se sobrepõem nem passam da parede — `pnZoneRects` sanitiza (empurra a invasora pra direita; sem espaço, encolhe ao vão; warn "auto-adjusted"). `pnWallSpans` e `pnZonePieces` usam o mesmo mapa.
+- **Tiers de chapa vertical (largura da peça)**: ≤1206 = stock normal (8x4/10x4 pela altura) · **1207–1520 = 10x5** (3050×1525, precificada por área — `priceForSheet` já cobre) · **1521–2000 = CHAPA ESPECIAL encomendada** — só FLAG (chapa sob medida no nesting, preço real a definir) · **máx 2000** (hard cap; acima força mais colunas/clamp).
+- **Trigger (>1206)**: warn âmbar no editor ("needs a 10x5 sheet" / "needs a SPECIAL-ORDER sheet"), linhas no resumo Wall Panels do Quote/PDF e linha âmbar no doc impresso (special: "confirm supply and price before production"). Mix de chapas mostra bucket "special order".
+- **Shaker Columns**: o stepper reduz até **1** (shaker único largo permitido) — semeia do valor exibido, nunca fica preso no auto.
+- Persistência aditiva: `vColW`/`hColW` no `.fastcnc` e no whitelist do plan-recompile. Regra antiga "colunas ≤1200" (2026-07-08) SUPERSEDida por estes tiers.
+
 ### Quote/PDF de Panels — m², cut list, panorama, sheet preview (confirmado 2026-07-15)
 
 Quando o job tem Wall Panels, o Quote (tela) E o PDF ganham uma seção **"Wall Panels"**. Duas áreas em m² (o relatório explica a fórmula):
