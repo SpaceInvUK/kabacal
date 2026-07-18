@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (c) — Paridade (rodada 3): section view + cotas no zoom + 6 presets DRAFT + pocket depth por porta
+
+- **Section view** no Frame & Panels, ao lado do preview: corte da borda da porta — **curva REAL quando o preset tem PROFILE** (Ogee: polyline 20.94×8mm desenhada na seção) e ticks esquemáticos nas posições XY das linhas A–G quando não (rotulado "marks = line positions (depths live in the cut ops)" — sem inventar profundidade).
+- **📐 Dims no zoom**: botão ao lado da régua — desenha ↔W/↕H de cada peça + o tamanho de cada abertura, com fonte estável (~11px) em qualquer nível de zoom; redesenha em wheel/refresh.
+- **6 presets DRAFT** de estilos do benchmark: Shaker V-groove · V Shaker · Art Deco · Raised & Field · Ovolo · Faux Frame — todos com sufixo "(draft)", linhas de offset APROXIMADAS para planejamento/preview, factory (não-deletáveis). **Nenhum template de corte casa com esses nomes ⇒ zero NC** (provado: camPaths 0 = 0 vs preset Custom). Viram estilo real um a um pelo pipeline VCarve (.ToolpathTemplate + .nc de referência → template validado + golden), como Plain Shaker/Ogee.
+- **Pocket depth por porta** (`it.recessDepth`, auto/4–9mm): select no Frame & Panels + persistência aditiva `kabRecessDepth`. **DADO no job apenas — não dirige o NC ainda** (aviso âmbar no editor): profundidades de corte continuam nos templates validados até o valor ser provado na máquina.
+- Testado: check.mjs verde; browser: 9 presets listados, draft aplica linhas 0/12/24/36 e **0 toolpaths** (controle Custom idem), section esquemática (draft) e real (Ogee), recess 7 salvo/recarregado com aviso, camada #zDims com ↔ 2000 etc.; console limpo; goldens byte-idênticos.
+
 ## 2026-07-19 (b) — Paridade (rodada 2): catálogo de dobradiças + badge recommended + vidro 4/6 com spec de rebaixo
 
 - **Catálogo de hardware de dobradiça** (`HINGE_MODELS`): Generic 35mm · Blum CLIP top · Blum Inserta · Hettich Sensys · Grass Tiomos — cada um com Ø do cup, **inset borda→centro** (K5 ⇒ 22.5mm, exatamente o valor antes hard-coded → jobs existentes byte-idênticos) e profundidade padrão do fabricante como DICA (a op de furação continua exigindo profundidade explícita — política de segurança mantida). Select "Model" no editor de Hinges + linha de spec; o inset flui `hingeInfo → genParts → tpDrillMoves`; persistência aditiva `kabHingeModel`.

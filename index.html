@@ -865,6 +865,9 @@
     if(rails.length)it.midrails=rails;else delete it.midrails;render();}
   function setMidrailField(i,k,field,v){const it=items[i];const rails=midrailsOf(it)||[];if(!rails[k])return;
     rails[k][field]=Math.max(1,Math.round(+v||0));it.midrails=rails.sort((x,y)=>x.c-y.c);render();}
+  // per-door recess/pocket depth (mm, ''=template default). DATA + job file only for now — it does NOT drive
+  // the NC yet: cut depths stay with the validated templates until the value is proven on the machine.
+  function setRecessDepth(i,v){const it=items[i];const x=parseInt(v);it.recessDepth=(v===''||v==='auto'||isNaN(x))?'':Math.max(1,Math.min(15,x));render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
   // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
   // (user rule 2026-07-07: front 3-4 offsets, back often just 1 — never force them to mirror.)
@@ -995,11 +998,20 @@
   // 20.94 x 8mm moulding section (118 pts, normalised to local origin), drawn once per sheet in the DXF.
   const OGEE_PTS=[20.937,2.035,20.894,1.957,20.781,1.782,20.692,1.662,20.579,1.525,20.439,1.371,20.27,1.204,20.128,1.077,19.98,0.954,19.825,0.837,19.665,0.725,19.5,0.62,19.33,0.522,19.156,0.431,18.978,0.347,18.797,0.271,18.613,0.204,18.427,0.145,18.239,0.096,18.049,0.056,17.859,0.027,17.669,0.008,17.478,0,17.214,0.003,16.95,0.017,16.686,0.043,16.423,0.08,16.162,0.127,15.903,0.185,15.647,0.254,15.395,0.332,15.102,0.438,14.851,0.544,14.641,0.645,14.47,0.739,14.239,0.886,14.145,0.955,13.856,1.161,13.577,1.381,13.311,1.617,13.062,1.869,12.824,2.132,12.711,2.268,12.603,2.409,12.405,2.707,12.242,2.994,12.11,3.264,12.004,3.517,11.847,3.953,11.785,4.131,11.728,4.277,11.588,4.55,11.437,4.817,11.297,5.091,11.225,5.227,11.145,5.357,11.048,5.487,10.943,5.611,10.728,5.855,10.527,6.111,10.424,6.236,10.312,6.354,10.193,6.455,10.068,6.547,9.812,6.727,9.561,6.912,9.4,7.022,9.213,7.141,8.999,7.265,8.758,7.392,8.487,7.518,8.187,7.641,7.918,7.736,7.664,7.814,7.423,7.875,7.196,7.923,6.984,7.957,6.786,7.981,6.438,8,6.155,7.992,5.941,7.97,5.797,7.946,5.728,7.932,5.514,7.889,5.302,7.836,5.091,7.773,4.884,7.701,4.68,7.618,4.482,7.525,4.289,7.422,4.103,7.309,3.885,7.16,3.687,7.012,3.508,6.867,3.347,6.724,3.203,6.586,3.076,6.452,2.868,6.206,2.715,5.994,2.611,5.824,2.52,5.648,2.389,5.38,2.323,5.192,2.243,5.011,2.148,4.838,2.041,4.674,1.922,4.519,1.792,4.373,1.65,4.239,1.498,4.116,1.337,4.004,1.167,3.906,0.989,3.82,0.803,3.749,0.611,3.692,0.412,3.651,0.209,3.626,0,3.617];
   const OGEE_PROFILE=(function(){const a=[];for(let i=0;i<OGEE_PTS.length;i+=2)a.push({x:OGEE_PTS[i],y:OGEE_PTS[i+1]});return {pts:a,w:20.94,h:8};})();
-  const BUILTIN_PRESETS=['None','Plain Shaker','Ogee'];
+  const BUILTIN_PRESETS=['None','Plain Shaker','Ogee','Shaker V-groove (draft)','V Shaker (draft)','Art Deco (draft)','Raised & Field (draft)','Ovolo (draft)','Faux Frame (draft)'];
   let profiles={
     'None':{side:'front',lines:mkLines(null)},
     'Plain Shaker':{side:'front',lines:mkLines({A:{mm:0}})},
-    'Ogee':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4.5},C:{mm:6.5},D:{mm:17.5},E:{mm:23.5},F:{mm:27}}),profile:OGEE_PROFILE}
+    'Ogee':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4.5},C:{mm:6.5},D:{mm:17.5},E:{mm:23.5},F:{mm:27}}),profile:OGEE_PROFILE},
+    // DRAFT presets (2026-07-19, joinerysupply benchmark): APPROXIMATE offset lines for preview/planning only.
+    // No cut template matches these names, so they never emit NC — each becomes real via the VCarve pipeline
+    // (Ednei's .ToolpathTemplate + reference .nc → converted template + golden), same as Plain Shaker/Ogee.
+    'Shaker V-groove (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4}})},
+    'V Shaker (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:6}})},
+    'Art Deco (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:12},C:{mm:24},D:{mm:36}})},
+    'Raised & Field (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:15},C:{mm:40}})},
+    'Ovolo (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:5},C:{mm:9}})},
+    'Faux Frame (draft)':{side:'front',lines:mkLines({A:{mm:80}})}
   };
   // 2026-07-12: 'Shaker' renamed 'Plain Shaker'; 'All offsets' (example-only) removed. Old files/settings may
   // still carry those keys — external preset sets are sanitised (legacy keys dropped, factory names never
@@ -1208,6 +1220,7 @@
           panelSize:(part.kabBottomPart!=null&&+part.kabBottomPart>0)?Math.round(+part.kabBottomPart)
             :((part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)+((num(part.height,0)>=num(part.width,0))?f.b:f.r))),
           midrails:(Array.isArray(part.kabMidrails)&&part.kabMidrails.length)?part.kabMidrails.map(r=>({c:+r.c,th:+r.th})).filter(r=>r.c>0&&r.th>0):undefined,
+          recessDepth:(part.kabRecessDepth!=null&&+part.kabRecessDepth>0)?+part.kabRecessDepth:undefined,
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
@@ -1318,6 +1331,7 @@
     // ABSOLUTE midrails (additive 2026-07-19): the full rail list travels in kabMidrails; the production
     // fields fall back to an equal split with the same opening count so old readers stay sane.
     const kmr=midrailsOf(it);if(kmr){o.kabMidrails=kmr.map(r=>({c:r.c,th:r.th}));o.panels=kmr.length+1;o.panelSize='';delete o.kabBottomPart;}
+    if(it.recessDepth!==''&&it.recessDepth!=null)o.kabRecessDepth=+it.recessDepth;   // per-door recess depth (data only, additive)
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -2186,7 +2200,14 @@
     ${(n>1||rails)?`<div class="sub" style="margin:0 0 8px">${(function(){const cs=doorCavities(it);const dir=portrait?'tall (top→bottom)':'wide (left→right)';
       if(rails)return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rails at '+rails.map(r=>r.c+'mm (th '+r.th+')').join(', ')+' from the '+(portrait?'bottom':'right')+'.';
       const side=portrait?'bottom':'right';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:''}
-    <div style="max-width:130px;margin:0 auto 10px">${offsetPreview(it)}</div>
+    <div style="display:flex;gap:8px;margin:0 auto 6px;align-items:flex-start;justify-content:center;flex-wrap:wrap">
+      <div style="width:130px">${offsetPreview(it)}</div>
+      <div style="width:170px">${sectionPreview(it)}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin:0 0 10px;align-items:center;flex-wrap:wrap">
+      <label class="sub">Pocket depth <select onchange="setRecessDepth(${i},this.value)" style="padding:4px;border:1px solid var(--line);border-radius:7px;margin-left:4px" title="Per-door recess depth for the cavity. Saved with the job; the NC keeps the validated template depths until this value is proven on the machine (air-cut first).">${['auto',4,5,6,7,8,9].map(o=>`<option value="${o}" ${String(o)===String(it.recessDepth===''||it.recessDepth==null?'auto':it.recessDepth)?'selected':''}>${o==='auto'?'auto (template)':o+' mm'}</option>`).join('')}</select></label>
+      ${(it.recessDepth!==''&&it.recessDepth!=null)?'<span class="sub" style="color:#b45309">saved with the job — NC still uses the validated template depth until this is machine-proven</span>':''}
+    </div>
     <div class="prof-pick">
       <span class="sub" style="font-weight:700">Preset:</span>
       <select onchange="applyProfile(${i},this.value)">${Object.keys(profiles).map(p=>`<option ${p===it.offsetName?'selected':''}>${p}</option>`).join('')}${profiles[it.offsetName]?'':`<option selected>${esc(it.offsetName)}</option>`}</select>
@@ -2277,6 +2298,27 @@
     ${it.spray?`<div class="ed-field" style="margin-top:8px"><label>Spray profile (rate)</label><select onchange="setSprayProfile(${i},this.value)">${Object.keys(SPRAY_RATES).map(p=>`<option ${sprayProfileOf(it)===p?'selected':''}>${p}</option>`).join('')}</select><div class="sub" style="margin-top:3px">≈ ${sprayAreaOf(it).toFixed(2)} m² × £${SPRAY_RATES[sprayProfileOf(it)]}/m² = <b>£${Math.round(sprayAreaOf(it)*SPRAY_RATES[sprayProfileOf(it)]*(+it.q||1))}</b> (×${+it.q||1})</div></div>`:''}
     ${it.spray?sprayEditorHtml(i,it):'<div class="sub" style="margin-top:8px">Standard = no spray. Turn on to mark which faces/edges get painted.</div>'}`;}
 
+  // SECTION view (2026-07-19): a cut through the door edge at the cavity. Real curve when the preset carries
+  // a PROFILE (Ogee); otherwise schematic ticks at each enabled offset line's XY position. Depths are only
+  // real for profile presets — the schematic marks positions, not cut depths (those live in the CAM ops).
+  function sectionPreview(it){
+    const m=parseMat(it.mat),th=parseInt(m.th)||18;
+    const prof=(profiles[it.offsetName]&&profiles[it.offsetName].profile)||null;
+    const el=enabledLines(it);
+    if(!prof&&!el.length)return '';
+    const W=170,H=64,pad=10,topY=14;
+    const span=Math.max(prof?prof.w+6:0,el.length?Math.max(...el.map(l=>l.mm))+12:0,24);
+    const sc=Math.min((W-2*pad)/span,(H-topY-8)/th);
+    let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;border:1px solid var(--line);border-radius:8px;background:#fff">`;
+    s+=`<text x="${pad}" y="10" font-size="8" font-weight="700" fill="var(--muted)">SECTION — from the cavity edge</text>`;
+    s+=`<rect x="${pad}" y="${topY}" width="${(span*sc).toFixed(1)}" height="${(th*sc).toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1"/>`;
+    if(prof){let d='';prof.pts.forEach((p,k)=>{d+=(k?'L':'M')+(pad+p.x*sc).toFixed(1)+' '+(topY+p.y*sc).toFixed(1)+' ';});
+      s+=`<path d="${d}" fill="none" stroke="#b45309" stroke-width="1.2"/><text x="${(pad+prof.w*sc+3).toFixed(1)}" y="${topY+9}" font-size="7.5" fill="#b45309">${prof.w}×${prof.h}mm profile</text>`;}
+    el.forEach(l=>{const x=pad+l.mm*sc;
+      s+=`<line x1="${x.toFixed(1)}" y1="${topY-3}" x2="${x.toFixed(1)}" y2="${(topY+th*sc).toFixed(1)}" stroke="${OFFCOL[l.L]}" stroke-width="1" stroke-dasharray="${prof?'2 2':'none'}"/><text x="${x.toFixed(1)}" y="${topY-5}" font-size="7" text-anchor="middle" fill="${OFFCOL[l.L]}">${l.L}</text>`;});
+    s+=`<text x="${pad}" y="${H-3}" font-size="7" fill="var(--muted)">board ${th}mm · ${prof?'profile = real cut':'marks = line positions (depths live in the cut ops)'}</text>`;
+    return s+'</svg>';
+  }
   // preview box matches the part's real W×H aspect (landscape parts draw landscape)
   function offsetPreview(it){
     const VW=160,VH=120,pad=10,w=Math.max(1,+it.w||1),h=Math.max(1,+it.h||1);
@@ -2437,10 +2479,30 @@
     g.innerHTML=h;
   }
   function zMeasRedraw(){const inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');if(svg)zMeasDraw(svg,null);}
+  // ---- zoom DIMENSIONS overlay (2026-07-19): part W/H + opening sizes drawn on the zoomed sheet ----
+  let zDimsOn=false;
+  function toggleZoomDims(){zDimsOn=!zDimsOn;const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}
+  function zDimsDraw(svg){
+    let g=svg.querySelector('#zDims');
+    if(!g){g=document.createElementNS('http://www.w3.org/2000/svg','g');g.setAttribute('id','zDims');g.style.pointerEvents='none';svg.appendChild(g);}
+    if(!zDimsOn){g.innerHTML='';return;}
+    const m=svg.getScreenCTM&&svg.getScreenCTM(),k=m&&m.a?Math.max(0.4,11/m.a):2;   // ≈11px on screen
+    const d=nestSvgs[_zoomIdx];let h='';
+    ((d&&d.parts)||[]).forEach(p=>{
+      const x=p.x/10,y=p.y/10,w=p.w/10,hh=p.h/10;
+      h+='<text x="'+(x+w/2)+'" y="'+(y+hh+0.9*k)+'" text-anchor="middle" font-size="'+(0.85*k).toFixed(2)+'" font-weight="700" fill="#0f766e">↔ '+Math.round(p.w)+'</text>';
+      h+='<text x="'+(x-0.35*k)+'" y="'+(y+hh/2)+'" text-anchor="middle" font-size="'+(0.85*k).toFixed(2)+'" font-weight="700" fill="#0f766e" transform="rotate(-90 '+(x-0.35*k)+' '+(y+hh/2)+')">↕ '+Math.round(p.h)+'</text>';
+      try{placedCavs(p).forEach(c=>{
+        if(c.w/10>3.2*k&&c.h/10>1.2*k)h+='<text x="'+(x+(c.x+c.w/2)/10)+'" y="'+(y+(c.y+c.h/2)/10+0.3*k)+'" text-anchor="middle" font-size="'+(0.75*k).toFixed(2)+'" fill="#64748b">'+Math.round(c.w)+'×'+Math.round(c.h)+'</text>';
+      });}catch(e){}
+    });
+    g.innerHTML=h;
+  }
+  function zDimsRedraw(){const inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');if(svg)zDimsDraw(svg);}
   function openZoom(i){const d=nestSvgs[i];if(!d)return;if(i!==_zoomIdx){zMeasA=null;zMeasFix=null;}_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zMeasOn?'primary':'ghost'} tiny" onclick="toggleZoomMeas()" title="Ruler — click two points to measure in mm; snaps to sheet, part and opening edges (Esc to exit)">📏 Ruler: ${zMeasOn?'ON':'OFF'}</button> <button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zMeasOn?'Ruler — click two points to measure (snaps to edges) · Esc exits the ruler · ':''}${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
-    ov.classList.add('show');setupZoomPanZoom();zBuildSnapGeo();if(zMeasOn)zMeasRedraw();if(zoomEdit)renderInspector();}
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zMeasOn?'primary':'ghost'} tiny" onclick="toggleZoomMeas()" title="Ruler — click two points to measure in mm; snaps to sheet, part and opening edges (Esc to exit)">📏 Ruler: ${zMeasOn?'ON':'OFF'}</button> <button class="btn ${zDimsOn?'primary':'ghost'} tiny" onclick="toggleZoomDims()" title="Draw every part's width/height and each opening's size on the sheet">📐 Dims: ${zDimsOn?'ON':'OFF'}</button> <button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zMeasOn?'Ruler — click two points to measure (snaps to edges) · Esc exits the ruler · ':''}${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.classList.add('show');setupZoomPanZoom();zBuildSnapGeo();if(zMeasOn)zMeasRedraw();if(zDimsOn)zDimsRedraw();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
   function zoomSheetSel(key,on){toggleSheetSel(key,on);openZoom(_zoomIdx);}   // tick the zoomed sheet as the active/target sheet
   function toggleZoomEdit(){
@@ -2474,7 +2536,7 @@
     function apply(){clampPan();inner.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.s})`;const p=document.getElementById('zoomPct');if(p)p.textContent=Math.round(st.s*100)+'%';}
     function fit(){const vw=scroll.clientWidth,vh=scroll.clientHeight,pad=14;let bw=vw-2*pad,bh=bw/aspect;if(bh>vh-2*pad){bh=vh-2*pad;bw=bh*aspect;}st.bw=bw;st.bh=bh;sizeSvg();st.s=1;st.tx=(vw-bw)/2;st.ty=(vh-bh)/2;apply();}
     function zoomAt(cx,cy,f){const ns=Math.min(20,Math.max(1,st.s*f));if(Math.abs(ns-st.s)<1e-4)return;const px=(cx-st.tx)/st.s,py=(cy-st.ty)/st.s;st.s=ns;st.tx=cx-px*ns;st.ty=cy-py*ns;apply();}
-    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);if(isMain&&zMeasOn)zMeasRedraw();},{passive:false});
+    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);if(isMain&&zMeasOn)zMeasRedraw();if(isMain&&zDimsOn)zDimsRedraw();},{passive:false});
     let drag=null;
     if(isMain)scroll.addEventListener('pointermove',e=>{if(zMeasOn&&!drag){const s2=inner.querySelector('svg');if(s2)zMeasDraw(s2,zSnap(s2,e));}});
     scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty,moved:false};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
@@ -2492,7 +2554,7 @@
     scroll.addEventListener('pointerup',end);
     scroll.addEventListener('pointercancel',()=>{drag=null;scroll.style.cursor='grab';});
     scroll.addEventListener('pointerleave',()=>{drag=null;scroll.style.cursor='grab';});
-    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();if(isMain&&zMeasOn){zBuildSnapGeo();zMeasRedraw();}}};
+    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();if(isMain&&zMeasOn){zBuildSnapGeo();zMeasRedraw();}if(isMain&&zDimsOn)zDimsRedraw();}};
     if(!scrollId)_zoom=ctrl;          // default ids = the main nesting zoom keeps its global handle
     fit();
     return ctrl;
