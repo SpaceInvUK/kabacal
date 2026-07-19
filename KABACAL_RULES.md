@@ -17,6 +17,14 @@ Em portas com 2+ painéis internos, o campo **Bottom part** (Right part quando a
 - Persistência (aditiva): o `.fastcnc` continua gravando em `panelSize` o valor INTERNO (compatível com o app de produção) e grava o ABSOLUTO no campo novo `kabBottomPart`; na importação, `kabBottomPart` vence; arquivo legado (só `panelSize` interno) converte para absoluto somando o frame — jobs antigos renderizam idêntico.
 - Regressão: check.mjs E2E cenário (g) trava o caso 2000/50/50/400 (350+1500), o round-trip e o import legado.
 
+### Midrails absolutos + Shape + hardware (2026-07-19, paridade de configurador)
+
+- **Midrails** (`it.midrails=[{c,th}]`): centro de CADA rail medido do fundo da peça (da direita na horizontal — mesmo datum do Bottom part), espessura individual; lista não-vazia sobrepõe panels/midFrame/panelSize; aberturas = vãos entre frame e rails. Persistência aditiva `kabMidrails` (produção recebe panels=rails+1 como divisão igual). E2E cenário (h).
+- **Shape** (`it.shape`, rake/splay): política v1 — preview e **DXF carregam o contorno VERDADEIRO** (POLYLINE fechada no OUT; o VCarve corta por ela); abertura interna RETANGULAR sob o ponto mais baixo da cabeça (frame topo efetivo = frame + drop); **o NC do Kabacal NÃO corta o OUT de porta shaped** (não validado na máquina) — aviso no Save NC e nos documentos ("SHAPED — OUT VIA VCARVE"). Persistência aditiva `kabShape` (w/h = bounding box). E2E cenário (i).
+- **Dobradiças**: catálogo `HINGE_MODELS` (Generic/Blum/Inserta/Hettich/Grass) = Ø cup + inset borda→centro (22.5 = valor legado, jobs antigos intocados) + depth do fabricante como DICA; **a op de furação continua exigindo profundidade explícita** (política de segurança mantida). `kabHingeModel` aditivo.
+- **Presets DRAFT** (sufixo "(draft)"): linhas aproximadas para preview/planejamento; nenhum template casa com os nomes ⇒ **zero NC**; cada um vira estilo real pelo pipeline VCarve (.ToolpathTemplate + .nc de referência → template validado + golden).
+- **Pocket depth por porta** (`kabRecessDepth`): dado no job apenas; NÃO dirige o NC até validação na máquina.
+
 ## Panels (modo Panels — confirmado 2026-07-07)
 
 Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`panelRooms`, localStorage `kab_panels`); os painéis NUNCA entram na lista de parts do Doors. O Quote é o ponto de encontro: seção "Wall panelling" própria + Doors subtotal + Panels subtotal + total combinado; serviços/spray/VAT aplicam UMA vez no job. **Job só-Doors tem que sair byte-idêntico** (panels.total=0 — invariante no check.mjs e provado vs HEAD).

@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (e) — Campos novos nos documentos de produção + STATUS/RULES do dia
+
+Fechamento da paridade: a oficina agora VÊ os campos novos no papel.
+
+- **Cut list**: tipo ganha flag "⚠ SHAPED rake/splay — cut OUT via VCarve/DXF" (âmbar); Frame mostra os rails ("50mm · rails 400(50) 1000(30)" = centro(espessura) do fundo/direita); Hinges mostra o modelo ("left ×2 · Blum CLIP top"); Notes ganha "recess 7mm" quando setado.
+- **Checklist TSV**: Type = "Traditional SHAPED-rake"; Frame com rails; Hinges com modelo — mesmas notações do cut list.
+- **Etiquetas CNC**: peça shaped imprime "⚠ SHAPED — OUT VIA VCARVE" na faixa de baixo (etiqueta na peça = aviso na máquina); etiquetas normais intocadas.
+- **STATUS.md** atualizado (linha do dia + pendências de validação VCarve) e **KABACAL_RULES.md** ganhou §"Midrails absolutos + Shape + hardware" com as políticas confirmadas (datum dos rails, DXF-verdadeiro/NC-bloqueado do shape, depth explícita da furação, pipeline dos drafts, recess = dado).
+- Testado: check.mjs verde; browser com job misto (porta shaped c/ Blum+recess7 + porta com 2 rails): cut list com os 4 marcadores, TSV com 3, etiqueta shaped com o aviso e etiqueta normal limpa; goldens byte-idênticos (só texto de documento).
+
 ## 2026-07-19 (d) — Paridade (rodada 4): SHAPE — cabeça inclinada (Single rake + Flat-top splay) + tags de rollback
 
 **Rollback garantido** (pedido do Ednei): tags publicadas `pre-configurator-2026-07-19` (=950bfda, antes de TODA a paridade) e `pre-shape-2026-07-19` (=08676a3, antes do Shape). Voltar = `git revert <tag>..HEAD && git push` (sem force-push, regra do repo).

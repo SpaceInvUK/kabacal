@@ -1,7 +1,7 @@
 # Kabacal — STATUS (you are here)
 
 **Update when:** a risk opens/closes, a decision is made, or in-flight work changes. Keep under ~60 lines — this is the mutable "current state", `ROADMAP.md` is the append-only history.
-Last update: 2026-07-18 · Panels (j) — largura individual de painéis (H+V+zones) + tiers 10x5/special (>1206/>1520, máx 2000) + fix zones sobrepostas ("C dentro do D") + cols até 1 + trigger no Quote/PDF.
+Last update: 2026-07-19 · Configurator parity (ROADMAP 19/a–d + docs): midrails absolutos individuais + presets, chips de frame, espessura por porta, catálogo de dobradiças (inset 22.5 legacy-safe; depth da op continua explícita), vidro 4/6, section view, cotas no zoom, 6 presets DRAFT (zero NC), pocket depth (dado apenas), **SHAPE rake/splay** (DXF = contorno real; **NC próprio NÃO corta OUT shaped** — aviso no Save NC) + campos novos no cut list/checklist/etiquetas ("SHAPED — OUT VIA VCARVE"). **Rollback tags**: `pre-configurator-2026-07-19` (950bfda) · `pre-shape-2026-07-19` (08676a3). **Pendentes de validação VCarve (Ednei)**: drafts→estilos reais, corte do OUT shaped, pocket depth no NC, K/depth reais por modelo de dobradiça.
 
 ## Open risks (ranked)
 
