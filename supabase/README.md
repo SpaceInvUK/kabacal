@@ -93,3 +93,24 @@ npx supabase functions deploy order-intake --project-ref rvmyalrtoblxmxciiovd --
 **Site side (wp-config.php):** `define('FCNC_BRIDGE_URL','https://rvmyalrtoblxmxciiovd.supabase.co/functions/v1/order-intake'); define('FCNC_BRIDGE_SECRET','<same>');` — the `fastcnc-order-bridge.php` mu-plugin (cnc-calculator repo `site/mu-plugins/`) POSTs on `woocommerce_order_status_processing`, idempotent via `_fcnc_bridge_sent`.
 
 **E2E check:** place/re-fire a paid test order -> row in `fastcnc_orders` (status `files_generated`), files under `orders/FC-{n}/` in the bucket, order note "delivered" on the Woo order.
+
+## Online Orders tab in Kabacal (Etapas A+B — 2026-07-19)
+
+The ☁ cloud modal (signed in) now has **"📦 Online orders (site)…"**: lists `fastcnc_orders`
+newest-first with status + per-file downloads (signed URLs, 5 min) and **"Open in Kabacal"**
+on the `.fastcnc` file (transactional load — a rejected file leaves the app untouched).
+This replaces the email → download → pendrive loop for inspection.
+
+**One-time setup (dashboard → SQL editor):**
+
+1. Run `migrations/0004_orders_read.sql` — creates the `app_admins` allowlist (RLS deny-all,
+   service_role is the only writer) + SELECT policies on `fastcnc_orders` and the
+   `fastcnc-orders` bucket for enrolled admins only. The iso-a/iso-b isolation fixtures are
+   NOT admins, so the 13-check isolation suite stays green.
+2. Enrol yourself:
+   `select id, email from auth.users;` → copy your uid →
+   `insert into public.app_admins (user_id, note) values ('<uid>', 'Ednei — owner') on conflict do nothing;`
+
+**Check:** app with cloud on → sign in → ☁ → Online orders → FC-4004 listed with its 3 files;
+"Open in Kabacal" loads the job. Without the migration/enrolment the tab shows the exact
+error + a pointer to this runbook (nothing breaks).

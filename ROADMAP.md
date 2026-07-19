@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (g) — Online Orders no Kabacal (Etapas A+B, dark): pedidos do site direto no app
+
+Mata o fluxo e-mail → download → pendrive para inspeção. Tudo atrás do cloud opt-in (flag-off = byte-idêntico, provado).
+
+- **☁ modal → "📦 Online orders (site)…"** (assinado): lista `fastcnc_orders` (mais novos primeiro, 50) com número FC, data, chip de status (failed em vermelho + erro), **⬇ download por arquivo** (signed URL 5 min) e **"Open in Kabacal"** no `.fastcnc` (fetch → `loadFastCnc` transacional — arquivo rejeitado não toca no job). ⟳ Refresh + Back; erro de RLS mostra mensagem exata apontando o runbook.
+- **`supabase/migrations/0004_orders_read.sql`** (ARQUIVO — Ednei aplica no SQL editor): tabela `app_admins` (allowlist, RLS deny-all, só service_role escreve) + policies SELECT em `fastcnc_orders` e no bucket `fastcnc-orders` **apenas para admins enrolados** — iso-a/iso-b ficam fora ⇒ suite de isolamento 13/13 continua válida. Runbook completo no `supabase/README.md` (§Online Orders): aplicar + enrolar o próprio uid.
+- Testado: check.mjs verde; browser: cloud OFF = zero chip/modal (dark pristine); estágio orders renderizado com estado simulado (FC-4004 com 3 downloads + Open in Kabacal; FC-4009 failed com erro visível; Refresh/Back), botão de entrada no estágio de conta; goldens byte-idênticos. **Pendente (Ednei)**: aplicar 0004 + enrolar-se no app_admins e conferir com o pedido real FC-4004; fase C (aprovar → pasta da Syntec) fica para quando A/B estiver validado.
+
 ## 2026-07-19 (f) — Painéis: junção V↔H "Wrap" (standard do room) — do DXF de referência do Ednei
 
 Pedido + DXF de referência (`Vertical + Horizontal joint.dxf`): onde um painel VERTICAL encosta num HORIZONTAL, o vertical mantém joint de 40 (40 + os 40 do vizinho leem como UM frame de 80); **acima do topo do vizinho o painel ALARGA +40 e carrega o frame de 80 sozinho** — o contorno "contorna" (wrap) o vizinho e a linha da cavidade fica RETA (confirmado por parse do DXF: OUT de 8 vértices com degrau de 40 exatamente no topo do vizinho; cavidade reta a 40 da borda inferior = 80 da borda alargada; horizontal com 40 constante no joint, skirt 305, topo 80).

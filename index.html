@@ -8948,6 +8948,47 @@
   }
   function cloudOpen(){cloudUI.open=true;cloudUI.msg='';cloudUI.err=false;cloudUI.stage=cloudSession?'account':'email';cloudRender();}
   function cloudClose(){cloudUI.open=false;const m=document.getElementById('cloudModal');if(m)m.remove();}
+  // ---- Online Orders (2026-07-19, Etapas A+B do plano): the site's landed orders read straight from
+  // Supabase by a SIGNED-IN ADMIN (migration 0004: app_admins allowlist + read policies). Kills the
+  // email→download→pendrive loop: list → download files → "Open in Kabacal" loads the .fastcnc.
+  async function cloudListOrders(){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('fastcnc_orders').select('order_id,order_number,status,files,error,created_at').order('created_at',{ascending:false}).limit(50);
+      if(r.error)throw new Error(r.error.message||'query failed');
+      cloudUI.orders=r.data||[];cloudUI.stage='orders';
+      cloudUI.msg=cloudUI.orders.length?'':'No orders yet — they appear here as soon as the site bridge lands one.';
+    }catch(e){
+      cloudUI.msg='Orders unavailable: '+(e&&e.message||e)+' — if this is a permission/RLS error, apply supabase/migrations/0004_orders_read.sql and enrol your user in app_admins (runbook in supabase/README.md).';
+      cloudUI.err=true;
+    }
+    cloudUI.busy=false;cloudRender();
+  }
+  async function cloudOrderFileUrl(path){
+    const sb=await sbClient();
+    const r=await sb.storage.from('fastcnc-orders').createSignedUrl(path,300);
+    if(r.error)throw new Error(r.error.message||'could not sign the file URL');
+    return r.data.signedUrl;
+  }
+  async function cloudDlOrderFile(path,name){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{const u=await cloudOrderFileUrl(path);const a=document.createElement('a');a.href=u;a.download=name||'';document.body.appendChild(a);a.click();a.remove();}
+    catch(e){cloudUI.msg='Download failed: '+(e&&e.message||e);cloudUI.err=true;}
+    cloudUI.busy=false;cloudRender();
+  }
+  async function cloudOpenOrder(path){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{
+      const u=await cloudOrderFileUrl(path);
+      const resp=await fetch(u);if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const docJson=await resp.json();
+      loadFastCnc(docJson);                        // transactional loader — a rejected file leaves the app untouched
+      cloudUI.msg='Order loaded into the app.';
+      cloudClose();
+    }catch(e){cloudUI.msg='Open failed: '+(e&&e.message||e);cloudUI.err=true;}
+    cloudUI.busy=false;cloudRender();
+  }
   function cloudRender(){
     if(!cloudUI.open)return;
     let ov=document.getElementById('cloudModal');
@@ -8970,6 +9011,25 @@
           +'<button class="cbtn" onclick="cloudSendLink()"'+dis+'>Send sign-in e-mail</button>'
           +'<button class="cbtn sec" onclick="cloudClose()">Continue without account</button>';
       }
+    }else if(cloudUI.stage==='orders'){
+      const rows=(cloudUI.orders||[]).map(function(o){
+        const d=(o.created_at||'').slice(0,16).replace('T',' ');
+        const st=o.status||'received';
+        const files=Array.isArray(o.files)?o.files:[];
+        const fj=files.find(function(f){return /\.fastcnc(\.json)?$/i.test(f&&f.name||'');});
+        const fs=files.map(function(f){return '<span class="link" style="margin-right:8px;font-size:11px;cursor:pointer" onclick="cloudDlOrderFile(\''+esc(f.path)+'\',\''+esc(f.name)+'\')">⬇ '+esc(f.name)+'</span>';}).join('');
+        return '<div class="cloud-row" style="flex-wrap:wrap;align-items:center">'
+          +'<span><b>'+esc(o.order_number||('#'+o.order_id))+'</b> <span style="font-size:11px;color:var(--muted)">'+esc(d)+'</span></span>'
+          +'<span class="cloud-plan"'+(st==='failed'?' style="background:#fee2e2;color:#b91c1c"':'')+'>'+esc(st)+'</span>'
+          +(o.error?'<div class="sub" style="flex-basis:100%;color:#b45309">'+esc(String(o.error).slice(0,140))+'</div>':'')
+          +(files.length?'<div style="flex-basis:100%;margin-top:3px">'+fs
+            +(fj?'<div style="margin-top:4px"><button class="cbtn sec" style="margin:0" onclick="cloudOpenOrder(\''+esc(fj.path)+'\')"'+(cloudUI.busy?' disabled':'')+'>Open in Kabacal</button></div>':'')
+            +'</div>':'')
+          +'</div>';
+      }).join('');
+      body=msg+'<div class="sub">Orders landed by the site bridge — newest first. "Open in Kabacal" replaces the job on screen (save it first if it matters).</div>'+rows
+        +'<button class="cbtn sec" onclick="cloudListOrders()"'+dis+'>⟳ Refresh</button>'
+        +'<button class="cbtn sec" onclick="cloudUI.stage=\'account\';cloudRender()"'+dis+'>Back</button>';
     }else if(cloudUI.stage==='jobs'){
       const rows=(cloudUI.jobs||[]).map(function(j){
         const d=(j.updated_at||'').slice(0,16).replace('T',' ');
@@ -8997,6 +9057,7 @@
           +'<button class="cbtn" onclick="cloudSaveJob(false)"'+dis+'>'+(cloudJob?'☁ Update this cloud job':'☁ Save to cloud')+'</button>'
           +(cloudJob?'<button class="cbtn sec" onclick="cloudSaveJob(true)"'+dis+'>Save as a new cloud job</button>':'')
           +'<button class="cbtn sec" onclick="cloudListJobs()"'+dis+'>Open from cloud…</button>'
+          +'<button class="cbtn sec" onclick="cloudListOrders()"'+dis+'>📦 Online orders (site)…</button>'
           +'<div class="sub" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px"><b>Workshop settings</b> — prices, materials, company, tool DB, templates, quote counter. '
             +(cloudSettingsMeta?('Cloud copy: '+esc((cloudSettingsMeta.updatedAt||'').slice(0,16).replace('T',' '))):'No cloud copy yet.')+'</div>'
           +(cloudUI.confirmSet==='push'
