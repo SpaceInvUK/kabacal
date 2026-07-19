@@ -768,6 +768,7 @@
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
       panels:Math.max(1,Math.round(+extra.panels||1)),midFrame:(extra.midFrame===''||extra.midFrame==null)?'':Math.max(0,+extra.midFrame||0),panelSize:(extra.panelSize===''||extra.panelSize==null)?'':Math.max(1,+extra.panelSize||0),
       midrails:(Array.isArray(extra.midrails)&&extra.midrails.length)?extra.midrails.map(r=>({c:+r.c,th:+r.th})):undefined,
+      shape:(extra.shape&&extra.shape.kind)?JSON.parse(JSON.stringify(extra.shape)):undefined,
       offsetName:normPresetName(extra.offsetName||'Custom')};
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
@@ -803,6 +804,33 @@
     if(!(r>0))return Array.from({length:n},()=>open/n);
     const t=Math.max(1,Math.min(r,open-1*(n-1)));const each=(open-t)/(n-1);
     return [...Array.from({length:n-1},()=>each),t];}
+  // ---- door HEAD SHAPE (2026-07-19, configurator parity): 'rake' = one slope set by two leg heights,
+  // 'splay' = a flat run on one side then a rake down to a shorter leg. The shape is the TOP edge of the
+  // door as ENTERED (w×h = bounding box; the tallest leg should equal h). v1 policy: preview + DXF carry
+  // the TRUE outline; the internal opening stays RECTANGULAR under the LOWEST head point; Kabacal's own NC
+  // does NOT cut the OUT profile of shaped doors (not machine-validated) — see tpOpRects + the Save-NC note.
+  function shapeOf(it){const s=it&&it.shape;if(!s||!s.kind||s.kind==='square')return null;
+    const H=+it.h||0,W=+it.w||0;if(H<=0||W<=0)return null;
+    if(s.kind==='rake'){const a=Math.min(H,Math.max(1,+s.legL||H)),b=Math.min(H,Math.max(1,+s.legR||H));if(a===b)return null;return {kind:'rake',legL:a,legR:b};}
+    if(s.kind==='splay'){const fl=Math.min(W-1,Math.max(1,+s.flatLen||Math.round(W/2))),sh=Math.min(H-1,Math.max(1,+s.shortLeg||Math.round(H*0.75)));return {kind:'splay',side:(s.side==='right')?'right':'left',flatLen:fl,shortLeg:sh};}
+    return null;}
+  // outline polygon in LOCAL logical coords (top-left origin, y-down), closed implicitly
+  function shapeOutline(w,h,sh){
+    if(!sh)return null;
+    if(sh.kind==='rake')return [{x:0,y:h},{x:0,y:h-sh.legL},{x:w,y:h-sh.legR},{x:w,y:h}];
+    if(sh.kind==='splay')return sh.side==='left'
+      ?[{x:0,y:h},{x:0,y:0},{x:sh.flatLen,y:0},{x:w,y:h-sh.shortLeg},{x:w,y:h}]
+      :[{x:0,y:h},{x:0,y:h-sh.shortLeg},{x:w-sh.flatLen,y:0},{x:w,y:0},{x:w,y:h}];
+    return null;}
+  function headDropOf(it){const sh=shapeOf(it);if(!sh)return 0;const H=+it.h||0;
+    return sh.kind==='rake'?H-Math.min(sh.legL,sh.legR):H-sh.shortLeg;}
+  // outline of a PLACED (possibly rotated) part in placed local coords — same transpose as placedCavs
+  function placedOutline(p){
+    const sh=p.shape;if(!sh)return null;
+    const lw=p.rot?p.h:p.w,lh=p.rot?p.w:p.h;
+    const pts=shapeOutline(lw,lh,sh);if(!pts)return null;
+    return p.rot?pts.map(q=>({x:q.y,y:q.x})):pts;
+  }
   // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
   function cavsFor(w,h,f,pnl){
     const iw=w-f.l-f.r,ih=h-f.t-f.b;
@@ -828,7 +856,8 @@
     const rails=midrailsOf(it);
     if(rails)return {n:rails.length+1,mid:0,size:'',rails};
     const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
-  function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
+  function doorCavities(it){const f=resolveFrame(it);const d=headDropOf(it);
+    return cavsFor(+it.w||0,+it.h||0,d>0?{t:f.t+d,r:f.r,b:f.b,l:f.l}:f,pnlOf(it));}   // shaped head: opening sits under the LOWEST head point
   // Cavities of a PLACED (possibly rotated) part, in the part's LOCAL top-left / y-down coords (placed w/h).
   // The frame ALWAYS follows the LOGICAL width/height (top/bottom = height direction, left/right = width
   // direction). When nesting rotates a part we transpose the logical cavities so the on-screen sheet, the
@@ -868,6 +897,16 @@
   // per-door recess/pocket depth (mm, ''=template default). DATA + job file only for now — it does NOT drive
   // the NC yet: cut depths stay with the validated templates until the value is proven on the machine.
   function setRecessDepth(i,v){const it=items[i];const x=parseInt(v);it.recessDepth=(v===''||v==='auto'||isNaN(x))?'':Math.max(1,Math.min(15,x));render();}
+  // ---- head shape setters ----
+  function setShapeKind(i,k){const it=items[i];const H=+it.h||0,W=+it.w||0;
+    if(k==='square'){delete it.shape;}
+    else if(k==='rake'){it.shape={kind:'rake',legL:H,legR:Math.max(1,Math.round(H*0.75))};}
+    else if(k==='splay'){it.shape={kind:'splay',side:'left',flatLen:Math.max(1,Math.round(W/2)),shortLeg:Math.max(1,Math.round(H*0.75))};}
+    render();}
+  function setShapeField(i,k,v){const it=items[i];if(!it.shape)return;
+    if(k==='side')it.shape.side=(v==='right')?'right':'left';
+    else it.shape[k]=Math.max(1,Math.round(+v||0));
+    render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
   // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
   // (user rule 2026-07-07: front 3-4 offsets, back often just 1 — never force them to mirror.)
@@ -1221,6 +1260,7 @@
             :((part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)+((num(part.height,0)>=num(part.width,0))?f.b:f.r))),
           midrails:(Array.isArray(part.kabMidrails)&&part.kabMidrails.length)?part.kabMidrails.map(r=>({c:+r.c,th:+r.th})).filter(r=>r.c>0&&r.th>0):undefined,
           recessDepth:(part.kabRecessDepth!=null&&+part.kabRecessDepth>0)?+part.kabRecessDepth:undefined,
+          shape:(part.kabShape&&typeof part.kabShape==='object'&&part.kabShape.kind)?JSON.parse(JSON.stringify(part.kabShape)):undefined,
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
@@ -1332,6 +1372,7 @@
     // fields fall back to an equal split with the same opening count so old readers stay sane.
     const kmr=midrailsOf(it);if(kmr){o.kabMidrails=kmr.map(r=>({c:r.c,th:r.th}));o.panels=kmr.length+1;o.panelSize='';delete o.kabBottomPart;}
     if(it.recessDepth!==''&&it.recessDepth!=null)o.kabRecessDepth=+it.recessDepth;   // per-door recess depth (data only, additive)
+    const ksh=shapeOf(it);if(ksh)o.kabShape=JSON.parse(JSON.stringify(ksh));         // head shape (additive; width/height stay the bounding box)
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -1574,7 +1615,9 @@
         const round=(p.lines||[]).some(l=>l.rd);
         layers.add('OUT');
         var o=rRectD(bx,by,p.w,p.h);
-        if(round||p.insRound||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        var shpOut=placedOutline(p);
+        if(shpOut)body+=dxfPoly('OUT',shpOut.map(q=>rPtD(bx+q.x,by+(p.h-q.y))),true);   // shaped head: TRUE closed outline polygon
+        else if(round||p.insRound||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
         if(p.isBeading){
           // beading piece: INSIDE = glass opening; BEADING = cut guide clearance mm OUTSIDE the outline
           const bs=p.beadSize||19.85,bc=(p.beadClear!=null?p.beadClear:0.15);
@@ -1956,7 +1999,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','midrails','backMode','backLines','scribe'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','midrails','shape','recessDepth','backMode','backLines','scribe'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1986,6 +2029,8 @@
     const hon=uni(it=>hingeInfo(it).on?1:0);
     if(hon===1){const hs=uni(it=>hingeInfo(it).side),ho=uni(it=>hingeInfo(it).offset);H.hinges=(hs?cap(hs):'On')+(ho!=null?' · '+ho+'mm':'');}else H.hinges='';
     H.spray=(uni(it=>it.spray?1:0)===1)?'On':'';
+    const shk=uni(it=>{const s=shapeOf(it);return s?s.kind:'square';});
+    H.shape=shk==='rake'?'Single rake':(shk==='splay'?'Splay':'');
     const g=uni(it=>grainOf(it));H.grain=g==='off'?'Off':(g==='long'?'Longest side':(g==='short'?'Shortest side':''));
     const gon=uni(it=>grooveOf(it).on?1:0);
     if(gon===1){const gd=uni(it=>grooveOf(it).dir),gs=uni(it=>grooveOf(it).spacing);H.groove=(gd?cap(gd):'On')+(gs!=null?' · '+gs+'mm':'');}else H.groove='';
@@ -2017,6 +2062,7 @@
     const secs=[];
     if(has){
       secs.push(['part','Dimensions',secParts(i,it),St.part]);
+      secs.push(['shape','Shape',secShape(i,it),St.shape]);
       secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
       secs.push(['offset','Frame & Panels',tabOffset(i,it),St.offset]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
@@ -2057,6 +2103,27 @@
       return '<div class="ed-field" style="margin-top:8px"><label>Thickness — '+esc(pm.name)+'</label><div class="preset-chips" style="margin-top:2px">'+ths.map(t=>'<button class="preset-chip '+(pm.th===t?'on':'')+'" title="Switch this door to '+esc(pm.name)+' '+t+' (price and cut templates follow)" onclick="upd('+i+',\'mat\',\''+esc(pm.name+' '+t)+'\')">'+t+'</button>').join('')+'</div></div>';})()}
     <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row. Frame, panels and rails are in <b>Frame &amp; Panels</b> below.</div>`;}
+  // head shape editor (2026-07-19): Square / Single rake / Flat-top splay — see shapeOf for the v1 policy
+  function secShape(i,it){const sh=shapeOf(it),kind=sh?sh.kind:'square';const H=+it.h||0,W=+it.w||0;
+    return `
+    <div class="seg3">
+      <button class="segbtn ${kind==='square'?'on':''}" title="Flat top — a plain rectangle" onclick="setShapeKind(${i},'square')">Square</button>
+      <button class="segbtn ${kind==='rake'?'on':''}" title="One slope across the head, set by the two leg heights" onclick="setShapeKind(${i},'rake')">Single rake</button>
+      <button class="segbtn ${kind==='splay'?'on':''}" title="A flat run on one side, then a rake down to a shorter leg" onclick="setShapeKind(${i},'splay')">Flat-top splay</button>
+    </div>
+    ${kind==='rake'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Leg A — left height (mm)</label><input type="number" min="1" value="${sh.legL}" onchange="setShapeField(${i},'legL',this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Leg B — right height (mm)</label><input type="number" min="1" value="${sh.legR}" onchange="setShapeField(${i},'legR',this.value)"></div>
+    </div>
+    <div class="sub" style="margin-top:5px">The taller leg should equal the door Height (${H}mm) — equal legs make a plain rectangle. The internal opening stays rectangular UNDER the lowest head point (drop ${headDropOf(it)}mm).</div>`:''}
+    ${kind==='splay'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="min-width:96px"><label>Flat top on</label><div class="seg3" style="margin-top:2px"><button class="segbtn ${sh.side==='left'?'on':''}" onclick="setShapeField(${i},'side','left')">Left</button><button class="segbtn ${sh.side==='right'?'on':''}" onclick="setShapeField(${i},'side','right')">Right</button></div></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Flat top length (mm)</label><input type="number" min="1" value="${sh.flatLen}" onchange="setShapeField(${i},'flatLen',this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Short leg height (mm)</label><input type="number" min="1" value="${sh.shortLeg}" onchange="setShapeField(${i},'shortLeg',this.value)"></div>
+    </div>
+    <div class="sub" style="margin-top:5px">The tall side is the Height (${H}mm) from Dimensions; the head rakes from the flat run down to the short leg. Opening stays rectangular under the lowest point (drop ${headDropOf(it)}mm).</div>`:''}
+    ${sh?`<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped head: preview and DXF carry the TRUE outline, but Kabacal's own NC does NOT cut the OUT profile of shaped doors yet (not machine-validated) — cut the outline from the DXF in VCarve. Recess/drill ops still run on the rectangular opening.</div>`
+      :'<div class="sub" style="margin-top:6px">Flat top — plain rectangle (default). Rake/splay heads are for sloped ceilings and under-stair doors.</div>'}`;}
   function secGrain(i,it){const g=grainOf(it);return `
     <div class="seg3">
       <button class="segbtn ${g==='off'?'on':''}" onclick="upd(${i},'grain','off')">Off</button>
@@ -2329,7 +2396,10 @@
     // stays visible even with no offset line enabled. The cavity is uneven-aware (e.g. a 305 bottom rail shows a
     // deeper bottom band). Previously only the offset lines were drawn, so a framed door with no offset line —
     // or an uneven frame — looked like a plain rectangle (the "frame disappears" bug). Cut geometry is unchanged.
-    s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
+    const shPrev=shapeOf(it),shPts=shPrev?shapeOutline(w,h,shPrev):null;
+    if(shPts){const d=shPts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${d}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;}
+    else s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
     // one opening per REAL cavity (Ednei 2026-07-16): 2 panels show 2 openings, mid rail visible —
     // doorCavities is the same source the sheets/DXF/toolpaths use, so the thumbnail always agrees.
     const iw=(+it.w||0)-f.l-f.r, ih=(+it.h||0)-f.t-f.b;
@@ -2623,11 +2693,12 @@
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
-      const insA=insertSpecsFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
+      const insA=insertSpecsFor(it);const h=hingeInfo(it);const f0=resolveFrame(it);
+      const shp=shapeOf(it);const f=shp?{t:f0.t+headDropOf(it),r:f0.r,b:f0.b,l:f0.l}:f0;   // shaped head: effective top frame includes the head drop
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0,qn=Math.max(1,Math.round(+it.q||1));n<qn;n++){   // qty is ALWAYS >=1 — a 0/blank/NaN qty never yields a hidden empty part
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
@@ -3072,7 +3143,14 @@
     const st=(sel===true?'sel':(sel||''));const selOn=st==='sel',sibOn=st==='sib';
     const X=p.x/10,Y=p.y/10,W=p.w/10,H=p.h/10;let s='';
     s+=`<g class="npart${selOn?' sel':(sibOn?' sib':'')}" data-key="${p.key||''}" data-w="${p.w}" data-h="${p.h}">`;
-    s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
+    const shOut=placedOutline(p);
+    if(shOut){   // shaped head: true outline + faint dashed bounding box (what the nester reserves)
+      const dPath=shOut.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="${DXFC.OUT}" stroke-width="0.15" stroke-dasharray="1 1"/>`;
+      s+=`<path d="${dPath}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h} (shaped head)</title></path>`;
+    }else{
+      s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
+    }
     if(p.isInsert){
       // concentric insert step lines (cavity + overlay) + reeded hatch
       const a=Math.min(W,H);const cols=[OFFCOL.A,OFFCOL.B];
@@ -4092,7 +4170,7 @@
       const out=[];[[6.9,'inside'],[11.95,'outside']].forEach(q=>{const o=q[0],rc={x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o,side:q[1]};if(rc.w>1&&rc.h>1)out.push(rc);});
       return out;
     }
-    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?[{x:p.x,y:p.y,w:p.w,h:p.h}]:[];   // unknown layers cut NOTHING (was: part outline)
+    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?(p.shape?[]:[{x:p.x,y:p.y,w:p.w,h:p.h}]):[];   // unknown layers cut NOTHING; shaped heads: OUT not machine-validated → cut NOTHING
     const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
     if(!ln)return [];
     const mm=Math.max(0,+ln.mm||0);
@@ -5370,7 +5448,9 @@
           const reach=(+tool.dia||0)+(+P.allowance||0)+((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
           if(reach>mx)mx=reach;});
         return (mx>f.sh.g+0.001)?('⚠ kerf reaches '+mx.toFixed(2)+'mm but parts are packed at '+f.sh.g+'mm — neighbouring faces get grazed '+(mx-f.sh.g).toFixed(2)+'mm. Set Spacing/gap ≥ '+(Math.ceil(mx*10)/10)+'mm in Nesting.'):'';})();
-      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}</div></div>
+      const shapedN=(f.sh.parts||[]).filter(p=>!p.isBack&&p.shape).length;
+      const shapeWarn=shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: the OUT profile is NOT in this NC (shape cutting is not machine-validated yet) — cut the outline from the DXF in VCarve.'):'';
+      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}${shapeWarn?'<br><span style="color:#b45309;font-weight:700">'+shapeWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
     openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" onclick="tpExportPackage()">${ic('export',13)} Production package (.zip)</button><span class="sub">all NCs + labels + <b>manifest.csv</b> in one order folder — the same ID everywhere, for SYNTEC ScanMode / Workinglist</span></div><div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><label class="tg" style="display:block;margin-bottom:10px;font-size:12px"><input type="checkbox" ${camJob.ncComments?'checked':''} onchange="camJob.ncComments=this.checked;saveCamState()"> Add <b>()</b> production comments to the NC — job / client / material / parts + a line per operation. <span style="color:#b45309">Opt-in: <b>air-cut first</b> — the SYNTEC must accept () comments (machine parameter). The machining lines are byte-identical; only () lines are added. <code>:1248</code> is untouched.</span></label><div class="tpl-list">${rows}</div>`,true);
@@ -5625,6 +5705,12 @@
         if(mrr.some(r=>r.c-r.th/2<dd.near||r.c+r.th/2>dd.len-dd.far))bad.push('midrail outside opening');
         let ov=false;for(let k=1;k<mrr.length;k++)if(mrr[k].c-mrr[k].th/2<mrr[k-1].c+mrr[k-1].th/2)ov=true;
         if(ov)bad.push('midrails overlap');
+      }
+      const shx=shapeOf(it);
+      if(shx){
+        if(shx.kind==='rake'&&Math.max(shx.legL,shx.legR)!==h)bad.push('tallest leg ≠ height');
+        if(shx.kind==='splay'&&(shx.flatLen>=w||shx.shortLeg>=h))bad.push('splay out of range');
+        if(frameUsed&&(f.t+headDropOf(it)+f.b>=h))bad.push('shape leaves no opening');
       }
       const hi=hingeInfo(it);
       if(hi.on&&Array.isArray(hi.custom)&&hi.custom.some(p=>p<0||p>hi.span))bad.push('hinge off part');

@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (d) — Paridade (rodada 4): SHAPE — cabeça inclinada (Single rake + Flat-top splay) + tags de rollback
+
+**Rollback garantido** (pedido do Ednei): tags publicadas `pre-configurator-2026-07-19` (=950bfda, antes de TODA a paridade) e `pre-shape-2026-07-19` (=08676a3, antes do Shape). Voltar = `git revert <tag>..HEAD && git push` (sem force-push, regra do repo).
+
+- **Modelo** `it.shape`: `rake` (alturas das pernas A/B; a mais alta = Height) e `splay` (lado Left/Right + comprimento do topo reto + perna curta). Nova seção **Shape** no inspector (Square / Single rake / Flat-top splay + campos), status no accordion, MULTI_FIELDS (`shape`, `recessDepth` também) para group-edit.
+- **Política v1 (segurança de máquina)**: preview e **DXF carregam o contorno VERDADEIRO** (POLYLINE fechada no OUT — o VCarve corta por ela); a **abertura interna continua RETANGULAR sob o ponto mais baixo da cabeça** (top frame efetivo = frame + drop, documentado no editor); o **NC próprio NÃO corta o OUT de porta shaped** (`tpOpRects` devolve vazio — mesma filosofia do fix das layers desconhecidas) com **aviso âmbar no Save NC** por chapa; recess/furos continuam rodando na abertura retangular.
+- Nesting reserva o bounding box (dashed no preview); rotação transposta igual às cavidades (`placedOutline` espelha `placedCavs`); inserts/beading herdam a abertura via doorCavities.
+- **Persistência aditiva** `kabShape` (width/height ficam o bounding box para leitores antigos); preflight: "tallest leg ≠ height", "splay out of range", "shape leaves no opening".
+- Testado: check.mjs verde com **E2E cenário (i)** (outline do rake, drop 600, abertura y650 h1300, peça nested com frame efetivo 650, **OUT shaped = 0 moves no NC próprio**, kabShape round-trip); browser: rake+splay dos dois lados com matemática exata, controle flat ainda corta OUT, DXF com POLYLINE fechada, preflights, UI com aviso; goldens byte-idênticos (nenhum job antigo tem shape).
+
 ## 2026-07-19 (c) — Paridade (rodada 3): section view + cotas no zoom + 6 presets DRAFT + pocket depth por porta
 
 - **Section view** no Frame & Panels, ao lado do preview: corte da borda da porta — **curva REAL quando o preset tem PROFILE** (Ogee: polyline 20.94×8mm desenhada na seção) e ticks esquemáticos nas posições XY das linhas A–G quando não (rotulado "marks = line positions (depths live in the cut ops)" — sem inventar profundidade).

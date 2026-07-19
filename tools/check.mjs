@@ -559,7 +559,7 @@ if (html && !process.argv.includes('--hook')) {
         get toolDb(){return toolDb}, get nestNote(){return nestNote}, get camJob(){return camJob}, get selSet(){return selSet},
         loadFastCnc, calcQuote, mkItem, addTakeoffItems, parseTakeoffText, parseTakeoffLine, clearSel, render,
         priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem,
-        doorCavities, buildFastCnc
+        doorCavities, buildFastCnc, shapeOf, shapeOutline, headDropOf, tpOpRects, buildSheetGroups
       }`)(win, doc, ls, ss, m => alerts.push(String(m)), () => true, () => null, { userAgent: 'node' }, win.location, () => Promise.reject(new Error('offline')), () => 0, () => {});
 
     // (a) boot: empty job, LAZY order number (no sequence consumed at page-open)
@@ -663,6 +663,27 @@ if (html && !process.argv.includes('--hook')) {
     api.loadFastCnc(JSON.parse(JSON.stringify(mrDoc)));
     const mrCs2 = api.doorCavities(api.items[0]);
     must(JSON.stringify(mrCs2) === JSON.stringify(mrCs), 'midrails round-trip: reloaded geometry must be identical');
+
+    // (i) HEAD SHAPE (2026-07-19): rake outline, opening under the lowest head point, OUT blocked in the
+    // own NC (not machine-validated), additive kabShape round-trip.
+    const shDoor = api.mkItem('trad', 600, 2000, 1, 'MDF 18mm', '8x4', { t: 50, r: 50, b: 50, l: 50 }, null, 'SH', { on: false },
+      { offsetName: 'Plain Shaker', shape: { kind: 'rake', legL: 2000, legR: 1400 } });
+    must(api.headDropOf(shDoor) === 600, 'shape: head drop must be H - min(leg)');
+    const shOut = api.shapeOutline(600, 2000, api.shapeOf(shDoor));
+    must(JSON.stringify(shOut) === JSON.stringify([{x:0,y:2000},{x:0,y:0},{x:600,y:600},{x:600,y:2000}]), 'shape: rake outline points');
+    const shCav = api.doorCavities(shDoor)[0];
+    must(shCav.y === 650 && shCav.h === 1300 && shCav.x === 50 && shCav.w === 500, 'shape: opening must sit under the lowest head point (top frame 50 + drop 600)');
+    api.items.length = 0; api.clearSel(); api.items.push(shDoor); api.render();
+    const shSheet = api.buildSheetGroups().values().next().value[0];
+    const shPart = shSheet.parts.find(p => !p.isInsert);
+    must(!!shPart.shape && shPart.frame.t === 650, 'shape: placed part must carry the shape + effective frame');
+    must(api.tpOpRects(shPart, { layer: 'OUT' }).length === 0, 'shape SAFETY: the OUT profile of a shaped door must cut NOTHING in the own NC');
+    const shDoc = api.buildFastCnc();
+    const shP = shDoc.blocks.flatMap(b => b.parts || [])[0];
+    must(shP.kabShape && shP.kabShape.kind === 'rake' && shP.kabShape.legR === 1400, 'shape save: kabShape must carry the head shape');
+    api.loadFastCnc(JSON.parse(JSON.stringify(shDoc)));
+    const shCav2 = api.doorCavities(api.items[0])[0];
+    must(shCav2.y === 650 && shCav2.h === 1300, 'shape round-trip: reloaded opening identical');
   } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
 }
 
