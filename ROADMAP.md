@@ -2,6 +2,21 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-19 (f) — Painéis: junção V↔H "Wrap" (standard do room) — do DXF de referência do Ednei
+
+Pedido + DXF de referência (`Vertical + Horizontal joint.dxf`): onde um painel VERTICAL encosta num HORIZONTAL, o vertical mantém joint de 40 (40 + os 40 do vizinho leem como UM frame de 80); **acima do topo do vizinho o painel ALARGA +40 e carrega o frame de 80 sozinho** — o contorno "contorna" (wrap) o vizinho e a linha da cavidade fica RETA (confirmado por parse do DXF: OUT de 8 vértices com degrau de 40 exatamente no topo do vizinho; cavidade reta a 40 da borda inferior = 80 da borda alargada; horizontal com 40 constante no joint, skirt 305, topo 80).
+
+- **Nome/opção**: "V–H joint" no Room Setup — **Wrap (standard, default ON)** | Straight 40 (`room.vhJoint`, ausente = wrap; goldens não têm zones → byte-idênticos; rooms legados ganham o standard, como pedido).
+- **Modelo**: peça = **bbox largo + notch de 40×(altura do vizinho)** exatamente onde o vizinho senta (`p.wrapL/R{ext,cov}` + notch `wrap:true`). Margens do lado wrapped = 80 da borda do bbox → **cavidade reta e na MESMA posição absoluta de antes** (40 do joint nominal). Vizinho zone cobre a própria altura (vizinho full-height → nada exposto → sem wrap); porta mantém o allowance (nunca wrap); parede-fim nunca; wrap pulado se o bbox estourar o hard-max 2000.
+- **Consequências de produção automáticas**: nesting/tier/cut list/m² usam o bbox real (ex.: zone 1200 + wrap = corte 1280 → **10x5** flagged — comportamento documentado); painted front = bbox − notches (face real escalonada).
+- **Desenhos**: Sheet DXF **OUT = contorno escalonado real** (polilinha, rotation-aware pelo mesmo point-map das células; notch de wrap NÃO vira INSIDE) · Wall Layout DXF idem · wall view + panorama desenham o polígono (a banda pinta o vão do notch).
+- **NC**: precedente SHAPED seguido — **o NC próprio NÃO corta o OUT wrapped** (`tpOpRects` retorna nada) + aviso âmbar no Save NC "cut it from the DXF in VCarve". Cavidades/pockets cortam normal.
+- **Caso reverso (objeto com painel de fechamento por cima)**: sem alargar para dentro do espaço reservado do objeto — a LINHA DO FRAME dá o degrau: fileira de shaker totalmente ao lado do cap usa 40 (40+40 = 80), resto fica 80 (`p.vhStep`). v1: granularidade por fileira (fileira precisa estar inteira na faixa do cap); alinhamento de fileira na base do cap = follow-up se o Ednei quiser.
+- Zone Width input mostra o NOMINAL + "· cut N (wrap +40/80)"; persistência: `room.vhJoint` viaja no room (aditivo).
+
+### Testado (f)
+`node tools/check.mjs` verde — testes de zone REESCRITOS para a regra nova (bbox 1080 com 2 notches 40×1030, sides 80/80, cavidade abs inalterada 2040, banda encontra o joint nominal 2000/3000, porta nunca wrap + allowance 175 intacto, `vhJoint:'flat'` = comportamento legado byte-idêntico) · **goldens DXF byte-idênticos** (sem zones nos goldens) · **suíte wrap 26/26**: geometria = DXF de referência (8 vértices, notches, cavidade reta), flat opt-out, Sheet DXF com 1 polilinha OUT escalonada e SEM INSIDE de wrap, Wall Layout idem, nesting 1080×3000, mat=bbox, painted=bbox−notches, 1200→1280→10x5 flagged, guard NC (OUT wrapped = 0 rects; peça normal corta), caso objeto-cap (fileira ao lado do cap 40, acima 80, `vhStep`), arquivo real do Ednei carrega com o standard ON sem overlap real · suítes anteriores 43/43, 30/30 e **31/31 (arquivo real)** verdes.
+
 ## 2026-07-19 (e) — Campos novos nos documentos de produção + STATUS/RULES do dia
 
 Fechamento da paridade: a oficina agora VÊ os campos novos no papel.

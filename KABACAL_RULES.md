@@ -29,6 +29,16 @@ Em portas com 2+ painéis internos, o campo **Bottom part** (Right part quando a
 
 Modo separado do Doors (toggle Doors | Panels no header); estado próprio (`panelRooms`, localStorage `kab_panels`); os painéis NUNCA entram na lista de parts do Doors. O Quote é o ponto de encontro: seção "Wall panelling" própria + Doors subtotal + Panels subtotal + total combinado; serviços/spray/VAT aplicam UMA vez no job. **Job só-Doors tem que sair byte-idêntico** (panels.total=0 — invariante no check.mjs e provado vs HEAD).
 
+### Junção V↔H "Wrap" — standard do room (confirmado 2026-07-19, DXF de referência do Ednei)
+
+Onde um painel VERTICAL encosta num painel HORIZONTAL: no trecho lado a lado o vertical usa joint de **40** (40 + os 40 do vizinho leem como UM frame de 80); **onde não há vizinho** (acima do topo do horizontal), o painel vertical **ALARGA +40** e carrega o frame de **80** sozinho — o contorno "contorna" (wrap) o vizinho, e a **linha da cavidade fica RETA** (referência: `W:\Documents\Vcarve\Vertical + Horizontal joint.dxf` — OUT de 8 vértices, degrau de 40 no topo do vizinho). O horizontal mantém 40 constante no lado do joint.
+
+- Opção **"V–H joint"** no Room Setup: **Wrap (standard, default ON)** | Straight 40 (`room.vhJoint='flat'` desliga; ausente = wrap; rooms legados ganham o standard).
+- Modelo: peça = bbox largo + notch 40×(altura do vizinho) onde o vizinho senta → nesting/tier/cut list/m² veem o CORTE real (ex.: zone 1200 + wrap = corte 1280 → 10x5 flagged). Painted front = bbox − notches.
+- Vizinho zone cobre a própria altura (full-height → sem wrap) · porta NUNCA wrap (allowance 175 vale) · parede-fim nunca · wrap pulado se o bbox passar do hard-max 2000.
+- Sheet DXF e Wall Layout DXF: OUT = contorno escalonado real (notch de wrap não vira INSIDE). **NC próprio NÃO corta o OUT wrapped** (mesmo regime do SHAPED) — aviso no Save NC, corte via VCarve/DXF. Cavidades/pockets cortam normal.
+- Reverso (objeto com painel de fechamento em cima): sem alargar para dentro do espaço do objeto — a linha do frame dá o degrau: fileira de shaker inteira ao lado do cap = 40, resto = 80 (v1 por fileira; alinhar fileira na base do cap = follow-up).
+
 ### Largura individual de painel + chapas 10x5/especial (confirmado 2026-07-18)
 
 O usuário pode fixar a largura de PEÇAS FÍSICAS individualmente; as outras da mesma parede/trecho se reajustam — **"fixa as que eu setar, o resto divide igual"**. Frames respeitados (joints seguem 40/40) e o grid de shakers re-balanceia organicamente (alvo do room).

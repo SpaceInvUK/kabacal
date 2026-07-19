@@ -4176,7 +4176,7 @@
       const out=[];[[6.9,'inside'],[11.95,'outside']].forEach(q=>{const o=q[0],rc={x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o,side:q[1]};if(rc.w>1&&rc.h>1)out.push(rc);});
       return out;
     }
-    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?(p.shape?[]:[{x:p.x,y:p.y,w:p.w,h:p.h}]):[];   // unknown layers cut NOTHING; shaped heads: OUT not machine-validated → cut NOTHING
+    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?((p.shape||(p.pnPiece&&(p.pnPiece.wrapL||p.pnPiece.wrapR)))?[]:[{x:p.x,y:p.y,w:p.w,h:p.h}]):[];   // unknown layers cut NOTHING; shaped heads + wrapped V↔H panels: OUT not machine-validated → cut NOTHING (outline via VCarve/DXF)
     const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
     if(!ln)return [];
     const mm=Math.max(0,+ln.mm||0);
@@ -5455,7 +5455,9 @@
           if(reach>mx)mx=reach;});
         return (mx>f.sh.g+0.001)?('⚠ kerf reaches '+mx.toFixed(2)+'mm but parts are packed at '+f.sh.g+'mm — neighbouring faces get grazed '+(mx-f.sh.g).toFixed(2)+'mm. Set Spacing/gap ≥ '+(Math.ceil(mx*10)/10)+'mm in Nesting.'):'';})();
       const shapedN=(f.sh.parts||[]).filter(p=>!p.isBack&&p.shape).length;
-      const shapeWarn=shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: the OUT profile is NOT in this NC (shape cutting is not machine-validated yet) — cut the outline from the DXF in VCarve.'):'';
+      const wrapN=(f.sh.parts||[]).filter(p=>p.pnPiece&&(p.pnPiece.wrapL||p.pnPiece.wrapR)).length;
+      const shapeWarn=(shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: the OUT profile is NOT in this NC (shape cutting is not machine-validated yet) — cut the outline from the DXF in VCarve.'):'')
+        +(wrapN?((shapedN?'<br>':'')+'⚠ '+wrapN+' wrapped V–H joint panel'+(wrapN>1?'s':'')+' on this sheet: the stepped OUT outline is NOT in this NC — cut it from the DXF in VCarve.'):'');
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}${shapeWarn?'<br><span style="color:#b45309;font-weight:700">'+shapeWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
@@ -5967,6 +5969,7 @@
       target:+(room.target!=null?room.target:PN_SHK.target)||PN_SHK.target,
       th:pnThick(room.mat),
       doorAllow:+(room.doorAllow!=null?room.doorAllow:175)||175,
+      vhWrap:room.vhJoint!=='flat',   // V↔H WRAP joint (2026-07-19, room standard — default ON): vertical panel wraps a horizontal neighbour
       skirtOn:rSkOn,
       skirtH:rSkH,
       // Per-wall skirting: a wall may carry `skirt:{mode:'custom',on,h}` to override the room default.
@@ -6334,12 +6337,47 @@
       const lRule=r.x0<=0.5?(wall.sideL||'normal'):abut(r.x0,'l');
       const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):abut(r.x1,'r');
       const p={wi,dir:'v',isZone:true,zid:z.id,x0:r.x0,x1:r.x1,y0:0,y1:r.h,w:r.w,h:r.h,
-        sheet:pnVSheet(r.w,r.h),
         sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
-      if(p.sheet==='special')warns.push('Vertical panel '+Math.round(r.w)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
-      else if(p.sheet==='10x5')warns.push('Vertical panel '+Math.round(r.w)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
+      // ---- V↔H WRAP joint (2026-07-19, room standard `vhJoint` — Ednei's "Vertical + Horizontal joint.dxf") ----
+      // Where this vertical panel meets the horizontal BAND, its outline STEPS: beside the band the joint margin is
+      // f/2 (40 + the band's own 40 reads as one full 80 frame); ABOVE the band's top the panel WIDENS by f/2 and
+      // carries the full frame alone — the outline wraps the neighbour, the cavity line stays STRAIGHT. Model: the
+      // piece becomes the WIDE bbox with margin f on that side + a f/2-deep NOTCH over the covered range (the notch
+      // is exactly where the neighbour sits — nesting/tier/areas/DXF all see the true cut piece). A neighbouring
+      // vertical ZONE covers up to its own height (full-height neighbour → nothing exposed → no wrap). Doors keep
+      // the allowance rule; wall ends never wrap; the wrap is skipped if the bbox would break the 2000 hard max.
+      if(D.vhWrap){
+        const ext=f/2;
+        const zoneAt=(x,which)=>{let best=null;(wall.vZones||[]).forEach(oz=>{if(oz===z)return;const orr=zr[oz.id];if(!orr)return;
+          if(which==='l'?Math.abs(orr.x1-x)<=1.5:Math.abs(orr.x0-x)<=1.5)best=orr;});return best;};
+        const wrapSide=(side,rule,edgeX,atWallEdge)=>{
+          if(atWallEdge||rule!=='joint')return null;
+          const nz=zoneAt(edgeX,side);
+          const covTop=nz?Math.min(r.h,nz.h):Math.min(r.h,D.hPanelH);
+          return (r.h>covTop+ext)?{ext:ext,cov:covTop}:null;
+        };
+        const wl=wrapSide('l',lRule,r.x0,r.x0<=0.5),wr=wrapSide('r',rRule,r.x1,r.x1>=W-0.5);
+        const grow=(wl?ext:0)+(wr?ext:0);
+        if(grow&&p.w+grow<=PN_VW.max+0.5){
+          if(wl){p.x0-=ext;p.w+=ext;p.sides.l={rule:'joint',mm:f};p.wrapL=wl;(p.notches=p.notches||[]).push({x:0,y:0,w:ext,h:wl.cov,wrap:true});}
+          if(wr){p.x1+=ext;p.w+=ext;p.sides.r={rule:'joint',mm:f};p.wrapR=wr;(p.notches=p.notches||[]).push({x:p.w-ext,y:0,w:ext,h:wr.cov,wrap:true});}
+        }
+      }
+      p.sheet=pnVSheet(p.w,p.h);
+      if(p.sheet==='special')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
+      else if(p.sheet==='10x5')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
       else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
-      const inner=r.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
+      // reverse case (object with a closing cap above it): beside the CAP the cavity margin steps to f/2 — a full
+      // 80 look with the cap's 40 — while beside the object void the margin stays the full frame. No outline change
+      // (the object's space is reserved); only the frame line steps. Gated by the same vhJoint standard.
+      const capRange=(x,which)=>{if(!D.vhWrap)return null;
+        const o=(wall.openings||[]).find(op=>{if(op.type!=='object')return false;const orr=pnOpRect(op,wall);return Math.abs((which==='l'?orr.x1:orr.x0)-x)<=1.5;});
+        if(!o||(o.topPanel||'yes')==='no')return null;
+        const top=(+o.bottom||0)+(+o.h||0);
+        return (top>f&&top<D.hPanelH-40)?{y0:top,y1:D.hPanelH}:null;};
+      const stepL=(lRule==='normal'&&r.x0>0.5)?capRange(r.x0,'l'):null;
+      const stepR=(rRule==='normal'&&r.x1<W-0.5)?capRange(r.x1,'r'):null;
+      const inner=p.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
       if(inner>=80&&cy1-cy0>=60){
         const nc=(+z.cols>0)?Math.max(1,Math.round(+z.cols)):pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
         if(ccw>40){
@@ -6352,7 +6390,16 @@
             const rh=(cy1-cy0-f*(rows-1))/rows;
             for(let r2=0;r2<rows;r2++){const a=cy0+r2*(rh+f);rowsY.push([a,a+rh]);}
           }
-          rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;for(let c=0;c<nc;c++)p.cells.push({x:p.sides.l.mm+c*(ccw+f),y:ry[0],w:ccw,h:ry[1]-ry[0]});});
+          rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;
+            // per-row margins for the object-cap step: a row fully beside the cap uses the f/2 joint margin
+            const lm=(stepL&&ry[0]>=stepL.y0-1&&ry[1]<=stepL.y1+1)?f/2:p.sides.l.mm;
+            const rm=(stepR&&ry[0]>=stepR.y0-1&&ry[1]<=stepR.y1+1)?f/2:p.sides.r.mm;
+            let cw2=ccw,x00=p.sides.l.mm;
+            if(lm!==p.sides.l.mm||rm!==p.sides.r.mm){
+              const in2=p.w-lm-rm,c2=(in2-f*(nc-1))/nc;
+              if(c2>40){cw2=c2;x00=lm;p.vhStep=true;}
+            }
+            for(let c=0;c<nc;c++)p.cells.push({x:x00+c*(cw2+f),y:ry[0],w:cw2,h:ry[1]-ry[0]});});
         }
       }
       (wall.openings||[]).forEach(o=>{const or=pnOpRect(o,wall);if(or.x0<r.x1-1&&or.x1>r.x0+1)warns.push('Vertical panel overlaps "'+(o.name||o.type)+'" on Wall '+(wi+1)+' — move one apart.');});
@@ -6827,8 +6874,22 @@
     // was a reflection (det −1) → it silently SWAPPED left/right on rotated panels (a door-side 147mm frame
     // came out on the wrong edge). Point map (x,y)→(y, W0−x) is a proper CW rotation, matching the Doors net
     // (placedCavs transpose + y-flip). Non-rotated is unchanged. Verified 2026-07-13.
-    const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w}:{x:r.x,y:r.y,w:r.w,h:r.h};
+    const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w,wrap:r.wrap}:{x:r.x,y:r.y,w:r.w,h:r.h,wrap:r.wrap};
     return {cells:(pc.cells||[]).map(tf),notches:(pc.notches||[]).map(tf)};
+  }
+  // Stepped outline of a WRAPPED vertical panel (V↔H joint, 2026-07-19): the bbox minus its f/2-deep joint
+  // notches, as local y-up points (0..w × 0..h). Writers map the points themselves (rotation/doc frame).
+  // Plain pieces return null → callers keep emitting the rectangle exactly as before.
+  function pnWrapPts(pc){
+    if(!pc||(!pc.wrapL&&!pc.wrapR))return null;
+    const W0=Math.max(1,Math.round(pc.w)),H0=Math.max(1,Math.round(pc.h));
+    const eL=pc.wrapL?Math.round(pc.wrapL.ext):0,cL=pc.wrapL?Math.min(H0,Math.round(pc.wrapL.cov)):0;
+    const eR=pc.wrapR?Math.round(pc.wrapR.ext):0,cR=pc.wrapR?Math.min(H0,Math.round(pc.wrapR.cov)):0;
+    const pts=[{x:eL,y:0}];
+    if(eR)pts.push({x:W0-eR,y:0},{x:W0-eR,y:cR},{x:W0,y:cR});else pts.push({x:W0,y:0});
+    pts.push({x:W0,y:H0},{x:0,y:H0});
+    if(eL)pts.push({x:0,y:cL},{x:eL,y:cL});
+    return pts;
   }
   function pnDxfForThickness(th,list){
     const SHEETGAP=250;let body='';const layers=new Set(['0','text']);let yOrigin=0,sheetNo=0,pnum=0;
@@ -6845,7 +6906,15 @@
         const bx=p.x,by=Hn-(p.y+p.h);
         layers.add('OUT');
         const o=rRectD(bx,by,p.w,p.h);
-        body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        // wrapped V↔H joint panel (2026-07-19): the OUT is the true STEPPED contour (bbox minus the f/2 joint
+        // notch — Ednei's reference "Vertical + Horizontal joint.dxf"), rotation-aware via the same point map as
+        // the cells. Plain pieces keep the rectangle byte-for-byte.
+        const wpts=pnWrapPts(p.pnPiece);
+        if(wpts){
+          const W0=Math.max(1,Math.round(p.pnPiece.w));
+          const rot=p.rot===90||p.rot===1||p.rot===true;
+          body+=dxfPoly('OUT',wpts.map(q=>{const t=rot?{x:q.y,y:W0-q.x}:q;const sx=bx+t.x,sy=by+t.y;return {x:Hn-sy,y:oy+sx};}),true);
+        } else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
         const geo=pnCellRects(p);
         const lines=(entry.lines||[]).map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en);
         geo.cells.forEach(c=>{
@@ -6858,7 +6927,8 @@
             body+=(l.rd?dxfRoundRect(lyr,r.x,r.y,r.w,r.h,2.5):dxfRect(lyr,r.x,r.y,r.w,r.h));
           });
         });
-        geo.notches.forEach(n=>{if(n.w>2&&n.h>2){layers.add('INSIDE');const r=rRectD(bx+n.x,by+n.y,n.w,n.h);body+=dxfRect('INSIDE',r.x,r.y,r.w,r.h);}});
+        geo.notches.forEach(n=>{if(n.wrap)return;   // wrap notches live in the stepped OUT contour, not INSIDE
+          if(n.w>2&&n.h>2){layers.add('INSIDE');const r=rRectD(bx+n.x,by+n.y,n.w,n.h);body+=dxfRect('INSIDE',r.x,r.y,r.w,r.h);}});
         const R=o,partNo=String(pnum);
         const M=dxfPartMetrics(R.x,R.y,R.w,R.h,partNo);
         if(M.numberFont>0){layers.add('PART_NUMBER');
@@ -6954,14 +7024,16 @@
           if(ovR>0.5){body+=dxfText('text',x0+measured,H+34+wlf+6,Math.max(20,wlf*0.7),'overlap +'+Math.round(ovR),false);}
           L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                          // panels inset by the left gap (overlap extends the piece past the wall)
             const px=x0+clL+p.x0,pw=p.x1-p.x0,py=p.y0,ph=p.y1-p.y0;
-            body+=dxfRect('OUT',px,py,pw,ph);
+            const wpts=pnWrapPts(p);   // wrapped V↔H joint → stepped outline (wall coords, no rotation)
+            if(wpts)body+=dxfPoly('OUT',wpts.map(q=>({x:px+q.x,y:py+q.y})),true);
+            else body+=dxfRect('OUT',px,py,pw,ph);
             // shaker cavities + the room's offset/pocket lines inset inside each one (mirrors the Sheet DXF detail)
             (p.cells||[]).forEach(c=>{if(c.w<=2||c.h<=2)return;
               if(!rlines.length){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',px+c.x,py+c.y,c.w,c.h);}
               rlines.forEach(l=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw<=1||ih<=1)return;const lyr='OFFSET_'+l.L;layers.add(lyr);
                 if(l.rd)body+=dxfRoundRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih,2.5);else body+=dxfRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih);});
             });
-            (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
+            (p.notches||[]).forEach(n=>{if(n.wrap)return;if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
             const fz=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
             body+=dxfText('text',px+18,py+ph-fz-16,fz,'Wall '+(wi+1)+(p.letter||''),false);
             body+=dxfText('text',px+18,py+16,Math.max(16,fz*0.7),'panel '+Math.round(p.w)+' x '+Math.round(p.h),false);   // PHYSICAL panel size
@@ -7260,7 +7332,9 @@
       const px=X(p.x0),pw=(p.x1-p.x0)*sc,py=Y(p.y1),ph=(p.y1-p.y0)*sc;
       snapRect(p.x0,p.y0,p.x1,p.y1);
       s+='<g class="pnk" data-pid="'+p.pid+'" data-wi="'+wi+'" style="cursor:pointer">';
-      s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.08':'0.14')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
+      const wq=pnWrapPts(p);   // wrapped V↔H joint panel → true stepped outline (the band fills the notch)
+      if(wq)s+='<polygon points="'+wq.map(q=>X(p.x0+q.x)+','+Y(p.y0+q.y)).join(' ')+'" fill="rgba(37,99,235,0.14)" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
+      else s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.08':'0.14')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
       if(p.sides.l.rule==='joint')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
       if(p.sides.r.rule==='joint')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
       if(p.sides.l.rule==='corner'||p.sides.l.rule==='column')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(100,116,139,.22)"/>';
@@ -7276,6 +7350,7 @@
             snapRect(p.x0+c.x+(+l.mm||0),p.y0+c.y+(+l.mm||0),p.x0+c.x+c.w-(+l.mm||0),p.y0+c.y+c.h-(+l.mm||0));}});
       });
       (p.notches||[]).forEach(n=>{
+        if(n.wrap)return;   // wrap notch = the stepped outline above; the band panel occupies that strip
         snapRect(p.x0+n.x,p.y0+n.y,p.x0+n.x+n.w,p.y0+n.y+n.h);
         s+='<rect x="'+X(p.x0+n.x)+'" y="'+Y(p.y0+n.y+n.h)+'" width="'+(n.w*sc)+'" height="'+(n.h*sc)+'" fill="var(--bg)" stroke="#2563eb" stroke-width="0.6" stroke-dasharray="4 3"/>';
       });
@@ -7415,7 +7490,9 @@
       s+='<rect x="'+x0+'" y="'+y0+'" width="'+wpx+'" height="'+hpx+'" fill="var(--bg)" stroke="'+(on?'#2563eb':'var(--muted)')+'" stroke-width="'+(on?1.6:0.8)+'"/>';
       L.pieces.filter(p=>p.wi===wi).forEach(p=>{
         const ppx=x0+p.x0*sc,ppw=(p.x1-p.x0)*sc,ppy=floorY-p.y1*sc,pph=(p.y1-p.y0)*sc;
-        s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        const wq=pnWrapPts(p);   // wrapped V↔H joint → stepped outline in the panorama too
+        if(wq)s+='<polygon points="'+wq.map(q=>(x0+(p.x0+q.x)*sc)+','+(floorY-(p.y0+q.y)*sc)).join(' ')+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        else s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
         (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3){
           const cx=x0+(p.x0+c.x)*sc,cy=floorY-(p.y0+c.y+c.h)*sc,cw=c.w*sc,chh=c.h*sc;
           s+='<rect x="'+cx+'" y="'+cy+'" width="'+cw+'" height="'+chh+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';
@@ -8135,6 +8212,8 @@
       '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(room.name||'')+'" onchange="pnSet(\'room\',\'name\',this.value)"></div>'
       +'<div class="pn-row"><label>Sheet use</label>'+pnSegHtml([['auto','Auto 8x4/10x4'],['8x4','8x4 only']],room.sheetPref==='8x4'?'8x4':'auto','pnSet(\'room\',\'sheetPref\',\'%V\')')+'</div>'
       +'<div class="pn-hint">Auto: runs ≤ '+PN_CAP['10x4']+'mm stay one piece on 10x4; longer runs split at frame centrelines with the cheapest 8x4/10x4 mix.</div>'
+      +'<div class="pn-row"><label>V–H joint</label>'+pnSegHtml([['step','Wrap (standard)'],['flat','Straight 40']],room.vhJoint==='flat'?'flat':'step','pnSet(\'room\',\'vhJoint\',\'%V\')')+'</div>'
+      +'<div class="pn-hint">Wrap: beside a horizontal panel a vertical panel keeps a 40mm joint (40+40 reads as one 80 frame); past the neighbour\'s top it widens by 40 and carries the full 80 alone — the outline wraps, the frame line stays straight. Beside an object with a closing panel the frame line steps instead.</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="pn-mini" onclick="pnDupRoom()">⧉ Duplicate room</button>'
       +(panelRooms.length>1?'<button class="pn-mini" onclick="pnDelRoom()" style="color:#dc2626">🗑 Delete room</button>':'')+'</div>');
     s+=pnAcc('r_skirt','Skirting & Sill',(room.skirtOn!==false?Math.round(room.skirtH!=null?room.skirtH:225)+'mm':'off'),
@@ -8290,7 +8369,8 @@
         if(isZone){
           b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel. Up to 1206 wide = standard sheet; 1207–1520 = 10x5 sheet; 1521–2000 = special-order sheet (flagged). The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
           const zTier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
-          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="2000" value="'+Math.round(p.w)+'" onchange="pnZoneSet(\'w\',this.value)" title="Physical width. Over 1206 needs a 10x5 sheet, over 1520 a special-order sheet, max 2000."><span class="sub" style="margin-left:4px">mm · ≤ 2000'+zTier+'</span></div>';
+          const zWrapExt=(p.wrapL?p.wrapL.ext:0)+(p.wrapR?p.wrapR.ext:0);
+          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="2000" value="'+Math.round(p.w-zWrapExt)+'" onchange="pnZoneSet(\'w\',this.value)" title="Width at the joint. Over 1206 needs a 10x5 sheet, over 1520 a special-order sheet, max 2000. With the Wrap joint the CUT piece is +40 per wrapped side (shown below)."><span class="sub" style="margin-left:4px">mm'+(zWrapExt?' · cut '+Math.round(p.w)+' (wrap +'+zWrapExt+')':' · ≤ 2000')+zTier+'</span></div>';
           b+='<div class="pn-row"><label>Height</label><input type="number" min="300" max="3000" value="'+Math.round(p.h)+'" onchange="pnZoneSet(\'h\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 3000</span></div>';
           b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1,'+colsNow+')">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1,'+colsNow+')">+</button></span></div>';
           b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1,'+bandsN+')">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1,'+bandsN+')">+</button></span></div>';

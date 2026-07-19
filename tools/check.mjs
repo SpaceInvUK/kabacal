@@ -174,17 +174,27 @@ if (html) {
         const vz = L.pieces.filter(p => p.isZone);
         must(vz.length === 1, 'exactly one vertical zone piece expected (got ' + vz.length + ')');
         const z = vz[0];
-        must(z.dir === 'v' && Math.abs(z.w - 1000) < 0.6 && Math.abs(z.h - 3000) < 0.6, `zone must be 1000×3000 vertical (got ${z.w}×${z.h})`);
-        must(z.sheet === '10x4', '3000-tall zone must be a 10x4 piece');
+        // 2026-07-19 (Ednei, "Vertical + Horizontal joint.dxf"): V↔H WRAP is the room STANDARD — beside the band
+        // the joint margin is 40 (40 + the band's 40 reads as one 80 frame); above the band's top the panel WIDENS
+        // by 40 per wrapped side and carries the full 80 alone. Piece = wide bbox + a 40-deep notch over the band.
+        must(z.dir === 'v' && Math.abs(z.w - 1080) < 0.6 && Math.abs(z.h - 3000) < 0.6, `zone bbox must be 1080×3000 (1000 + 40 wrap each side), got ${z.w}×${z.h}`);
+        must(!!z.wrapL && !!z.wrapR && Math.abs(z.wrapL.cov - 1030) < 0.6, 'zone must wrap BOTH band sides, covered up to hPanelH (1030)');
+        must((z.notches || []).filter(n => n.wrap).length === 2 && z.notches.every(n => !n.wrap || (Math.abs(n.w - 40) < 0.6 && Math.abs(n.h - 1030) < 0.6)), 'wrap notches: 40 wide × 1030 (band) on each side');
+        must(z.sheet === '10x4', '3000-tall zone must be a 10x4 piece (1080 bbox still standard width)');
         must(z.cells.length >= 2 && [...new Set(z.cells.map(c => Math.round(c.y)))].length === 2, 'zone rows=2 → two cell bands');
-        must(Math.abs(z.sides.l.mm - 40) < 0.01 && Math.abs(z.sides.r.mm - 40) < 0.01, 'zone joints must be 40/40 to the refilled band');
+        must(Math.abs(z.sides.l.mm - 80) < 0.01 && Math.abs(z.sides.r.mm - 80) < 0.01, 'wrapped sides carry the FULL frame from the bbox edge (cavity line straight)');
+        must(Math.abs((z.x0 + z.cells[0].x) - 2040) < 1, 'cavity absolute position unchanged by the wrap (2000 + 40 joint = 2040)');
         const band = L.pieces.filter(p => p.wi === 0 && !p.isZone);
         must(band.length >= 2 && band.every(p => p.dir === 'h'), 'the rest of the wall must auto-refill with horizontal panels');
-        must(band.some(p => p.x1 <= z.x0 + 0.6) && band.some(p => p.x0 >= z.x1 - 0.6), 'horizontal panels must sit on BOTH sides of the vertical panel');
+        must(band.some(p => Math.abs(p.x1 - 2000) < 0.6) && band.some(p => Math.abs(p.x0 - 3000) < 0.6), 'the band still meets the zone at its NOMINAL edges (2000/3000) — the wrap only overhangs above the band');
+        // flat opt-out = the pre-wrap behaviour, byte-identical
+        const Lf = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z1', x: 2000, w: 1000, h: 3000, cols: 0, rows: 2 }] })], { vhJoint: 'flat' }));
+        const zf = Lf.pieces.find(p => p.isZone);
+        must(!!zf && Math.abs(zf.w - 1000) < 0.6 && Math.abs(zf.sides.l.mm - 40) < 0.01 && !zf.wrapL && !zf.wrapR && !(zf.notches || []).length, 'vhJoint "flat" → straight 40/40 joints, no wrap (legacy behaviour)');
         // 2026-07-18 (Ednei): zone width follows the vertical sheet tiers — up to 2000 allowed; >1206 needs a
         // 10x5, >1520 a special-order sheet (flagged). Height still clamps to 3000 (10x4 length).
         const wide = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z2', x: 100, w: 1600, h: 3500 }] })])).pieces.find(p => p.isZone);
-        must(Math.abs(wide.w - 1600) < 0.6 && wide.h <= 3000.6, `zone 1600 wide must be HONOURED (special tier), height clamps to 3000 (got ${wide.w}×${wide.h})`);
+        must(Math.abs(wide.w - 1680) < 0.6 && wide.h <= 3000.6, `zone 1600 wide must be HONOURED (+40 wrap each band side = 1680 cut), height clamps to 3000 (got ${wide.w}×${wide.h})`);
         must(wide.sheet === 'special', `zone 1600 wide → sheet "special" (got ${wide.sheet})`);
         const z105 = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'z3', x: 100, w: 1400, h: 3000 }] })])).pieces.find(p => p.isZone);
         must(z105 && z105.sheet === '10x5', `zone 1400 wide → sheet 10x5 (got ${z105 && z105.sheet})`);
@@ -204,13 +214,14 @@ if (html) {
         const dz = api.pnLayoutRoom(room([wall({ w: 2600, openings: [{ id: 'od', type: 'door', name: 'Door', w: 820, h: 2100, x: 0, from: 'L', bottom: 0, topPanel: 'yes' }], vZones: [{ id: 'zd', x: 820, w: 900, h: 1300, cols: 1, rows: 1 }] })]));
         const zoneD = dz.pieces.find(p => p.isZone);
         must(!!zoneD && Math.abs(zoneD.x0 - 820) < 0.6, 'door-adjacent zone must start at the door edge (820)');
-        must(zoneD.sides.l.rule === 'door' && Math.abs(zoneD.sides.l.mm - 175) < 0.6, 'zone side facing a door must use the door allowance (175), not the 40mm joint');
-        must(Math.abs(zoneD.sides.r.mm - 40) < 0.6, 'the zone side NOT facing the door stays a 40mm joint');
+        must(zoneD.sides.l.rule === 'door' && Math.abs(zoneD.sides.l.mm - 175) < 0.6, 'zone side facing a door must use the door allowance (175), not the 40mm joint — doors NEVER wrap');
+        must(!zoneD.wrapL, 'no wrap on the door side');
+        must(!!zoneD.wrapR && Math.abs(zoneD.sides.r.mm - 80) < 0.6, 'the band side wraps: full frame from the bbox edge (80) + 40 notch');
         const dcell = [...zoneD.cells].sort((a, b) => a.x - b.x)[0];
         must(!!dcell && Math.abs((zoneD.x0 + dcell.x) - (820 + 175)) < 1, 'zone shaker must start a full door allowance clear of the door (995), not 40mm in');
-        must(Math.abs(zoneD.w - 900) < 0.6, 'door-adjacent zone keeps its physical width (only the internal cavity moves) — no too-long/short panel');
-        const midZone = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'zm', x: 2000, w: 1000, h: 3000 }] })])).pieces.find(p => p.isZone);
-        must(Math.abs(midZone.sides.l.mm - 40) < 0.6 && Math.abs(midZone.sides.r.mm - 40) < 0.6, 'mid-wall zone (no adjacent door) keeps 40/40 joints — no regression');
+        must(Math.abs(zoneD.w - 940) < 0.6, 'door-adjacent zone cut width = 900 + 40 wrap on the band side (940)');
+        const midZone = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'zm', x: 2000, w: 1000, h: 3000 }] })], { vhJoint: 'flat' })).pieces.find(p => p.isZone);
+        must(Math.abs(midZone.sides.l.mm - 40) < 0.6 && Math.abs(midZone.sides.r.mm - 40) < 0.6, 'flat mode: mid-wall zone keeps 40/40 joints — legacy behaviour intact');
         // ---- per-panel side GAP / OVERLAP (2026-07-11): physical, thickness-driven, opt-in ----
         { // gap pulls the edge back by the ACTUAL panel thickness (material 18mm here, NOT 22)
           const Lg = api.pnLayoutRoom(room([wall({ w: 3000, panelOv: { w0p1: { sideR: 'gap' } } })]));
