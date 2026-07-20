@@ -178,7 +178,7 @@ if (html) {
         // the joint margin is 40 (40 + the band's 40 reads as one 80 frame); above the band's top the panel WIDENS
         // by 40 per wrapped side and carries the full 80 alone. Piece = wide bbox + a 40-deep notch over the band.
         must(z.dir === 'v' && Math.abs(z.w - 1080) < 0.6 && Math.abs(z.h - 3000) < 0.6, `zone bbox must be 1080×3000 (1000 + 40 wrap each side), got ${z.w}×${z.h}`);
-        must(!!z.wrapL && !!z.wrapR && Math.abs(z.wrapL.cov - 1030) < 0.6, 'zone must wrap BOTH band sides, covered up to hPanelH (1030)');
+        must(!!z.wrapL && !!z.wrapR && z.wrapL.y0 === 0 && Math.abs(z.wrapL.y1 - 1030) < 0.6, 'zone must wrap BOTH band sides, covered [0..hPanelH 1030]');
         must((z.notches || []).filter(n => n.wrap).length === 2 && z.notches.every(n => !n.wrap || (Math.abs(n.w - 40) < 0.6 && Math.abs(n.h - 1030) < 0.6)), 'wrap notches: 40 wide × 1030 (band) on each side');
         must(z.sheet === '10x4', '3000-tall zone must be a 10x4 piece (1080 bbox still standard width)');
         must(z.cells.length >= 2 && [...new Set(z.cells.map(c => Math.round(c.y)))].length === 2, 'zone rows=2 → two cell bands');
@@ -222,6 +222,35 @@ if (html) {
         must(Math.abs(zoneD.w - 940) < 0.6, 'door-adjacent zone cut width = 900 + 40 wrap on the band side (940)');
         const midZone = api.pnLayoutRoom(room([wall({ w: 5000, vZones: [{ id: 'zm', x: 2000, w: 1000, h: 3000 }] })], { vhJoint: 'flat' })).pieces.find(p => p.isZone);
         must(Math.abs(midZone.sides.l.mm - 40) < 0.6 && Math.abs(midZone.sides.r.mm - 40) < 0.6, 'flat mode: mid-wall zone keeps 40/40 joints — legacy behaviour intact');
+        // ---- A|B|C tall cap over an object (2026-07-20, Ednei): object 1000 wide flanked by vertical zones.
+        // The cap B = object + 40 overhang per flanked side (1080), base = object top, TOP = the tallest flanking
+        // zone ("B follows A and C"); A and C joint B at 40 (40+40 reads 80) and below B's base GROW +40 to the
+        // object's edge (never over the object), carrying the full 80 alone. No 40mm band sliver appears.
+        { const abc = api.pnLayoutRoom(room([wall({ w: 4000,
+            openings: [{ id: 'ob', type: 'object', name: 'Bed', w: 1000, h: 600, x: 1040, from: 'L', bottom: 0, topPanel: 'yes' }],
+            vZones: [{ id: 'zA', x: 0, w: 1000, h: 3000 }, { id: 'zC', x: 2080, w: 1000, h: 3000 }] })]));
+          const cap = abc.pieces.find(p => p.isCap);
+          must(!!cap && Math.abs((cap.x1 - cap.x0) - 1080) < 0.6, `A|B|C: cap width must be object+40 each side = 1080 (got ${cap && Math.round(cap.x1 - cap.x0)})`);
+          must(!!cap && Math.abs(cap.y0 - 600) < 0.6 && Math.abs(cap.y1 - 3000) < 0.6, `A|B|C: cap must run from the object top (600) to the flanking zones' top (3000), got ${cap && Math.round(cap.y0)}..${cap && Math.round(cap.y1)}`);
+          must(!!cap && Math.abs(cap.sides.l.mm - 40) < 0.6 && Math.abs(cap.sides.r.mm - 40) < 0.6, 'A|B|C: cap joints A and C at 40 (40+40 reads 80)');
+          const zA = abc.pieces.find(p => p.zid === 'zA'), zC = abc.pieces.find(p => p.zid === 'zC');
+          must(!!zA && !!zA.wrapR && zA.wrapR.grow === true && Math.abs(zA.wrapR.y0 - 600) < 0.6 && Math.abs(zA.wrapR.y1 - 3000) < 0.6, 'A wraps UNDER the cap: covered [600..3000], grows below');
+          must(!!zA && Math.abs(zA.x1 - 1040) < 0.6, `A grows +40 below the cap base, exactly to the OBJECT edge (1040), got ${zA && Math.round(zA.x1)}`);
+          must(!!zC && !!zC.wrapL && Math.abs(zC.x0 - 2040) < 0.6, `C mirrors (object right edge 2040), got ${zC && Math.round(zC.x0)}`);
+          must(!!zA && Math.abs(zA.sides.r.mm - 80) < 0.6, 'A: full 80 frame from the grown edge (cavity straight — reads 40 beside B, 80 beside the object)');
+          const sliver = abc.pieces.find(p => p.dir === 'h' && !p.isCap && !p.isLower && !p.isZone && (p.x1 - p.x0) < 60);
+          must(!sliver, 'no 40mm band sliver between the zones and the object');
+          const bandR = abc.pieces.find(p => p.dir === 'h' && !p.isCap && !p.isLower && !p.isZone);
+          must(!!bandR && Math.abs(bandR.x0 - 3080) < 0.6, `the band still fills to the RIGHT of C (from 3080), got ${bandR && Math.round(bandR.x0)}`);
+          // door version: same tall cap; the zone keeps the door allowance and never grows into the door
+          const abd = api.pnLayoutRoom(room([wall({ w: 4000,
+            openings: [{ id: 'dd', type: 'door', name: 'Door', w: 900, h: 2100, x: 1040, from: 'L', bottom: 0, topPanel: 'yes' }],
+            vZones: [{ id: 'zA', x: 0, w: 1000, h: 3000 }, { id: 'zC', x: 1980, w: 1000, h: 3000 }] })]));
+          const dcap = abd.pieces.find(p => p.isCap);
+          must(!!dcap && Math.abs(dcap.y0 - 2100) < 0.6 && Math.abs(dcap.y1 - 3000) < 0.6 && Math.abs((dcap.x1 - dcap.x0) - 980) < 0.6, `door A|B|C: cap 980 wide from the door top (2100) to 3000, got ${dcap && Math.round(dcap.x1 - dcap.x0)} @ ${dcap && Math.round(dcap.y0)}..${dcap && Math.round(dcap.y1)}`);
+          const dzA = abd.pieces.find(p => p.zid === 'zA');
+          must(!!dzA && !!dzA.wrapR && dzA.wrapR.grow === true && Math.abs(dzA.x1 - 1040) < 0.6, 'door A|B|C: A grows to the door edge below the cap (door jamb line)');
+        }
         // ---- per-panel side GAP / OVERLAP (2026-07-11): physical, thickness-driven, opt-in ----
         { // gap pulls the edge back by the ACTUAL panel thickness (material 18mm here, NOT 22)
           const Lg = api.pnLayoutRoom(room([wall({ w: 3000, panelOv: { w0p1: { sideR: 'gap' } } })]));

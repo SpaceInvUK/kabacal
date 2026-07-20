@@ -6063,6 +6063,7 @@
       const w=walls[wi];if(w.noPanel)continue;if((w.dir||'h')==='v')continue;
       const spans=pnWallSpans(w,D);
       spans.forEach((sp,si)=>{
+        if(sp.x1-sp.x0<60)return;   // sliver between stops (e.g. the 40mm cap-overhang strip beside a zone) — the wrap fills it, never a 40mm band panel
         const prev=runs[runs.length-1];
         const canChain=si===0&&sp.x0<=0.5&&prev&&prev.endWi===wi-1&&prev.endsClean&&prev.rr==='joint'&&(w.sideL||'normal')==='joint'&&(walls[wi-1].dir||'h')!=='v';
         if(canChain){
@@ -6231,9 +6232,29 @@
     }
     return p;
   }
+  // Cap ("closing panel") vertical extent above a door/object (2026-07-20): base = the opening's top. The cap's
+  // TOP is the wall's band line — or, when the WRAP standard is on and the cap's overhang edges are FLANKED by
+  // vertical zones, the TALLEST flanking zone's height ("B follows the height of A and C" — Ednei's A|B|C rule).
+  // Returns null when the opening has no cap (topPanel off / no headroom). Shared by the cap builder and the zone
+  // wrap so both always agree. bandH = the wall's own band line (hPanelH, or vPanelH on a vertical wall).
+  function pnCapExt(wall,o,D,zr,bandH){
+    if((o.topPanel||'yes')==='no')return null;
+    const r=pnOpRect(o,wall),top=(+o.bottom||0)+(+o.h||0),f=D.frame;
+    let capTop=bandH,fL=false,fR=false;
+    if(D.vhWrap&&zr){
+      let mh=0;
+      (wall.vZones||[]).forEach(z=>{const rr=zr[z.id];if(!rr)return;
+        if(Math.abs(rr.x1-(r.x0-f/2))<=1.5){fL=true;mh=Math.max(mh,rr.h);}
+        if(Math.abs(rr.x0-(r.x1+f/2))<=1.5){fR=true;mh=Math.max(mh,rr.h);}});
+      if((fL||fR)&&mh>capTop)capTop=mh;
+    }
+    if(top>=capTop-40)return null;
+    return {top:top,capTop:capTop,flankL:fL,flankR:fR};
+  }
   // cap panels above doors/objects + the separate lower panel under windows (confirmed rules incl. sill)
   function pnOpeningPieces(wall,wi,D,pieces){
     const bandH=((wall.dir||'h')==='v')?D.vPanelH:D.hPanelH,f=D.frame,W=+wall.w||0;
+    const zr=(D.vhWrap&&(wall.dir||'h')!=='v'&&(wall.vZones||[]).length)?pnZoneRects(wall,D):null;   // for flanked tall caps (A|B|C)
     (wall.openings||[]).forEach(o=>{
       const r=pnOpRect(o,wall),b0=+o.bottom||0,top=b0+(+o.h||0);
       if(o.type==='window'){
@@ -6248,17 +6269,22 @@
       // object base, object width, joint sides — the band already splits at the object so this fills the void
       // beneath it. Doors reach the floor (b0=0) so they never get one; too small a gap = no useless strip.
       if(o.type==='object'&&b0>2*f&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,b0,D,{isLower:true}));
-      if((o.topPanel||'yes')==='no'||top>=bandH-40)return;   // above-object cap (closing panel) — reuses the cap logic below
-      const cx0=Math.max(0,r.x0-f/2),cx1=Math.min(W,r.x1+f/2),capH=bandH-top,capW=cx1-cx0;
+      // above-opening cap (closing panel). With the WRAP standard, a cap FLANKED by vertical zones rises to the
+      // tallest flank ("B follows A and C" — base always the opening's top) and the ±f/2 overhang happens ONLY on
+      // flanked sides (an unflanked side would overlap the band, so there the cap stops at the opening edge).
+      const ce=pnCapExt(wall,o,D,zr,bandH);
+      if(!ce)return;
+      const capT=ce.capTop,risen=capT>bandH+0.5;
+      const cx0=Math.max(0,r.x0-((!risen||ce.flankL)?f/2:0)),cx1=Math.min(W,r.x1+((!risen||ce.flankR)?f/2:0)),capH=capT-top,capW=cx1-cx0;
       if(capH>PN_CROSS&&capW>PN_CROSS){
         const n=Math.ceil(capW/PN_CROSS),cw=capW/n;
-        for(let i=0;i<n;i++)pieces.push(pnCapPiece(wi,cx0+i*cw,cx0+(i+1)*cw,top,bandH,D,{isCap:true,dir:'v'}));
+        for(let i=0;i<n;i++)pieces.push(pnCapPiece(wi,cx0+i*cw,cx0+(i+1)*cw,top,capT,D,{isCap:true,dir:'v'}));
       } else if(capW>((D.sheetPref==='8x4')?PN_CAP['8x4']:PN_CAP['10x4'])){
         const mini={len:capW,seams:[],lr:'joint',rr:'joint'};mini.grid=pnRunGrid(mini,D,0);
         const st={run:mini,a:0,b:capW,cuts:mini.grid.frames.slice()};
         const bs=[0].concat(pnCandidates(st,D)[0]).concat([capW]);
-        for(let i=0;i<bs.length-1;i++)pieces.push(pnCapPiece(wi,cx0+bs[i],cx0+bs[i+1],top,bandH,D,{isCap:true}));
-      } else pieces.push(pnCapPiece(wi,cx0,cx1,top,bandH,D,{isCap:true}));
+        for(let i=0;i<bs.length-1;i++)pieces.push(pnCapPiece(wi,cx0+bs[i],cx0+bs[i+1],top,capT,D,{isCap:true}));
+      } else pieces.push(pnCapPiece(wi,cx0,cx1,top,capT,D,{isCap:true}));
     });
   }
   function pnApplyNotches(wall,wi,D,pieces){
@@ -6350,33 +6376,44 @@
         const ext=f/2;
         const zoneAt=(x,which)=>{let best=null;(wall.vZones||[]).forEach(oz=>{if(oz===z)return;const orr=zr[oz.id];if(!orr)return;
           if(which==='l'?Math.abs(orr.x1-x)<=1.5:Math.abs(orr.x0-x)<=1.5)best=orr;});return best;};
+        // Cap OVERHANG abut (A|B|C, 2026-07-20): this zone's edge sits at the ±f/2 overhang line of a door/object
+        // cap — the neighbour is the CAP over [top..capTop]; below its base the zone GROWS +f/2 to the opening
+        // edge (the strip the cap overhangs is free — the opening itself is never covered).
+        const capAt=(x,which)=>{let best=null;(wall.openings||[]).forEach(o=>{
+          if(o.type!=='door'&&o.type!=='object')return;
+          const orr=pnOpRect(o,wall);const ce=pnCapExt(wall,o,D,zr,D.hPanelH);if(!ce)return;
+          if(which==='r'?Math.abs((orr.x0-f/2)-x)<=1.5:Math.abs((orr.x1+f/2)-x)<=1.5)best=ce;});return best;};
         const wrapSide=(side,rule,edgeX,atWallEdge)=>{
-          if(atWallEdge||rule!=='joint')return null;
-          const nz=zoneAt(edgeX,side);
-          const covTop=nz?Math.min(r.h,nz.h):Math.min(r.h,D.hPanelH);
-          return (r.h>covTop+ext)?{ext:ext,cov:covTop}:null;
+          if(atWallEdge)return null;
+          if(rule==='joint'){
+            const nz=zoneAt(edgeX,side);
+            if(nz)return (r.h>nz.h+ext)?{ext:ext,y0:0,y1:Math.min(r.h,nz.h),grow:true}:null;
+            const ce=capAt(edgeX,side);
+            if(ce)return {ext:ext,y0:ce.top,y1:Math.min(r.h,ce.capTop),grow:true};
+            return (r.h>D.hPanelH+ext)?{ext:ext,y0:0,y1:Math.min(r.h,D.hPanelH),grow:true}:null;
+          }
+          // zone sits ON the door/object line itself: the cap's overhang covers our top strip — carve it out
+          // (NO growth: never into the opening). Margins unchanged (door allowance / normal frame).
+          const o=(wall.openings||[]).find(op=>{if(op.type!=='door'&&op.type!=='object')return false;const orr=pnOpRect(op,wall);return Math.abs((side==='l'?orr.x1:orr.x0)-edgeX)<=1.5;});
+          if(o){const ce=pnCapExt(wall,o,D,zr,D.hPanelH);if(ce&&r.h>ce.top+1)return {ext:ext,y0:ce.top,y1:Math.min(r.h,ce.capTop),grow:false};}
+          return null;
         };
         const wl=wrapSide('l',lRule,r.x0,r.x0<=0.5),wr=wrapSide('r',rRule,r.x1,r.x1>=W-0.5);
-        const grow=(wl?ext:0)+(wr?ext:0);
-        if(grow&&p.w+grow<=PN_VW.max+0.5){
-          if(wl){p.x0-=ext;p.w+=ext;p.sides.l={rule:'joint',mm:f};p.wrapL=wl;(p.notches=p.notches||[]).push({x:0,y:0,w:ext,h:wl.cov,wrap:true});}
-          if(wr){p.x1+=ext;p.w+=ext;p.sides.r={rule:'joint',mm:f};p.wrapR=wr;(p.notches=p.notches||[]).push({x:p.w-ext,y:0,w:ext,h:wr.cov,wrap:true});}
+        const growSum=((wl&&wl.grow)?ext:0)+((wr&&wr.grow)?ext:0);
+        const growOk=p.w+growSum<=PN_VW.max+0.5;
+        if(wl&&(!wl.grow||growOk)){
+          if(wl.grow){p.x0-=ext;p.w+=ext;p.sides.l={rule:'joint',mm:f};}
+          p.wrapL=wl;(p.notches=p.notches||[]).push({x:0,y:wl.y0,w:ext,h:wl.y1-wl.y0,wrap:true});
+        }
+        if(wr&&(!wr.grow||growOk)){
+          if(wr.grow){p.x1+=ext;p.w+=ext;p.sides.r={rule:'joint',mm:f};}
+          p.wrapR=wr;(p.notches=p.notches||[]).push({x:p.w-ext,y:wr.y0,w:ext,h:wr.y1-wr.y0,wrap:true});
         }
       }
       p.sheet=pnVSheet(p.w,p.h);
       if(p.sheet==='special')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
       else if(p.sheet==='10x5')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
       else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
-      // reverse case (object with a closing cap above it): beside the CAP the cavity margin steps to f/2 — a full
-      // 80 look with the cap's 40 — while beside the object void the margin stays the full frame. No outline change
-      // (the object's space is reserved); only the frame line steps. Gated by the same vhJoint standard.
-      const capRange=(x,which)=>{if(!D.vhWrap)return null;
-        const o=(wall.openings||[]).find(op=>{if(op.type!=='object')return false;const orr=pnOpRect(op,wall);return Math.abs((which==='l'?orr.x1:orr.x0)-x)<=1.5;});
-        if(!o||(o.topPanel||'yes')==='no')return null;
-        const top=(+o.bottom||0)+(+o.h||0);
-        return (top>f&&top<D.hPanelH-40)?{y0:top,y1:D.hPanelH}:null;};
-      const stepL=(lRule==='normal'&&r.x0>0.5)?capRange(r.x0,'l'):null;
-      const stepR=(rRule==='normal'&&r.x1<W-0.5)?capRange(r.x1,'r'):null;
       const inner=p.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
       if(inner>=80&&cy1-cy0>=60){
         const nc=(+z.cols>0)?Math.max(1,Math.round(+z.cols)):pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
@@ -6390,16 +6427,7 @@
             const rh=(cy1-cy0-f*(rows-1))/rows;
             for(let r2=0;r2<rows;r2++){const a=cy0+r2*(rh+f);rowsY.push([a,a+rh]);}
           }
-          rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;
-            // per-row margins for the object-cap step: a row fully beside the cap uses the f/2 joint margin
-            const lm=(stepL&&ry[0]>=stepL.y0-1&&ry[1]<=stepL.y1+1)?f/2:p.sides.l.mm;
-            const rm=(stepR&&ry[0]>=stepR.y0-1&&ry[1]<=stepR.y1+1)?f/2:p.sides.r.mm;
-            let cw2=ccw,x00=p.sides.l.mm;
-            if(lm!==p.sides.l.mm||rm!==p.sides.r.mm){
-              const in2=p.w-lm-rm,c2=(in2-f*(nc-1))/nc;
-              if(c2>40){cw2=c2;x00=lm;p.vhStep=true;}
-            }
-            for(let c=0;c<nc;c++)p.cells.push({x:x00+c*(cw2+f),y:ry[0],w:cw2,h:ry[1]-ry[0]});});
+          rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;for(let c=0;c<nc;c++)p.cells.push({x:p.sides.l.mm+c*(ccw+f),y:ry[0],w:ccw,h:ry[1]-ry[0]});});
         }
       }
       (wall.openings||[]).forEach(o=>{const or=pnOpRect(o,wall);if(or.x0<r.x1-1&&or.x1>r.x0+1)warns.push('Vertical panel overlaps "'+(o.name||o.type)+'" on Wall '+(wi+1)+' — move one apart.');});
@@ -6877,18 +6905,27 @@
     const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w,wrap:r.wrap}:{x:r.x,y:r.y,w:r.w,h:r.h,wrap:r.wrap};
     return {cells:(pc.cells||[]).map(tf),notches:(pc.notches||[]).map(tf)};
   }
-  // Stepped outline of a WRAPPED vertical panel (V↔H joint, 2026-07-19): the bbox minus its f/2-deep joint
-  // notches, as local y-up points (0..w × 0..h). Writers map the points themselves (rotation/doc frame).
-  // Plain pieces return null → callers keep emitting the rectangle exactly as before.
+  // Stepped outline of a WRAPPED vertical panel (V↔H joint, 2026-07-19; intervals 2026-07-20): the bbox minus a
+  // f/2-deep joint notch over each side's COVERED range [y0..y1] (where the horizontal neighbour sits — the band
+  // from the floor, or a cap panel over an object/door at any height). Local y-up points (0..w × 0..h); writers
+  // map the points themselves (rotation/doc frame). Plain pieces return null → callers keep the rectangle.
   function pnWrapPts(pc){
     if(!pc||(!pc.wrapL&&!pc.wrapR))return null;
     const W0=Math.max(1,Math.round(pc.w)),H0=Math.max(1,Math.round(pc.h));
-    const eL=pc.wrapL?Math.round(pc.wrapL.ext):0,cL=pc.wrapL?Math.min(H0,Math.round(pc.wrapL.cov)):0;
-    const eR=pc.wrapR?Math.round(pc.wrapR.ext):0,cR=pc.wrapR?Math.min(H0,Math.round(pc.wrapR.cov)):0;
-    const pts=[{x:eL,y:0}];
-    if(eR)pts.push({x:W0-eR,y:0},{x:W0-eR,y:cR},{x:W0,y:cR});else pts.push({x:W0,y:0});
-    pts.push({x:W0,y:H0},{x:0,y:H0});
-    if(eL)pts.push({x:0,y:cL},{x:eL,y:cL});
+    const seg=(wr)=>{if(!wr)return null;const y0=Math.max(0,Math.round(wr.y0!=null?wr.y0:0)),y1=Math.min(H0,Math.round(wr.y1!=null?wr.y1:wr.cov||0));
+      return (y1-y0>1)?{e:Math.round(wr.ext),y0:y0,y1:y1}:null;};
+    const R=seg(pc.wrapR),Lw=seg(pc.wrapL);
+    const pts=[];
+    // right side, bottom→top (solid edge x=W0, notch x=W0−e over [y0..y1])
+    if(R){
+      if(R.y0>0.5)pts.push({x:W0,y:0},{x:W0,y:R.y0},{x:W0-R.e,y:R.y0});else pts.push({x:W0-R.e,y:0});
+      if(R.y1<H0-0.5)pts.push({x:W0-R.e,y:R.y1},{x:W0,y:R.y1},{x:W0,y:H0});else pts.push({x:W0-R.e,y:H0});
+    } else pts.push({x:W0,y:0},{x:W0,y:H0});
+    // left side, top→bottom (solid edge x=0, notch x=e over [y0..y1])
+    if(Lw){
+      if(Lw.y1<H0-0.5)pts.push({x:0,y:H0},{x:0,y:Lw.y1},{x:Lw.e,y:Lw.y1});else pts.push({x:Lw.e,y:H0});
+      if(Lw.y0>0.5)pts.push({x:Lw.e,y:Lw.y0},{x:0,y:Lw.y0},{x:0,y:0});else pts.push({x:Lw.e,y:0});
+    } else pts.push({x:0,y:H0},{x:0,y:0});
     return pts;
   }
   function pnDxfForThickness(th,list){
@@ -7197,7 +7234,16 @@
     if(v==='v'&&!p.isZone){
       // turn THIS panel into a physical vertical panel; the wall auto-refills the rest as horizontal
       w.vZones=w.vZones||[];
-      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:Math.min(Math.round(p.w),PN_VW.max),h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
+      // AUTO width (2026-07-20, Ednei): respect the frames and make the vertical shakers MATCH the horizontals —
+      // the widest whole number of the piece's OWN shaker width that fits 1200, using the piece's ACTUAL side
+      // margins (wall edge 80 / joint 40 / door 175) so the new columns come out exactly the same width as the
+      // band's. zw = nc·cellW + (nc−1)·f + lm + rm. Manual edit can then go to 2000.
+      const D0=pnRoomDefs(r),f0=D0.frame,cellW=(p.cells&&p.cells.length?p.cells[0].w:D0.target)||D0.target;
+      const lm0=(p.sides&&p.sides.l?p.sides.l.mm:f0/2),rm0=(p.sides&&p.sides.r?p.sides.r.mm:f0/2);
+      const base=Math.min(Math.round(p.w),1200);
+      const nc0=Math.floor((base-lm0-rm0+f0)/(cellW+f0));
+      const zw=Math.max(120,nc0>=1?Math.round(nc0*cellW+(nc0-1)*f0+lm0+rm0):base);
+      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:zw,h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
       w.vZones.push(z);
       pnSel={room:pnSel.room,wall:pnSel.wall,kind:'piece',id:'vz'+z.id};
       pnRefresh();
