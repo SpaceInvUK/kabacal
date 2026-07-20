@@ -748,7 +748,8 @@
   let matColors={};try{matColors=JSON.parse(localStorage.getItem('kab_matColors')||'{}');}catch(e){matColors={};}
   // factory colours for the quick-bar five — guaranteed distinct from each other (hash fallback can collide).
   // A user pick in "Material colours" still wins.
-  const MAT_COLOR_DEFAULTS={'MDF Hidrofugo 18mm':'#2563eb','MDF Hidrofugo 22mm':'#16a34a','Veneered Chipboard 19mm':'#d97706','MR MDF 18mm':'#9333ea','MR MDF 22mm':'#db2777'};
+  const MAT_COLOR_DEFAULTS={'MDF Hidrofugo 18mm':'#2563eb','MDF Hidrofugo 22mm':'#16a34a','Veneered Chipboard 19mm':'#d97706','MR MDF 18mm':'#9333ea','MR MDF 22mm':'#db2777',
+    'MDF Hidrofugo 25mm':'#0891b2','MR MDF 25mm':'#ca8a04'};   // 25mm moisture-resistant twins (2026-07-20) — own colours, same naming/behaviour as the 18/22 ones
   function matColor(mat){return matColors[mat]||MAT_COLOR_DEFAULTS[mat]||blockColor(mat,'');}
   function setMatColor(mat,hex){matColors[mat]=hex;try{localStorage.setItem('kab_matColors',JSON.stringify(matColors));}catch(e){}buildMatUI();render();}
   function openMatColors(){const set=[];favMats.forEach(m=>set.indexOf(m)<0&&set.push(m));items.forEach(it=>set.indexOf(it.mat)<0&&set.push(it.mat));const rows=set.map(m=>'<div class="mc-row"><input type="color" value="'+matColor(m)+'" onchange="setMatColor(\''+esc(m)+'\',this.value)"><span class="chip" style="background:'+matColor(m)+'22;color:'+matColor(m)+';border-color:'+matColor(m)+'55">'+esc(m)+'</span></div>').join('');openModal('Material colours','<div class="sub">Pick a clear background colour for each material. Used in the order list, the material tag and the nesting sheets. Saved on this computer.</div><div class="mc-list">'+rows+'</div>');}
@@ -804,11 +805,13 @@
     if(!(r>0))return Array.from({length:n},()=>open/n);
     const t=Math.max(1,Math.min(r,open-1*(n-1)));const each=(open-t)/(n-1);
     return [...Array.from({length:n-1},()=>each),t];}
-  // ---- door HEAD SHAPE (2026-07-19, configurator parity): 'rake' = one slope set by two leg heights,
-  // 'splay' = a flat run on one side then a rake down to a shorter leg. The shape is the TOP edge of the
-  // door as ENTERED (w×h = bounding box; the tallest leg should equal h). v1 policy: preview + DXF carry
-  // the TRUE outline; the internal opening stays RECTANGULAR under the LOWEST head point; Kabacal's own NC
-  // does NOT cut the OUT profile of shaped doors (not machine-validated) — see tpOpRects + the Save-NC note.
+  // ---- door HEAD SHAPE ('rake' = one slope set by two leg heights · 'splay' = a flat run on one side then
+  // a rake down to a shorter leg). w×h = the bounding box; the TALLER leg always equals h (setShapeField
+  // re-syncs it). Policy v2 (Ednei 2026-07-20): the FRAME FOLLOWS THE COMPLETE OUTSIDE SHAPE — the cavity is
+  // the outline inset per side (shapeCavityPoly), so a 50mm frame stays 50mm around the whole perimeter,
+  // including the sloped edges; preview + DXF carry that true geometry. Kabacal's own NC still cuts NOTHING
+  // on a shaped door except drilling (tpOpRects) — every shape-following cut comes from the DXF in VCarve
+  // until machine-validated. Multi-panel/midrail shaped doors keep the v1 rectangular fallback.
   function shapeOf(it){const s=it&&it.shape;if(!s||!s.kind||s.kind==='square')return null;
     const H=+it.h||0,W=+it.w||0;if(H<=0||W<=0)return null;
     if(s.kind==='rake'){const a=Math.min(H,Math.max(1,+s.legL||H)),b=Math.min(H,Math.max(1,+s.legR||H));if(a===b)return null;return {kind:'rake',legL:a,legR:b};}
@@ -824,12 +827,62 @@
     return null;}
   function headDropOf(it){const sh=shapeOf(it);if(!sh)return 0;const H=+it.h||0;
     return sh.kind==='rake'?H-Math.min(sh.legL,sh.legR):H-sh.shortLeg;}
-  // outline of a PLACED (possibly rotated) part in placed local coords — same transpose as placedCavs
+  // Inward offset of a polygon: each edge moves along its INWARD normal by mmFn(edgeIndex,nx,ny), then
+  // consecutive offset lines are intersected (mitred corners). Works for the shapeOutline winding (inward
+  // normal = (-dy,dx)/len — verified on every edge). Returns null when the result degenerates (<100mm²).
+  function polyInset(pts,mmFn){
+    const n=pts.length,lines=[];
+    for(let i=0;i<n;i++){
+      const a=pts[i],b=pts[(i+1)%n];
+      const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len,ny=dx/len,mm=mmFn(i,nx,ny);
+      lines.push({x1:a.x+nx*mm,y1:a.y+ny*mm,x2:b.x+nx*mm,y2:b.y+ny*mm});
+    }
+    const out=[];
+    for(let i=0;i<n;i++){
+      const A=lines[(i+n-1)%n],B=lines[i];
+      const den=(A.x1-A.x2)*(B.y1-B.y2)-(A.y1-A.y2)*(B.x1-B.x2);
+      if(Math.abs(den)<1e-9){out.push({x:B.x1,y:B.y1});continue;}
+      const t=((A.x1-B.x1)*(B.y1-B.y2)-(A.y1-B.y1)*(B.x1-B.x2))/den;
+      out.push({x:A.x1+t*(A.x2-A.x1),y:A.y1+t*(A.y2-A.y1)});
+    }
+    let ar=0;for(let i=0;i<n;i++){const p1=out[i],p2=out[(i+1)%n];ar+=p1.x*p2.y-p2.x*p1.y;}
+    return Math.abs(ar)/2>=100?out:null;
+  }
+  // Cavity that FOLLOWS the shaped outline (Ednei 2026-07-20): the frame keeps its own width around the
+  // COMPLETE perimeter — top/sloped edges inset by f.t (measured PERPENDICULAR to the slope), bottom f.b,
+  // left f.l, right f.r. Edge classification = dominant axis of the inward normal.
+  function shapeCavityPoly(w,h,f,sh){
+    const pts=shapeOutline(w,h,sh);if(!pts)return null;
+    if((f.t+f.r+f.b+f.l)<=0)return null;
+    return polyInset(pts,(i,nx,ny)=>(Math.abs(ny)>=Math.abs(nx))?(ny>0?f.t:f.b):(nx>0?f.l:f.r));
+  }
+  // single-opening shaped door → the sloped cavity polygon (multi-panel/midrail shaped doors keep the
+  // rectangular under-the-lowest-point behaviour for now)
+  function doorCavityPoly(it){
+    const sh=shapeOf(it);if(!sh||pnlOf(it))return null;
+    return shapeCavityPoly(+it.w||0,+it.h||0,resolveFrame(it),sh);
+  }
+  // outline of a PLACED (possibly rotated) part in placed local coords. Rotation is a PROPER 90° CW turn
+  // ((x,y) → (y, lw−x) — same convention as the panels' pnCellRects, validated against real DXF): the part
+  // is ROTATED on the sheet, never mirrored. (2026-07-20 fix: the first version transposed (x,y)→(y,x),
+  // which is a reflection — a rotated rake door would have been cut as its MIRROR image.)
   function placedOutline(p){
     const sh=p.shape;if(!sh)return null;
     const lw=p.rot?p.h:p.w,lh=p.rot?p.w:p.h;
     const pts=shapeOutline(lw,lh,sh);if(!pts)return null;
-    return p.rot?pts.map(q=>({x:q.y,y:q.x})):pts;
+    return p.rot?pts.map(q=>({x:q.y,y:lw-q.x})):pts;
+  }
+  // sloped cavity polygon of a PLACED part (uses the RAW frame carried as frame0 — p.frame holds the
+  // effective frame with the head drop, which is only right for the rectangular fallback)
+  function placedCavityPoly(p){
+    if(!p.shape||p.pnl)return null;
+    const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
+    if(!framed||p.isInsert||p.isBeading)return null;
+    const lw=p.rot?p.h:p.w,lh=p.rot?p.w:p.h;
+    const poly=shapeCavityPoly(lw,lh,p.frame0||p.frame||{t:0,r:0,b:0,l:0},p.shape);
+    if(!poly)return null;
+    return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;
   }
   // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
   function cavsFor(w,h,f,pnl){
@@ -903,9 +956,15 @@
     else if(k==='rake'){it.shape={kind:'rake',legL:H,legR:Math.max(1,Math.round(H*0.75))};}
     else if(k==='splay'){it.shape={kind:'splay',side:'left',flatLen:Math.max(1,Math.round(W/2)),shortLeg:Math.max(1,Math.round(H*0.75))};}
     render();}
+  // The TALLER leg sets the door height (the rule the editor already states) — editing a leg re-syncs
+  // it.h so the outline can never float inside an oversized bounding box (2026-07-20).
   function setShapeField(i,k,v){const it=items[i];if(!it.shape)return;
-    if(k==='side')it.shape.side=(v==='right')?'right':'left';
-    else it.shape[k]=Math.max(1,Math.round(+v||0));
+    if(k==='side'){it.shape.side=(v==='right')?'right':'left';render();return;}
+    const x=Math.max(1,Math.round(+v||0));
+    if(k==='legL'||k==='legR'){it.shape[k]=x;it.h=Math.max(+it.shape.legL||0,+it.shape.legR||0);}
+    else if(k==='shortLeg'){it.shape.shortLeg=Math.min(x,Math.max(1,(+it.h||0)-1));}
+    else if(k==='flatLen'){it.shape.flatLen=Math.min(x,Math.max(1,(+it.w||0)-1));}
+    else it.shape[k]=x;
     render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
   // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
@@ -924,13 +983,23 @@
   // ---- Glass / Beading (production rules): the word GLASS in the part text turns a framed door into a
   // glass frame — NO insert; instead a BEADING picture-frame piece is generated on a thin block.
   // Defaults: beading size 19.85mm · thickness 3mm (or 6mm) · fit clearance 0.15mm (guide = size+clear) · round corners ON.
-  function isGlassItem(it){return /\bGLASS\b/i.test(String(it&&it.text||''))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
-  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false,glassTh:(String(b.glassTh)==='6')?6:4};}
+  // Glazed = the explicit Glazing toggle (it.glazed, additive 2026-07-20) OR the legacy GLASS keyword in the
+  // part text — old saved jobs keep working untouched.
+  function isGlassItem(it){return (!!(it&&it.glazed)||/\bGLASS\b/i.test(String(it&&it.text||'')))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
+  // Rear-rebate construction (Joinery Supply spec): plain square-edge frame, glass fitted from the FRONT,
+  // rear rebate = front lip + glass seat (= pane thickness) + bead seat; the one-piece bead is a real piece.
+  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false,glassTh:(String(b.glassTh)==='6')?6:4,
+    lip:(+b.lip>0?+b.lip:9),beadSeat:(+b.beadSeat>0?+b.beadSeat:9)};}
+  // The toggle is authoritative: switching Glazing OFF also drops the legacy GLASS keyword from the text.
+  function setGlazed(i,on){const it=items[i];
+    if(on)it.glazed=true;else{delete it.glazed;if(/\bGLASS\b/i.test(String(it.text||'')))it.text=normPartText(String(it.text||'').replace(/\bGLASS\b/ig,'').replace(/\s{2,}/g,' ').trim());}
+    render();}
   function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else if(k==='glassTh')it.beading.glassTh=(String(v)==='6')?6:4;else it.beading[k]=Math.max(0,+v||0);render();}
   // beading piece = cavity + size per side, nests on "<material name> 3mm/6mm"
   // one beading frame PER internal opening (multi-panel glass doors get one per cavity)
   function beadingSpecsFor(it){
     if(!isGlassItem(it))return [];
+    if(shapeOf(it))return [];                                        // glazing on shaped doors needs a shaped bead — not supported yet
     const b=beadingOf(it);
     return doorCavities(it).filter(c=>c.w>0&&c.h>0).map(cav=>({mat:parseMat(it.mat).name+' '+b.th+'mm',w:Math.round((cav.w+b.size*2)*100)/100,h:Math.round((cav.h+b.size*2)*100)/100,size:b.size,guide:b.size+b.clear,clear:b.clear,round:b.round}));
   }
@@ -964,6 +1033,7 @@
   function insertSpecsFor(it){
     if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return [];
     if(isGlassItem(it))return [];                                     // glass doors don't generate inserts (production rule)
+    if(shapeOf(it))return [];                                         // shaped doors: the sloped opening needs a shaped insert — skipped until that exists
     const m=parseMat(it.mat),mainTh=parseInt(m.th)||0;
     const autoTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
     if(!autoTh)return [];
@@ -1261,6 +1331,7 @@
           midrails:(Array.isArray(part.kabMidrails)&&part.kabMidrails.length)?part.kabMidrails.map(r=>({c:+r.c,th:+r.th})).filter(r=>r.c>0&&r.th>0):undefined,
           recessDepth:(part.kabRecessDepth!=null&&+part.kabRecessDepth>0)?+part.kabRecessDepth:undefined,
           shape:(part.kabShape&&typeof part.kabShape==='object'&&part.kabShape.kind)?JSON.parse(JSON.stringify(part.kabShape)):undefined,
+          glazed:(part.kabGlazed===true)?true:undefined,
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
@@ -1373,6 +1444,7 @@
     const kmr=midrailsOf(it);if(kmr){o.kabMidrails=kmr.map(r=>({c:r.c,th:r.th}));o.panels=kmr.length+1;o.panelSize='';delete o.kabBottomPart;}
     if(it.recessDepth!==''&&it.recessDepth!=null)o.kabRecessDepth=+it.recessDepth;   // per-door recess depth (data only, additive)
     const ksh=shapeOf(it);if(ksh)o.kabShape=JSON.parse(JSON.stringify(ksh));         // head shape (additive; width/height stay the bounding box)
+    if(it.glazed)o.kabGlazed=true;                                                   // explicit Glazing toggle (additive; the legacy GLASS keyword still works)
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -1626,7 +1698,14 @@
         }
         // internal openings: cavities in y-up local coords (one for plain doors, N split by the centre rail)
         const dCavs=placedCavs(p).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
-        if(p.glass){
+        // shaped single-opening door: cavity + offset lines follow the outline (closed polygons)
+        const cavPolyD=placedCavityPoly(p);
+        if(cavPolyD){
+          const toD=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
+          if(!(p.lines&&p.lines.length)){layers.add('OFFSET_A');body+=dxfPoly('OFFSET_A',toD(cavPolyD),true);}
+          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(cavPolyD,()=>+l.mm):cavPolyD;if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toD(ip),true);}});
+        }
+        else if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
           const gg=(p.glass.guide||20);
           dCavs.forEach(c=>{if(c.w>1&&c.h>1){
@@ -1647,7 +1726,7 @@
           }});
         }
         else if(framed&&!(p.lines&&p.lines.length)){dCavs.forEach(c=>{if(c.w>1&&c.h>1){layers.add('OFFSET_A');var fr=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}});}
-        (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
+        if(!cavPolyD)(p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
           dCavs.forEach(c=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw>1&&ih>1){layers.add(lyr);var rr=rRectD(c.x+l.mm,c.y+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});});
         if(p.isInsert){
           layers.add('IN');
@@ -1743,7 +1822,7 @@
   }
 
   // ---- pricing tables (sample of the production book) ----
-  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo':{'18mm':60,'22mm':70},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'19mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
+  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo':{'18mm':60,'22mm':70,'25mm':80},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'19mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
   // Ednei's bar (2026-07-16), in this exact order. kab_favs_v marks lists saved AFTER this change:
   // stored favs from before it are ignored once (one-time reset to the requested five), then edits stick again.
   const FAVS_DEFAULT=['MDF Hidrofugo 18mm','MDF Hidrofugo 22mm','Veneered Chipboard 19mm','MR MDF 18mm','MR MDF 22mm'];
@@ -1999,7 +2078,7 @@
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','midrails','shape','recessDepth','backMode','backLines','scribe'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','glazed','groove','panels','midFrame','panelSize','midrails','shape','recessDepth','backMode','backLines','scribe'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -2031,6 +2110,7 @@
     H.spray=(uni(it=>it.spray?1:0)===1)?'On':'';
     const shk=uni(it=>{const s=shapeOf(it);return s?s.kind:'square';});
     H.shape=shk==='rake'?'Single rake':(shk==='splay'?'Splay':'');
+    H.glazing=(uni(it=>isGlassItem(it)?1:0)===1)?(uni(it=>beadingOf(it).glassTh)+'mm glass'):'';
     const g=uni(it=>grainOf(it));H.grain=g==='off'?'Off':(g==='long'?'Longest side':(g==='short'?'Shortest side':''));
     const gon=uni(it=>grooveOf(it).on?1:0);
     if(gon===1){const gd=uni(it=>grooveOf(it).dir),gs=uni(it=>grooveOf(it).spacing);H.groove=(gd?cap(gd):'On')+(gs!=null?' · '+gs+'mm':'');}else H.groove='';
@@ -2063,8 +2143,9 @@
     if(has){
       secs.push(['part','Dimensions',secParts(i,it),St.part]);
       secs.push(['shape','Shape',secShape(i,it),St.shape]);
-      secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
+      secs.push(['doortype','Door Style',secDoorType(i,it),St.doortype]);
       secs.push(['offset','Frame & Panels',tabOffset(i,it),St.offset]);
+      secs.push(['glazing','Glazing',secGlazing(i,it),St.glazing]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
       secs.push(['grain','Grain',secGrain(i,it),St.grain]);   // Ednei 2026-07-16: Grain is less important — sits below Hinges
       secs.push(['groove','Groove',secGroove(i,it),St.groove]);
@@ -2103,6 +2184,35 @@
       return '<div class="ed-field" style="margin-top:8px"><label>Thickness — '+esc(pm.name)+'</label><div class="preset-chips" style="margin-top:2px">'+ths.map(t=>'<button class="preset-chip '+(pm.th===t?'on':'')+'" title="Switch this door to '+esc(pm.name)+' '+t+' (price and cut templates follow)" onclick="upd('+i+',\'mat\',\''+esc(pm.name+' '+t)+'\')">'+t+'</button>').join('')+'</div></div>';})()}
     <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row. Frame, panels and rails are in <b>Frame &amp; Panels</b> below.</div>`;}
+  // Glazing (2026-07-20, Joinery Supply construction): plain square-edge frame, glass fitted from the FRONT,
+  // rear rebate = front lip + glass seat + bead seat, one-piece bead included. All glazing controls live
+  // here (the Frame & Panels card is a read-only summary) so nothing is duplicated.
+  function secGlazing(i,it){
+    const framed=(it.type==='trad'||it.type==='flush'||it.type==='reeded');
+    if(!framed)return '<div class="sub">Glazing needs a framed door style (Traditional, Flushback or Reeded) — pick one in <b>Door Style</b>.</div>';
+    const on=isGlassItem(it),b=beadingOf(it),sh=shapeOf(it),bead=beadingSpecFor(it);
+    const th=parseInt(parseMat(it.mat).th)||18,total=b.lip+b.glassTh+b.beadSeat;
+    return `
+    <label class="tg" style="font-weight:700"><input type="checkbox" ${on?'checked':''} onchange="setGlazed(${i},this.checked)"> Glaze this door</label>
+    ${on?`
+    <div class="sub" style="margin-top:6px">Replaces the centre panel with glass: the opening is cut clean through and rebated on the back, with a separate one-piece bead to hold the glass.</div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="min-width:150px"><label>Glass thickness</label><div class="seg3" style="margin-top:2px"><button class="segbtn ${b.glassTh===4?'on':''}" onclick="setBeading(${i},'glassTh','4')">4 mm</button><button class="segbtn ${b.glassTh===6?'on':''}" onclick="setBeading(${i},'glassTh','6')">6 mm</button></div></div>
+      <div class="ed-field" style="flex:1;min-width:96px"><label>Bead width (mm)</label><input type="number" step="0.01" min="1" value="${b.size}" onchange="setBeading(${i},'size',this.value)"></div>
+      <div class="ed-field" style="min-width:110px"><label>Bead board</label><select onchange="setBeading(${i},'th',this.value)"><option value="3" ${b.th===3?'selected':''}>3 mm</option><option value="6" ${b.th===6?'selected':''}>6 mm</option></select></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="flex:1;min-width:92px"><label>Front lip (mm)</label><input type="number" step="0.5" min="1" value="${b.lip}" onchange="setBeading(${i},'lip',this.value)" title="Square-edge lip left on the FRONT face — the glass sits behind it"></div>
+      <div class="ed-field" style="flex:1;min-width:92px"><label>Bead rebate (mm)</label><input type="number" step="0.5" min="1" value="${b.beadSeat}" onchange="setBeading(${i},'beadSeat',this.value)" title="Rear seat depth for the one-piece bead"></div>
+      <div class="ed-field" style="flex:1;min-width:88px"><label>Fit gap (mm)</label><input type="number" step="0.01" min="0" value="${b.clear}" onchange="setBeading(${i},'clear',this.value)"></div>
+      <label class="tg" style="font-size:12px;margin-bottom:5px"><input type="checkbox" ${b.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
+    </div>
+    <div class="sub" style="margin-top:8px;padding:6px 8px;border-radius:7px;background:rgba(180,83,9,.08);color:#92400e">
+      <b>Construction</b> — plain square-edge frame · glass fitted from the front · rear rebate: <b>${b.lip}mm front lip</b> → <b>${b.glassTh}mm glass rebate</b> → <b>${b.beadSeat}mm bead rebate</b> (${total}mm of the ${th}mm board${total>=th?' — <b>deeper than the board</b>, reduce a value':''}) · one-piece bead included.
+    </div>
+    ${sh?'<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped door: glazing pieces are not generated (a sloped opening needs a shaped bead) — set Shape to Square to glaze.</div>'
+      :(bead?`<div class="sub" style="margin-top:6px">Bead piece: <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b> — nested, priced and exported automatically (one per opening).</div>`:'')}`
+    :'<div class="sub" style="margin-top:6px">Not glazed — the opening gets the usual insert panel.</div>'}`;}
   // head shape editor (2026-07-19): Square / Single rake / Flat-top splay — see shapeOf for the v1 policy
   function secShape(i,it){const sh=shapeOf(it),kind=sh?sh.kind:'square';const H=+it.h||0,W=+it.w||0;
     return `
@@ -2122,7 +2232,7 @@
       <div class="ed-field" style="flex:1;min-width:110px"><label>Short leg height (mm)</label><input type="number" min="1" value="${sh.shortLeg}" onchange="setShapeField(${i},'shortLeg',this.value)"></div>
     </div>
     <div class="sub" style="margin-top:5px">The tall side is the Height (${H}mm) from Dimensions; the head rakes from the flat run down to the short leg. Opening stays rectangular under the lowest point (drop ${headDropOf(it)}mm).</div>`:''}
-    ${sh?`<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped head: preview and DXF carry the TRUE outline, but Kabacal's own NC does NOT cut the OUT profile of shaped doors yet (not machine-validated) — cut the outline from the DXF in VCarve. Recess/drill ops still run on the rectangular opening.</div>`
+    ${sh?`<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped head: the frame and every offset line FOLLOW the shaped outline — the preview and the DXF carry the true sloped geometry (a 50mm frame stays 50mm around the whole perimeter). Kabacal's own NC runs ONLY drilling on shaped doors; every shape-following cut comes from the DXF in VCarve. Auto inserts and glazing are skipped on shaped doors.</div>`
       :'<div class="sub" style="margin-top:6px">Flat top — plain rectangle (default). Rake/splay heads are for sloped ceilings and under-stair doors.</div>'}`;}
   function secGrain(i,it){const g=grainOf(it);return `
     <div class="seg3">
@@ -2224,15 +2334,8 @@
   // same setters as before (setMidFrame/setPanels/setPanelSize), zero geometry change.
   function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);const rails=midrailsOf(it);return `
     ${bead?`<div class="ins-card" style="border-color:#b45309;background:#fffbeb;flex-wrap:wrap">
-      <b style="color:#92400e">GLASS</b> — no insert; creates beading frame <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
-      <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <label class="sub">size <input type="number" step="0.01" value="${bcfg.size}" onchange="setBeading(${i},'size',this.value)" style="width:62px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
-        <label class="sub">th <select onchange="setBeading(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px"><option value="3" ${bcfg.th===3?'selected':''}>3mm</option><option value="6" ${bcfg.th===6?'selected':''}>6mm</option></select></label>
-        <label class="sub">fit gap <input type="number" step="0.01" value="${bcfg.clear}" onchange="setBeading(${i},'clear',this.value)" style="width:56px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
-        <label class="sub">glass <select onchange="setBeading(${i},'glassTh',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px" title="Glass pane thickness — sets the rear glass seat"><option value="4" ${bcfg.glassTh===4?'selected':''}>4mm</option><option value="6" ${bcfg.glassTh===6?'selected':''}>6mm</option></select></label>
-        <label class="tg" style="font-size:11px"><input type="checkbox" ${bcfg.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
-        <span class="sub" style="flex-basis:100%">Rear rebate: front lip · ${bcfg.glassTh}mm glass seat · ${bcfg.th}mm bead seat — the one-piece beading frame is generated and nested automatically.</span>
-      </span></div>`:''}
+      <b style="color:#92400e">GLAZED</b> — no insert; one-piece bead <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
+      <span class="sub" style="flex-basis:100%">${bcfg.glassTh}mm glass · edit everything in the <b>Glazing</b> section.</span></div>`:''}
     ${ins?(function(){
       const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
       const ths=Object.keys(PRICES[ins.matName]||{}).map(t=>parseInt(t));if(ths.indexOf(ins.insTh)<0)ths.unshift(ins.insTh);
@@ -2698,7 +2801,7 @@
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0,qn=Math.max(1,Math.round(+it.q||1));n<qn;n++){   // qty is ALWAYS >=1 — a 0/blank/NaN qty never yields a hidden empty part
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,frame0:shp?f0:undefined,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
@@ -3179,7 +3282,14 @@
     const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
     // internal openings: ONE cavity for a plain door, N cavities split by the centre rail (p.pnl)
     const cavs=placedCavs(p).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
-    if(p.glass){
+    // shaped single-opening door: the cavity + every offset line FOLLOW the outline (polygon inset)
+    const cavPoly=placedCavityPoly(p);
+    if(cavPoly){
+      const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${pd(cavPoly)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;
+      (p.lines||[]).forEach(l=>{const ip=polyInset(cavPoly,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
+    }
+    else if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
       const g10=(p.glass.guide||20)/10;
       cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6){
@@ -3190,7 +3300,7 @@
     }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
     else if(framed&&!(p.lines&&p.lines.length)){cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6)s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;});}
-    (p.lines||[]).forEach(l=>{
+    if(!cavPoly)(p.lines||[]).forEach(l=>{
       cavs.forEach(c=>{const lx=c.x+l.mm/10, ty=c.y+l.mm/10, rw=c.w-2*l.mm/10, rh=c.h-2*l.mm/10;
         if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     });
@@ -4156,6 +4266,10 @@
   // lines cut real geometry for parts whose offset preset enables that line (Ogee etc.).
   function tpOpRects(p,P){
     const L=(P&&P.layer)||'OUT';
+    // SHAPED doors (2026-07-20): the frame/cavity now FOLLOW the sloped outline — no rectangular geometry
+    // here matches the DXF any more, so EVERY layer op on a shaped part cuts NOTHING (drilling has its own
+    // op and still runs). All shape-following cuts come from the DXF in VCarve until machine-validated.
+    if(p.shape)return [];
     // FLUSHBACK structural layers (reference DXF geometry): rings = CAVITY expanded by d. A BAND (two
     // rings) is cut VCarve-style — the OUTER ring from its inside, the INNER ring from its outside, so
     // both kerfs land INSIDE the band (rc.side overrides P.side per ring). These layers exist ONLY on
@@ -5456,7 +5570,7 @@
         return (mx>f.sh.g+0.001)?('⚠ kerf reaches '+mx.toFixed(2)+'mm but parts are packed at '+f.sh.g+'mm — neighbouring faces get grazed '+(mx-f.sh.g).toFixed(2)+'mm. Set Spacing/gap ≥ '+(Math.ceil(mx*10)/10)+'mm in Nesting.'):'';})();
       const shapedN=(f.sh.parts||[]).filter(p=>!p.isBack&&p.shape).length;
       const wrapN=(f.sh.parts||[]).filter(p=>p.pnPiece&&(p.pnPiece.wrapL||p.pnPiece.wrapR)).length;
-      const shapeWarn=(shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: the OUT profile is NOT in this NC (shape cutting is not machine-validated yet) — cut the outline from the DXF in VCarve.'):'')
+      const shapeWarn=(shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: shape-following cuts (OUT + cavity/offset ops) are NOT in this NC — cut them from the DXF in VCarve; drilling still runs.'):'')
         +(wrapN?((shapedN?'<br>':'')+'⚠ '+wrapN+' wrapped V–H joint panel'+(wrapN>1?'s':'')+' on this sheet: the stepped OUT outline is NOT in this NC — cut it from the DXF in VCarve.'):'');
       rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}${shapeWarn?'<br><span style="color:#b45309;font-weight:700">'+shapeWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;

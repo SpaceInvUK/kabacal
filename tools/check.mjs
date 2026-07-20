@@ -599,7 +599,8 @@ if (html && !process.argv.includes('--hook')) {
         get toolDb(){return toolDb}, get nestNote(){return nestNote}, get camJob(){return camJob}, get selSet(){return selSet},
         loadFastCnc, calcQuote, mkItem, addTakeoffItems, parseTakeoffText, parseTakeoffLine, clearSel, render,
         priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem,
-        doorCavities, buildFastCnc, shapeOf, shapeOutline, headDropOf, tpOpRects, buildSheetGroups
+        doorCavities, buildFastCnc, shapeOf, shapeOutline, headDropOf, tpOpRects, buildSheetGroups,
+        doorCavityPoly, shapeCavityPoly, isGlassItem, beadingOf, insertSpecsFor, beadingSpecsFor, PRICES
       }`)(win, doc, ls, ss, m => alerts.push(String(m)), () => true, () => null, { userAgent: 'node' }, win.location, () => Promise.reject(new Error('offline')), () => 0, () => {});
 
     // (a) boot: empty job, LAZY order number (no sequence consumed at page-open)
@@ -724,6 +725,59 @@ if (html && !process.argv.includes('--hook')) {
     api.loadFastCnc(JSON.parse(JSON.stringify(shDoc)));
     const shCav2 = api.doorCavities(api.items[0])[0];
     must(shCav2.y === 650 && shCav2.h === 1300, 'shape round-trip: reloaded opening identical');
+
+    // (j) FRAME FOLLOWS THE SHAPE (2026-07-20) — the cavity is a polygon inset from the real outline, so a
+    // 50mm frame stays 50mm around the COMPLETE perimeter (including the raked/splayed edges).
+    const frameGaps = (w, h, f, shape) => {
+      const out = api.shapeOutline(w, h, shape), cav = api.shapeCavityPoly(w, h, f, shape);
+      if (!out || !cav) return null;
+      return out.map((a, i) => {
+        const b = out[(i + 1) % out.length];
+        const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+        return Math.round(Math.min(...cav.map(q => (q.x - a.x) * nx + (q.y - a.y) * ny)) * 100) / 100;
+      });
+    };
+    const F50 = { t: 50, r: 50, b: 50, l: 50 };
+    const gRake = frameGaps(600, 400, F50, { kind: 'rake', legL: 400, legR: 250 });
+    must(gRake && gRake.length === 4 && gRake.every(g => g === 50), `frame-follows-shape rake: every edge must be 50mm (got ${gRake})`);
+    const gSpL = frameGaps(600, 400, F50, { kind: 'splay', side: 'left', flatLen: 300, shortLeg: 250 });
+    must(gSpL && gSpL.length === 5 && gSpL.every(g => g === 50), `frame-follows-shape splay-left: every edge must be 50mm (got ${gSpL})`);
+    const gSpR = frameGaps(600, 400, F50, { kind: 'splay', side: 'right', flatLen: 300, shortLeg: 250 });
+    must(gSpR && gSpR.length === 5 && gSpR.every(g => g === 50), `frame-follows-shape splay-right: every edge must be 50mm (got ${gSpR})`);
+    // splay sides are mirror images, not a vertical shift (the reported bug)
+    const oL = api.shapeOutline(600, 400, { kind: 'splay', side: 'left', flatLen: 300, shortLeg: 250 });
+    const oR = api.shapeOutline(600, 400, { kind: 'splay', side: 'right', flatLen: 300, shortLeg: 250 });
+    must(oL[1].y === 0 && oL[3].y === 150 && oR[1].y === 150 && oR[3].y === 0,
+      'splay left/right must mirror (flat run swaps sides), not move up and down');
+    // uneven frame: each edge keeps ITS OWN width
+    const gUneven = frameGaps(600, 400, { t: 80, r: 30, b: 60, l: 40 }, { kind: 'rake', legL: 400, legR: 250 });
+    must(JSON.stringify(gUneven) === JSON.stringify([40, 80, 30, 60]), `frame-follows-shape uneven: per-side widths (got ${gUneven})`);
+    // square doors keep the rectangular path (no polygon)
+    const sqDoor = api.mkItem('trad', 600, 400, 1, 'MDF 18mm', '8x4', F50, null, 'SQ', { on: false }, { offsetName: 'Plain Shaker' });
+    must(api.doorCavityPoly(sqDoor) === null, 'square door must keep the rectangular cavity path');
+
+    // (k) GLAZING toggle (2026-07-20): explicit flag, legacy GLASS keyword still works, additive kabGlazed
+    const glDoor = api.mkItem('trad', 600, 400, 1, 'MDF 18mm', '8x4', F50, null, 'Kitchen', { on: false }, { offsetName: 'Plain Shaker' });
+    must(!api.isGlassItem(glDoor) && api.insertSpecsFor(glDoor).length === 1, 'glazing: a plain framed door gets an insert and no bead');
+    glDoor.glazed = true;
+    must(api.isGlassItem(glDoor) && api.beadingSpecsFor(glDoor).length === 1 && api.insertSpecsFor(glDoor).length === 0,
+      'glazing ON: one-piece bead replaces the insert');
+    must(api.beadingOf(glDoor).glassTh === 4 && api.beadingOf(glDoor).lip === 9 && api.beadingOf(glDoor).beadSeat === 9,
+      'glazing construction defaults: 9mm front lip · 4mm glass · 9mm bead seat');
+    glDoor.beading = { glassTh: 6 };
+    must(api.beadingOf(glDoor).glassTh === 6, 'glazing: 6mm glass selectable');
+    const legacyGlass = api.mkItem('trad', 500, 700, 1, 'MDF 18mm', '8x4', F50, null, 'Pantry GLASS', { on: false }, { offsetName: 'Plain Shaker' });
+    must(api.isGlassItem(legacyGlass), 'glazing: the legacy GLASS keyword must keep glazing old saved jobs');
+    api.items.length = 0; api.clearSel(); api.items.push(glDoor); api.render();
+    const glDoc = api.buildFastCnc();
+    must(glDoc.blocks.flatMap(b => b.parts || [])[0].kabGlazed === true, 'glazing save: additive kabGlazed');
+    api.loadFastCnc(JSON.parse(JSON.stringify(glDoc)));
+    must(api.items[0].glazed === true && api.beadingOf(api.items[0]).glassTh === 6, 'glazing round-trip: flag + glass thickness restored');
+
+    // (l) moisture-resistant 25mm twins (additive price-book keys; existing prices untouched)
+    must(api.PRICES['MDF Hidrofugo']['25mm'] === 80 && api.PRICES['MR MDF']['25mm'] === 85, 'MR 25mm: both moisture-resistant families priced');
+    must(api.PRICES['MDF Hidrofugo']['18mm'] === 60 && api.PRICES['MDF Hidrofugo']['22mm'] === 70 && api.priceForSheet('MDF 18mm', '10x4') === 75,
+      'MR 25mm: pre-existing prices must be untouched (additive only)');
   } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
 }
 
