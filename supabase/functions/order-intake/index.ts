@@ -255,6 +255,19 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     if(!poly)return null;
     return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;
   }
+  // Base polygon for the offset PRESET lines of a shaped door that has NO frame cavity (flat/unframed types).
+  // The framed types already get `placedCavityPoly`; without this the lines fell back to plain rectangles and
+  // ignored the slope — Ednei's reference "Flaptop_Splay.dxf" (2026-07-21) requires every offset to follow the
+  // COMPLETE outline. Frame all-zero ⇒ the lines are measured from the outline itself.
+  function placedLinesPoly(p){
+    if(!p.shape||p.pnl||p.isInsert||p.isBeading)return null;
+    if(!(p.lines&&p.lines.length))return null;
+    const lw=p.rot?p.h:p.w, lh=p.rot?p.w:p.h;                       // logical (unrotated) dims
+    const fr=p.frame0||p.frame||{t:0,r:0,b:0,l:0};                  // RAW frame (no head drop)
+    const poly=shapeCavityPoly(lw,lh,fr,p.shape)||(((+fr.t+ +fr.r+ +fr.b+ +fr.l)<=0)?shapeOutline(lw,lh,p.shape):null);
+    if(!poly)return null;
+    return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;              // same transform as placedCavityPoly
+  }
   // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
   function cavsFor(w,h,f,pnl){
     const iw=w-f.l-f.r,ih=h-f.t-f.b;
@@ -1090,10 +1103,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         const dCavs=placedCavs(p).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
         // shaped single-opening door: cavity + offset lines follow the outline (closed polygons)
         const cavPolyD=placedCavityPoly(p);
+        const linePolyD=cavPolyD||placedLinesPoly(p);   // unframed shaped door: preset lines still follow the outline
         if(cavPolyD){
           const toD=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
           if(!(p.lines&&p.lines.length)){layers.add('OFFSET_A');body+=dxfPoly('OFFSET_A',toD(cavPolyD),true);}
-          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(cavPolyD,()=>+l.mm):cavPolyD;if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toD(ip),true);}});
         }
         else if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
@@ -1116,7 +1129,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           }});
         }
         else if(framed&&!(p.lines&&p.lines.length)){dCavs.forEach(c=>{if(c.w>1&&c.h>1){layers.add('OFFSET_A');var fr=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}});}
-        if(!cavPolyD)(p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
+        if(linePolyD){const toL=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
+          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(linePolyD,()=>+l.mm):linePolyD;
+            if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toL(ip),true);}});}
+        else (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
           dCavs.forEach(c=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw>1&&ih>1){layers.add(lyr);var rr=rRectD(c.x+l.mm,c.y+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});});
         if(p.isInsert){
           layers.add('IN');
@@ -2745,10 +2761,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const cavs=placedCavs(p).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
     // shaped single-opening door: the cavity + every offset line FOLLOW the outline (polygon inset)
     const cavPoly=placedCavityPoly(p);
+    const linePoly=cavPoly||placedLinesPoly(p);   // unframed shaped door: preset lines still follow the outline
     if(cavPoly){
       const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
       s+=`<path d="${pd(cavPoly)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;
-      (p.lines||[]).forEach(l=>{const ip=polyInset(cavPoly,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     }
     else if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
@@ -2761,7 +2777,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
     else if(framed&&!(p.lines&&p.lines.length)){cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6)s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;});}
-    if(!cavPoly)(p.lines||[]).forEach(l=>{
+    if(linePoly){const pdl=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      (p.lines||[]).forEach(l=>{const ip=polyInset(linePoly,()=>+l.mm||0);if(ip)s+=`<path d="${pdl(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});}
+    else (p.lines||[]).forEach(l=>{
       cavs.forEach(c=>{const lx=c.x+l.mm/10, ty=c.y+l.mm/10, rw=c.w-2*l.mm/10, rh=c.h-2*l.mm/10;
         if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     });
@@ -4691,14 +4709,17 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     {name:'6mm Pocket Finish 6mm Deep',layer:'OFFSET_A',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'inside',params:{cutDepth:6,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
     {name:'2mm Pocket Finish 6mm',layer:'OFFSET_A',kind:'profile',tool:{id:'v27b53e74',num:2,dia:2},side:'inside',params:{cutDepth:6,depthList:[3,6],lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:3000,plunge:2000}},
     {name:'6mm OUT 22mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:6,depthList:[2.5,5,6],allowance:0.4,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}},
-    {name:'6mm Offcut 22mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:22,passes:1,allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
+    // Offcut em 3 passes (Ednei 2026-07-21, relato da máquina): mordidas grandes primeiro, passe leve no fim.
+    // Antes era passes:1 = 22mm numa única mordida — herdado do template VCarve, que faz o mesmo.
+    {name:'6mm Offcut 22mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:22,depthList:[11,21,22],allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
    ]},
    {id:'tpl_plainshaker18',name:'18mm Plain Shaker',auto:true,appliesTo:{part:'body',type:'flat',th:18,offsetName:'Plain Shaker'},src:'22mm Plain Shaker scheme retargeted to 18mm (2026-07-13): recess 6mm kept, offcut depth = board (18)',ops:[
     {name:'50.8mm Skimming 6mm Deep',layer:'OFFSET_A',kind:'pocket',tool:{id:'t12skim508',num:12,dia:50.8},side:'inside',params:{depths:[6],stepover:25.4,rasterInset:5.08,feed:9000,plunge:3000}},
     {name:'6mm Pocket Finish 6mm Deep',layer:'OFFSET_A',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'inside',params:{cutDepth:6,passes:1,lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:8000,plunge:3000}},
     {name:'2mm Pocket Finish 6mm',layer:'OFFSET_A',kind:'profile',tool:{id:'v27b53e74',num:2,dia:2},side:'inside',params:{cutDepth:6,depthList:[3,6],lastPass:{on:false,val:0},ramp:{on:false,dist:100},feed:3000,plunge:2000}},
     {name:'6mm OUT 18mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:6,depthList:[2.5,5,6],allowance:0.4,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}},
-    {name:'6mm Offcut 18mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:18,passes:1,allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
+    // Mesmo esquema do 22mm, proporcional à chapa: 9 / 17 / 18 (Ednei 2026-07-21).
+    {name:'6mm Offcut 18mm',layer:'OUT',kind:'profile',tool:{id:'t1',num:1,dia:6},side:'outside',params:{cutDepth:18,depthList:[9,17,18],allowance:0,lastPass:{on:false,val:0},ramp:{on:true,dist:100},feed:8000,plunge:3000}}
    ]}];
   // missing key = first run -> seed the factory templates; an explicitly saved [] (user cleared) is respected
   let tpTemplates=(function(){try{const raw=localStorage.getItem('kab_tp_templates');if(raw===null)return JSON.parse(JSON.stringify(TPL_FACTORY));const s=JSON.parse(raw);if(Array.isArray(s))return s;}catch(e){}return JSON.parse(JSON.stringify(TPL_FACTORY));})();
@@ -8260,7 +8281,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function openPrintWindow(title,inner){
     const w=window.open('','_blank');
     if(!w){alert('Popup blocked — allow popups for this page to print / save the PDF.');return;}
-    const css=':root{--bg:#fff;--ink:#0f172a;--muted:#94a3b8;--card:#fff;--line:#e8edf3}*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-page{break-inside:avoid}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}.dwg-page{break-after:page}.dwg-page:last-child{break-after:auto}}.qph{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px;margin-bottom:10px}.qlogo{max-width:220px;max-height:52px;object-fit:contain;filter:brightness(0);display:block;margin:0 auto 6px}.qcompany{font-size:10.5px;color:#475569;line-height:1.5}.qcname{font-weight:900;font-size:13px;color:#0f172a;letter-spacing:.4px}';
+    const css=':root{--bg:#fff;--ink:#0f172a;--muted:#94a3b8;--card:#fff;--line:#e8edf3}*{box-sizing:border-box}body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;margin:0;padding:16px;font-size:12px}.doc{max-width:760px;margin:0 auto}.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.toolbar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}.toolbar button.primary{background:#2563eb;color:#fff;border-color:#2563eb}.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:10px}.brand{font-size:22px;font-weight:900;color:#2563eb;letter-spacing:.4px}.meta{color:#475569;margin:1px 0}.meta b{color:#0f172a}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #e8edf3;padding:4px 6px;text-align:left;font-size:11px;vertical-align:top}th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:1px solid #cbd5e1}td.r,th.r{text-align:right}td.c,th.c{text-align:center}.totbox{max-width:280px;margin-left:auto;margin-top:8px}.totbox .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e8f0}.totbox .row.grand{border-bottom:0;border-top:2px solid #0f172a;font-size:16px;font-weight:900;margin-top:3px;padding-top:6px}.notes,.qnote{margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e8edf3;border-radius:6px;font-size:11px}.foot{margin-top:14px;color:#94a3b8;font-size:10px;text-align:center}.qhead{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:6px;margin-bottom:8px}.qbrand{font-size:22px;font-weight:900;letter-spacing:4px}.qtag{font-size:10px;color:#64748b;margin-top:2px}.qinfo{display:flex;gap:8px;margin:8px 0}.qbox{flex:1;border:1px solid #e8edf3;border-radius:7px;padding:5px 8px}.qbox-l{font-size:9px;letter-spacing:.05em;color:#64748b;font-weight:700;display:block}.qbox-v{font-weight:800;font-size:12px}.qsec{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#64748b;font-weight:800;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:12px 0 6px}.msum tr.brk td{font-size:9px;color:#64748b;padding:0 6px 5px;border-bottom:1px solid #eef2f7}.qtot{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #0f172a;border-radius:9px;padding:9px 14px;margin-top:8px}.qtot-lab{font-size:11px;letter-spacing:.04em;color:#64748b;font-weight:800}.qtot-sub{font-size:11px;color:#64748b}.qtot-big{font-size:24px;font-weight:900}.qtot-inc{font-size:12px;font-weight:800;color:#185fa5}.parts-mat{font-weight:800;font-size:11px;margin:8px 0 1px}.dwg-sheet{border:1px solid #e8edf3;border-radius:7px;padding:5px;margin-bottom:6px;break-inside:avoid}.dwg-cap{font-size:10px;color:#64748b;font-weight:700;margin-bottom:3px}.dwg-svg{width:100%;height:auto;max-height:72mm;background:#fff;display:block}@media print{.toolbar{display:none}body{padding:0}.doc{max-width:none}@page{margin:10mm}tr{break-inside:avoid}.qsec{break-after:avoid}}.qph{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px;margin-bottom:10px}.qlogo{max-width:220px;max-height:52px;object-fit:contain;filter:brightness(0);display:block;margin:0 auto 6px}.qcompany{font-size:10.5px;color:#475569;line-height:1.5}.qcname{font-weight:900;font-size:13px;color:#0f172a;letter-spacing:.4px}';
     w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+css+'</style></head><body><div class="doc"><div class="toolbar"><button class="primary" onclick="window.print()">Print / Save as PDF</button><button onclick="window.close()">Close</button></div>'+inner+'</div></body></html>');
     w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
   }
@@ -8324,8 +8345,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       +totals
       +'<div class="qsec">Parts</div>'+partsTableHtml()
       +((project.quoteNotes||project.notes)?'<div class="qnote"><b>Notes:</b> '+esc(project.quoteNotes||project.notes)+'</div>':'')
-      +'<div class="qsec">Drawings</div>'+printSheetsHtml()
-      +'<div class="foot">Generated by Kabacal · Quote valid 30 days · FAST CNC Services</div>';
+      +'<div class="qsec">Drawings</div>'+printSheetsHtml();   // no footer line (Ednei 2026-07-21)
   }
   function cutFrame(it){const f=resolveFrame(it);const active=(it.lines&&it.lines[0]&&it.lines[0].en)||it.type!=='flat';if(!active)return '—';
     const base=(f.t===f.r&&f.r===f.b&&f.b===f.l)?(f.t+'mm'):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);
