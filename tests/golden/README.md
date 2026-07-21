@@ -57,8 +57,8 @@ AGENTS.md "Guarded zones" and docs/TESTING.md).
 **Plain Shaker** — the preset-gated 6mm-deep shaker scheme (2026-07-13, converted from `22mm Plain Shaker.ToolpathTemplate` + validated vs `22mm Plain Shaker.nc`):
 | File | What |
 |---|---|
-| `GOLDEN_PLAINSHAKER_S1_22mm.nc` (2570) | One 600×400 22mm flat door, frame 50, offset preset **Plain Shaker** → `tplApply('tpl_plainshaker22')` → **4 segments T12(S12000 skim, 1 level 6mm)→T1(S18000 6mm pocket finish)→T2(S16000 2mm finish 3/6)→T1(S18000 OUT rebate 2.5/5/6 at +0.4 + offcut through 22)**. Feeds pinned to the reference NC (T12 9000, T1 8000, T2 3000). |
-| `GOLDEN_PLAINSHAKER_S1_18mm.nc` (2570) | Same scheme retargeted to 18mm (`tpl_plainshaker18`): the 6mm recess is kept (pocket/finishes floor at 18−6=Z12); only the offcut depth follows the board (through 18). Same 4-segment structure. |
+| `GOLDEN_PLAINSHAKER_S1_22mm.nc` (**3005** — regenerado 2026-07-21, offcut em 3 passes) | One 600×400 22mm flat door, frame 50, offset preset **Plain Shaker** → `tplApply('tpl_plainshaker22')` → **4 segments T12(S12000 skim, 1 level 6mm)→T1(S18000 6mm pocket finish)→T2(S16000 2mm finish 3/6)→T1(S18000 OUT rebate 2.5/5/6 at +0.4 + offcut through 22)**. Feeds pinned to the reference NC (T12 9000, T1 8000, T2 3000). |
+| `GOLDEN_PLAINSHAKER_S1_18mm.nc` (**3004** — regenerado 2026-07-21, offcut 9/17/18) | Same scheme retargeted to 18mm (`tpl_plainshaker18`): the 6mm recess is kept (pocket/finishes floor at 18−6=Z12); only the offcut depth follows the board (through 18). Same 4-segment structure. |
 
 `examples/*.fastcnc.json` are the SAME jobs as loadable files — `examples/rich-doors-and-panels.fastcnc.json` was round-trip-verified: cold load reproduces `QUOTE_mixed.json` exactly.
 
@@ -193,9 +193,12 @@ items.push(mkItem('flat',600,400,1,'MDF 22mm','8x4',{t:50,r:50,b:50,l:50},null,'
 applyProfile(0,'Plain Shaker'); render();                              // auto-applies; the explicit apply below is what we capture
 camPaths.length=0; camJob.zZero='bed'; camJob.datum='ll'; camJob.rapidGap=20; camJob.approach=5; camJob.orient='portrait';
 tplApply('tpl_plainshaker22',true);
-const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));                     // -> GOLDEN_PLAINSHAKER_S1_22mm.nc (2570, CRLF)
-// expect: 4 segments T12/S12000(skim →Z16), T1/S18000(→Z16), T2/S16000(→Z19,Z16), T1/S18000(OUT 19.5/17/16 + offcut Z0)
-// 18mm: MDF 18mm + tpl_plainshaker18 → recess floor Z12, offcut Z0; else identical
+const nc=ncPegasus(tpSegsForSheet(tpSheets()[0]));                     // -> GOLDEN_PLAINSHAKER_S1_22mm.nc (3005, CRLF)
+// expect: 4 segments T12/S12000(skim →Z16), T1/S18000(→Z16), T2/S16000(→Z19,Z16),
+//         T1/S18000 = OUT rebate 2.5/5/6 (Z19.5/Z17/Z16) + OFFCUT EM 3 PASSES 11/21/22 (Z11/Z1/Z0)
+// 18mm: MDF 18mm + tpl_plainshaker18 → recess floor Z12, offcut 9/17/18 (Z9/Z1/Z0); else identical
+// (2026-07-21: o offcut era UM passe de 22mm — a mordida mais funda saía por último. Ednei pediu
+//  mordidas grandes primeiro + passe leve no fim; o template do VCarve tem o mesmo defeito.)
 ```
 
 ### Getting bytes out of the browser
