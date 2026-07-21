@@ -895,6 +895,19 @@
     if(!poly)return null;
     return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;
   }
+  // Base polygon for the offset PRESET lines of a shaped door that has NO frame cavity (flat/unframed types).
+  // The framed types already get `placedCavityPoly`; without this the lines fell back to plain rectangles and
+  // ignored the slope — Ednei's reference "Flaptop_Splay.dxf" (2026-07-21) requires every offset to follow the
+  // COMPLETE outline. Frame all-zero ⇒ the lines are measured from the outline itself.
+  function placedLinesPoly(p){
+    if(!p.shape||p.pnl||p.isInsert||p.isBeading)return null;
+    if(!(p.lines&&p.lines.length))return null;
+    const lw=p.rot?p.h:p.w, lh=p.rot?p.w:p.h;                       // logical (unrotated) dims
+    const fr=p.frame0||p.frame||{t:0,r:0,b:0,l:0};                  // RAW frame (no head drop)
+    const poly=shapeCavityPoly(lw,lh,fr,p.shape)||(((+fr.t+ +fr.r+ +fr.b+ +fr.l)<=0)?shapeOutline(lw,lh,p.shape):null);
+    if(!poly)return null;
+    return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;              // same transform as placedCavityPoly
+  }
   // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
   function cavsFor(w,h,f,pnl){
     const iw=w-f.l-f.r,ih=h-f.t-f.b;
@@ -1730,10 +1743,10 @@
         const dCavs=placedCavs(p).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
         // shaped single-opening door: cavity + offset lines follow the outline (closed polygons)
         const cavPolyD=placedCavityPoly(p);
+        const linePolyD=cavPolyD||placedLinesPoly(p);   // unframed shaped door: preset lines still follow the outline
         if(cavPolyD){
           const toD=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
           if(!(p.lines&&p.lines.length)){layers.add('OFFSET_A');body+=dxfPoly('OFFSET_A',toD(cavPolyD),true);}
-          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(cavPolyD,()=>+l.mm):cavPolyD;if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toD(ip),true);}});
         }
         else if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
@@ -1756,7 +1769,10 @@
           }});
         }
         else if(framed&&!(p.lines&&p.lines.length)){dCavs.forEach(c=>{if(c.w>1&&c.h>1){layers.add('OFFSET_A');var fr=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}});}
-        if(!cavPolyD)(p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
+        if(linePolyD){const toL=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
+          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(linePolyD,()=>+l.mm):linePolyD;
+            if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toL(ip),true);}});}
+        else (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
           dCavs.forEach(c=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw>1&&ih>1){layers.add(lyr);var rr=rRectD(c.x+l.mm,c.y+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});});
         if(p.isInsert){
           layers.add('IN');
@@ -3385,10 +3401,10 @@
     const cavs=placedCavs(p).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
     // shaped single-opening door: the cavity + every offset line FOLLOW the outline (polygon inset)
     const cavPoly=placedCavityPoly(p);
+    const linePoly=cavPoly||placedLinesPoly(p);   // unframed shaped door: preset lines still follow the outline
     if(cavPoly){
       const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
       s+=`<path d="${pd(cavPoly)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;
-      (p.lines||[]).forEach(l=>{const ip=polyInset(cavPoly,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     }
     else if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
@@ -3401,7 +3417,9 @@
     }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
     else if(framed&&!(p.lines&&p.lines.length)){cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6)s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;});}
-    if(!cavPoly)(p.lines||[]).forEach(l=>{
+    if(linePoly){const pdl=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      (p.lines||[]).forEach(l=>{const ip=polyInset(linePoly,()=>+l.mm||0);if(ip)s+=`<path d="${pdl(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});}
+    else (p.lines||[]).forEach(l=>{
       cavs.forEach(c=>{const lx=c.x+l.mm/10, ty=c.y+l.mm/10, rw=c.w-2*l.mm/10, rh=c.h-2*l.mm/10;
         if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     });

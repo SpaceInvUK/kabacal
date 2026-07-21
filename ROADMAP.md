@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-21 (f) — Portas com forma: as linhas de offset do PRESET agora seguem o contorno (antes viravam retângulos)
+
+Ednei mandou o DXF de referência **`Flaptop_Splay.dxf`** (par de portas 540×1620, topo plano 250 + rampa até perna curta 1120, frame 50) com a regra: *"todo o contorno tem que manter os offsets corretamente"*. Reproduzido headless: a **geometria já estava certa** — `doorCavityPoly` bate com a referência **vértice a vértice (<0,01 mm)**, incluindo o canto mitrado (221.199, 50) e (490, 513.451). O buraco estava no **writer do DXF e no preview da chapa**: só o caminho de porta COM MOLDURA (`placedCavityPoly` → `polyInset`) seguia a forma; qualquer porta com forma **sem cavidade de moldura** (tipo *flat* com preset de offsets) caía no fallback retangular — Ogee numa splay saía com 6 retângulos ignorando a rampa.
+
+Novo helper **`placedLinesPoly(p)`** (irmão de `placedCavityPoly`): para peça com forma, sem painéis/insert/beading e COM linhas de preset, devolve o mesmo polígono inset (frame RAW, sem head-drop) já transposto para a colocação rotacionada; frame todo zero ⇒ as linhas saem do próprio contorno. DXF e preview da chapa passaram a insetar as linhas desse polígono; o resto do encadeamento (glass, flushback, moldura sem linhas) ficou intacto.
+
+- Testado: `node tools/check.mjs` **ok**. Splay 540×1620 frame 50 + preset **Ogee**, tipo *flat*: **antes** OFFSET_A..F = 4 vértices (retângulos); **depois** 5 vértices cada, e a distância perpendicular medida contra o OUT exportado dá **50 / 54.5 / 56.5 / 67.5 / 73.5 / 77.0 mm em TODAS as 5 arestas** (= frame + mm de cada linha, rampa incluída). Tipo *trad* (moldura) segue igual e também 50.000 nas 5 arestas.
+- **Goldens byte-idênticos**: RICH 18/12/9/3mm, `GOLDEN_18mm.dxf`, `GOLDEN_PLAINSHAKER_S1_18mm.nc`; quote rich 664/133/797. Nenhum golden cobre portas com forma — **fica como pendência criar um** (recipe: splay 540×1620/250/1120, frame 50, preset Ogee).
+- `order-intake` (pedidos online) **não** precisou de regeneração: o catálogo online v1 só tem Plain Shaker retangular.
+- Pendência conhecida: o CAM (`tpOpRects`) e o preview do ITEM ainda não foram auditados para portas com forma + preset — este round cobriu DXF (o que vai pro VCarve) e o preview da chapa.
+
 ## 2026-07-21 (e) — Dobradiças seguem as dimensões DIGITADAS (aresta vertical/altura), não mais "o lado mais longo"
 
 Pedido do Ednei: agora que o editor tem só **Left/Right**, a dobradiça tem de respeitar as medidas digitadas — uma porta **600w × 400h** pendura na aresta de **400mm**, não na de 600. A regra antiga (`resolveHingeSide`: *"Hinges ALWAYS run along the LONGEST side"*) mandava a porta landscape para a aresta **TOP** com span 600: escolher "Left" no editor punha os copos na aresta de cima. Agora `resolveHingeSide(raw,rot)` devolve sempre a aresta **vertical como digitada** (auto=left) e o `span` do `hingeInfo` passou de `Math.max(W,H)` para **H**. Na peça **rotacionada** pelo nesting a aresta lógica vira horizontal (left→top) — a MESMA transposição do `placedCavs` —, então portas em pé ficam exatamente onde estavam. Zonas guardadas tocadas: DXF (`hinges`/`HINGE_GUIDE`) e CAM (`tpDrillMoves`).
