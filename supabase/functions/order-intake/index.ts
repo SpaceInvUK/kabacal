@@ -3,7 +3,7 @@
 // .fastcnc + DXF + NC with the embedded Kabacal engine, stores them in the
 // 'fastcnc-orders' bucket, records the order in public.fastcnc_orders, and emails
 // services@fastcnc.co.uk when RESEND_API_KEY is configured.
-// Engine source: index.html captured at build time (2026-07-17).
+// Engine source: index.html captured at build time (2026-07-21).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const APP_IDS = ["hvCheck","bsCheck","dmCheck","modeDoors","modePanels","tabOrder","tabQuote","tabToolpaths","viewQuote","cbClient","cbPhone","cbEmail","cbNum","cbDate","cbNotes","mpMat","mpSheet","mpCnc","sItems","sDoors","sSheets","sMat","sCnc","sTotal","quoteBody","viewToolpaths","tpCanvas","tpSide","viewPanels","pnRoot","viewOrder","inspector","ordTotal","qaMat","qaFrame","qaType","qaW","qaH","qaQ","qaText","favChips","fileIn","matList","tkText","tkStatus","tkImg","orderWarn","list","nestTools","nest","zoomPct","zoomInsp","zoomScroll","zoomInner","tpzSel","tpzScroll","tpzInner","tplImp","tdbImp","tplSimBox","tpAirMm","ckText","ckStatus","dtName","dtRule","dtFile","doorTplList","ofName","ofFile","offcutTplList","cmName","cmTh","cmPrice","cmCnc","setImp","pnSvg","pnMeas","pnPlanSvg","pnPlanGhost","qNotes","qbrandFb","cloudCode","cloudEmail","cloudJobName","cloudShop"];
@@ -119,7 +119,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   let matColors={};try{matColors=JSON.parse(localStorage.getItem('kab_matColors')||'{}');}catch(e){matColors={};}
   // factory colours for the quick-bar five — guaranteed distinct from each other (hash fallback can collide).
   // A user pick in "Material colours" still wins.
-  const MAT_COLOR_DEFAULTS={'MDF Hidrofugo 18mm':'#2563eb','MDF Hidrofugo 22mm':'#16a34a','Veneered Chipboard 19mm':'#d97706','MR MDF 18mm':'#9333ea','MR MDF 22mm':'#db2777'};
+  const MAT_COLOR_DEFAULTS={'MDF Hidrofugo 18mm':'#2563eb','MDF Hidrofugo 22mm':'#16a34a','Veneered Chipboard 19mm':'#d97706','MR MDF 18mm':'#9333ea','MR MDF 22mm':'#db2777',
+    'MDF Hidrofugo 25mm':'#0891b2','MR MDF 25mm':'#ca8a04'};   // 25mm moisture-resistant twins (2026-07-20) — own colours, same naming/behaviour as the 18/22 ones
   function matColor(mat){return matColors[mat]||MAT_COLOR_DEFAULTS[mat]||blockColor(mat,'');}
   function setMatColor(mat,hex){matColors[mat]=hex;try{localStorage.setItem('kab_matColors',JSON.stringify(matColors));}catch(e){}buildMatUI();render();}
   function openMatColors(){const set=[];favMats.forEach(m=>set.indexOf(m)<0&&set.push(m));items.forEach(it=>set.indexOf(it.mat)<0&&set.push(it.mat));const rows=set.map(m=>'<div class="mc-row"><input type="color" value="'+matColor(m)+'" onchange="setMatColor(\''+esc(m)+'\',this.value)"><span class="chip" style="background:'+matColor(m)+'22;color:'+matColor(m)+';border-color:'+matColor(m)+'55">'+esc(m)+'</span></div>').join('');openModal('Material colours','<div class="sub">Pick a clear background colour for each material. Used in the order list, the material tag and the nesting sheets. Saved on this computer.</div><div class="mc-list">'+rows+'</div>');}
@@ -138,6 +139,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       hinges:{on:!!(hinges&&hinges.on),side:(hinges&&hinges.side)||'auto',count:(hinges&&hinges.count)||'auto',offset:(hinges&&hinges.offset)||100},
       reed:Object.assign({on:false,dir:'vertical',spacing:12.5,depth:3},extra.reed||{}),
       panels:Math.max(1,Math.round(+extra.panels||1)),midFrame:(extra.midFrame===''||extra.midFrame==null)?'':Math.max(0,+extra.midFrame||0),panelSize:(extra.panelSize===''||extra.panelSize==null)?'':Math.max(1,+extra.panelSize||0),
+      midrails:(Array.isArray(extra.midrails)&&extra.midrails.length)?extra.midrails.map(r=>({c:+r.c,th:+r.th})):undefined,
+      shape:(extra.shape&&extra.shape.kind)?JSON.parse(JSON.stringify(extra.shape)):undefined,
       offsetName:normPresetName(extra.offsetName||'Custom')};
   }
   function resolveFrame(it){const f=it.frame||{};return {t:+f.t||0,r:+f.r||0,b:+f.b||0,l:+f.l||0};}
@@ -151,6 +154,21 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // frames and the rail NEVER move. '' = equal split.
   function panelsOf(it){return Math.max(1,Math.round(+(it&&it.panels)||1));}
   function midFrameOf(it){const v=(it&&it.midFrame!==''&&it.midFrame!=null)?+it.midFrame:NaN;return (!isNaN(v)&&v>=0)?v:resolveFrame(it).t;}
+  // ---- ABSOLUTE midrails (2026-07-19, configurator parity) ----
+  // it.midrails = [{c,th}] — each rail's CENTRE measured from the START of the piece (bottom edge portrait,
+  // right edge landscape — same datum as Bottom part), th = that rail's own thickness. A non-empty list
+  // OVERRIDES the panels/midFrame/panelSize path: openings are simply the gaps between frame and rails.
+  function midrailsOf(it){const a=(it&&Array.isArray(it.midrails))?it.midrails.filter(r=>r&&+r.c>0&&+r.th>0):[];return a.length?a.map(r=>({c:+r.c,th:+r.th})).sort((x,y)=>x.c-y.c):null;}
+  // openings between nearF/rails/farF, measured FROM THE NEAR END; rails clamp instead of exploding
+  function railBands(len,farF,nearF,rails){
+    const out=[];let pos=Math.max(0,+nearF||0);const top=len-Math.max(0,+farF||0);
+    rails.forEach(r=>{const lo=r.c-r.th/2,hi=r.c+r.th/2;
+      if(hi<=pos||lo>=top)return;
+      if(lo>pos)out.push({a:pos,b:lo});
+      pos=Math.max(pos,hi);});
+    if(top>pos)out.push({a:pos,b:top});
+    return out;
+  }
   function panelSegs(open,n,req){open=Math.max(0,+open||0);n=Math.max(1,Math.round(+n||1));
     if(open<=0)return [];
     if(n<=1)return [open];
@@ -158,10 +176,96 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     if(!(r>0))return Array.from({length:n},()=>open/n);
     const t=Math.max(1,Math.min(r,open-1*(n-1)));const each=(open-t)/(n-1);
     return [...Array.from({length:n-1},()=>each),t];}
+  // ---- door HEAD SHAPE ('rake' = one slope set by two leg heights · 'splay' = a flat run on one side then
+  // a rake down to a shorter leg). w×h = the bounding box; the TALLER leg always equals h (setShapeField
+  // re-syncs it). Policy v2 (Ednei 2026-07-20): the FRAME FOLLOWS THE COMPLETE OUTSIDE SHAPE — the cavity is
+  // the outline inset per side (shapeCavityPoly), so a 50mm frame stays 50mm around the whole perimeter,
+  // including the sloped edges; preview + DXF carry that true geometry. Kabacal's own NC still cuts NOTHING
+  // on a shaped door except drilling (tpOpRects) — every shape-following cut comes from the DXF in VCarve
+  // until machine-validated. Multi-panel/midrail shaped doors keep the v1 rectangular fallback.
+  function shapeOf(it){const s=it&&it.shape;if(!s||!s.kind||s.kind==='square')return null;
+    const H=+it.h||0,W=+it.w||0;if(H<=0||W<=0)return null;
+    if(s.kind==='rake'){const a=Math.min(H,Math.max(1,+s.legL||H)),b=Math.min(H,Math.max(1,+s.legR||H));if(a===b)return null;return {kind:'rake',legL:a,legR:b};}
+    if(s.kind==='splay'){const fl=Math.min(W-1,Math.max(1,+s.flatLen||Math.round(W/2))),sh=Math.min(H-1,Math.max(1,+s.shortLeg||Math.round(H*0.75)));return {kind:'splay',side:(s.side==='right')?'right':'left',flatLen:fl,shortLeg:sh};}
+    return null;}
+  // outline polygon in LOCAL logical coords (top-left origin, y-down), closed implicitly
+  function shapeOutline(w,h,sh){
+    if(!sh)return null;
+    if(sh.kind==='rake')return [{x:0,y:h},{x:0,y:h-sh.legL},{x:w,y:h-sh.legR},{x:w,y:h}];
+    if(sh.kind==='splay')return sh.side==='left'
+      ?[{x:0,y:h},{x:0,y:0},{x:sh.flatLen,y:0},{x:w,y:h-sh.shortLeg},{x:w,y:h}]
+      :[{x:0,y:h},{x:0,y:h-sh.shortLeg},{x:w-sh.flatLen,y:0},{x:w,y:0},{x:w,y:h}];
+    return null;}
+  function headDropOf(it){const sh=shapeOf(it);if(!sh)return 0;const H=+it.h||0;
+    return sh.kind==='rake'?H-Math.min(sh.legL,sh.legR):H-sh.shortLeg;}
+  // Inward offset of a polygon: each edge moves along its INWARD normal by mmFn(edgeIndex,nx,ny), then
+  // consecutive offset lines are intersected (mitred corners). Works for the shapeOutline winding (inward
+  // normal = (-dy,dx)/len — verified on every edge). Returns null when the result degenerates (<100mm²).
+  function polyInset(pts,mmFn){
+    const n=pts.length,lines=[];
+    for(let i=0;i<n;i++){
+      const a=pts[i],b=pts[(i+1)%n];
+      const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len,ny=dx/len,mm=mmFn(i,nx,ny);
+      lines.push({x1:a.x+nx*mm,y1:a.y+ny*mm,x2:b.x+nx*mm,y2:b.y+ny*mm});
+    }
+    const out=[];
+    for(let i=0;i<n;i++){
+      const A=lines[(i+n-1)%n],B=lines[i];
+      const den=(A.x1-A.x2)*(B.y1-B.y2)-(A.y1-A.y2)*(B.x1-B.x2);
+      if(Math.abs(den)<1e-9){out.push({x:B.x1,y:B.y1});continue;}
+      const t=((A.x1-B.x1)*(B.y1-B.y2)-(A.y1-B.y1)*(B.x1-B.x2))/den;
+      out.push({x:A.x1+t*(A.x2-A.x1),y:A.y1+t*(A.y2-A.y1)});
+    }
+    let ar=0;for(let i=0;i<n;i++){const p1=out[i],p2=out[(i+1)%n];ar+=p1.x*p2.y-p2.x*p1.y;}
+    return Math.abs(ar)/2>=100?out:null;
+  }
+  // Cavity that FOLLOWS the shaped outline (Ednei 2026-07-20): the frame keeps its own width around the
+  // COMPLETE perimeter — top/sloped edges inset by f.t (measured PERPENDICULAR to the slope), bottom f.b,
+  // left f.l, right f.r. Edge classification = dominant axis of the inward normal.
+  function shapeCavityPoly(w,h,f,sh){
+    const pts=shapeOutline(w,h,sh);if(!pts)return null;
+    if((f.t+f.r+f.b+f.l)<=0)return null;
+    return polyInset(pts,(i,nx,ny)=>(Math.abs(ny)>=Math.abs(nx))?(ny>0?f.t:f.b):(nx>0?f.l:f.r));
+  }
+  // single-opening shaped door → the sloped cavity polygon (multi-panel/midrail shaped doors keep the
+  // rectangular under-the-lowest-point behaviour for now)
+  function doorCavityPoly(it){
+    const sh=shapeOf(it);if(!sh||pnlOf(it))return null;
+    return shapeCavityPoly(+it.w||0,+it.h||0,resolveFrame(it),sh);
+  }
+  // outline of a PLACED (possibly rotated) part in placed local coords. Rotation is a PROPER 90° CW turn
+  // ((x,y) → (y, lw−x) — same convention as the panels' pnCellRects, validated against real DXF): the part
+  // is ROTATED on the sheet, never mirrored. (2026-07-20 fix: the first version transposed (x,y)→(y,x),
+  // which is a reflection — a rotated rake door would have been cut as its MIRROR image.)
+  function placedOutline(p){
+    const sh=p.shape;if(!sh)return null;
+    const lw=p.rot?p.h:p.w,lh=p.rot?p.w:p.h;
+    const pts=shapeOutline(lw,lh,sh);if(!pts)return null;
+    return p.rot?pts.map(q=>({x:q.y,y:lw-q.x})):pts;
+  }
+  // sloped cavity polygon of a PLACED part (uses the RAW frame carried as frame0 — p.frame holds the
+  // effective frame with the head drop, which is only right for the rectangular fallback)
+  function placedCavityPoly(p){
+    if(!p.shape||p.pnl)return null;
+    const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
+    if(!framed||p.isInsert||p.isBeading)return null;
+    const lw=p.rot?p.h:p.w,lh=p.rot?p.w:p.h;
+    const poly=shapeCavityPoly(lw,lh,p.frame0||p.frame||{t:0,r:0,b:0,l:0},p.shape);
+    if(!poly)return null;
+    return p.rot?poly.map(q=>({x:q.y,y:lw-q.x})):poly;
+  }
   // cavities in local coords for a rectangle of w×h with frame f and panel config pnl={n,mid,size}
   function cavsFor(w,h,f,pnl){
     const iw=w-f.l-f.r,ih=h-f.t-f.b;
     if(iw<=0||ih<=0)return [];
+    const rails=pnl&&pnl.rails;
+    if(rails&&rails.length){   // absolute midrails: openings = gaps, top-down / left-right order
+      const out=[];
+      if(h>=w){railBands(h,f.t,f.b,rails).forEach(g=>{const hh=g.b-g.a;if(hh>0)out.push({x:f.l,y:h-g.b,w:iw,h:hh});});out.sort((A,B)=>A.y-B.y);}
+      else{railBands(w,f.l,f.r,rails).forEach(g=>{const ww=g.b-g.a;if(ww>0)out.push({x:w-g.b,y:f.t,w:ww,h:ih});});out.sort((A,B)=>A.x-B.x);}
+      return out;
+    }
     const n=pnl?Math.max(1,pnl.n||1):1;
     if(n===1)return [{x:f.l,y:f.t,w:iw,h:ih}];
     const mid=Math.max(0,+pnl.mid||0),out=[];
@@ -172,8 +276,12 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     else{const req=(pnl.size===''||pnl.size==null)?'':Math.max(1,(+pnl.size||0)-f.r);
       const ws=panelSegs(iw-mid*(n-1),n,req);let cx=f.l;ws.forEach(ww=>{if(ww>0)out.push({x:cx,y:f.t,w:ww,h:ih});cx+=ww+mid;});}
     return out;}
-  function pnlOf(it){const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
-  function doorCavities(it){return cavsFor(+it.w||0,+it.h||0,resolveFrame(it),pnlOf(it));}
+  function pnlOf(it){
+    const rails=midrailsOf(it);
+    if(rails)return {n:rails.length+1,mid:0,size:'',rails};
+    const n=panelsOf(it);return n>1?{n:n,mid:midFrameOf(it),size:(it.panelSize===''||it.panelSize==null)?'':+it.panelSize}:null;}
+  function doorCavities(it){const f=resolveFrame(it);const d=headDropOf(it);
+    return cavsFor(+it.w||0,+it.h||0,d>0?{t:f.t+d,r:f.r,b:f.b,l:f.l}:f,pnlOf(it));}   // shaped head: opening sits under the LOWEST head point
   // Cavities of a PLACED (possibly rotated) part, in the part's LOCAL top-left / y-down coords (placed w/h).
   // The frame ALWAYS follows the LOGICAL width/height (top/bottom = height direction, left/right = width
   // direction). When nesting rotates a part we transpose the logical cavities so the on-screen sheet, the
@@ -188,6 +296,47 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function setPanels(i,v){items[i].panels=Math.max(1,Math.min(8,Math.round(+v||1)));render();}
   function setMidFrame(i,v){items[i].midFrame=(String(v).trim()==='')?'':Math.max(0,Math.round(+v||0));render();}
   function setPanelSize(i,v){items[i].panelSize=(String(v).trim()==='')?'':Math.max(1,Math.round(+v||0));render();}
+  // ---- absolute midrails setters (presets compute rail centres so the OPENINGS come out as named) ----
+  function midrailDims(it){const f=resolveFrame(it),portrait=(+it.h||0)>=(+it.w||0);
+    return {portrait,near:portrait?f.b:f.r,far:portrait?f.t:f.l,len:portrait?(+it.h||0):(+it.w||0)};}
+  function setMidrailPreset(i,kind){const it=items[i];const d=midrailDims(it);const th=midFrameOf(it)||50;
+    const inner=d.len-d.near-d.far;
+    if(kind==='none'){delete it.midrails;}
+    else if(kind==='2eq'){it.midrails=[{c:Math.round(d.near+inner/2),th}];}
+    else if(kind==='3eq'){const o=(inner-2*th)/3;it.midrails=[{c:Math.round(d.near+o+th/2),th},{c:Math.round(d.near+2*o+th+th/2),th}];}
+    else if(kind==='6040'){it.midrails=[{c:Math.round(d.near+0.4*(inner-th)+th/2),th}];}   // 40% opening at the bottom/right, 60% above
+    else if(kind==='custom'&&!midrailsOf(it)){it.midrails=[{c:Math.round(d.len/2),th}];}
+    render();}
+  function addMidrail(i){const it=items[i];const d=midrailDims(it);const th=midFrameOf(it)||50;
+    const rails=midrailsOf(it)||[];
+    // drop the new rail in the middle of the biggest current opening
+    const bands=railBands(d.len,d.far,d.near,rails);let best=bands[0]||{a:d.near,b:d.len-d.far};
+    bands.forEach(b=>{if(b.b-b.a>best.b-best.a)best=b;});
+    rails.push({c:Math.round((best.a+best.b)/2),th});
+    it.midrails=rails.sort((x,y)=>x.c-y.c);render();}
+  function delMidrail(i,k){const it=items[i];const rails=midrailsOf(it)||[];rails.splice(k,1);
+    if(rails.length)it.midrails=rails;else delete it.midrails;render();}
+  function setMidrailField(i,k,field,v){const it=items[i];const rails=midrailsOf(it)||[];if(!rails[k])return;
+    rails[k][field]=Math.max(1,Math.round(+v||0));it.midrails=rails.sort((x,y)=>x.c-y.c);render();}
+  // per-door recess/pocket depth (mm, ''=template default). DATA + job file only for now — it does NOT drive
+  // the NC yet: cut depths stay with the validated templates until the value is proven on the machine.
+  function setRecessDepth(i,v){const it=items[i];const x=parseInt(v);it.recessDepth=(v===''||v==='auto'||isNaN(x))?'':Math.max(1,Math.min(15,x));render();}
+  // ---- head shape setters ----
+  function setShapeKind(i,k){const it=items[i];const H=+it.h||0,W=+it.w||0;
+    if(k==='square'){delete it.shape;}
+    else if(k==='rake'){it.shape={kind:'rake',legL:H,legR:Math.max(1,Math.round(H*0.75))};}
+    else if(k==='splay'){it.shape={kind:'splay',side:'left',flatLen:Math.max(1,Math.round(W/2)),shortLeg:Math.max(1,Math.round(H*0.75))};}
+    render();}
+  // The TALLER leg sets the door height (the rule the editor already states) — editing a leg re-syncs
+  // it.h so the outline can never float inside an oversized bounding box (2026-07-20).
+  function setShapeField(i,k,v){const it=items[i];if(!it.shape)return;
+    if(k==='side'){it.shape.side=(v==='right')?'right':'left';render();return;}
+    const x=Math.max(1,Math.round(+v||0));
+    if(k==='legL'||k==='legR'){it.shape[k]=x;it.h=Math.max(+it.shape.legL||0,+it.shape.legR||0);}
+    else if(k==='shortLeg'){it.shape.shortLeg=Math.min(x,Math.max(1,(+it.h||0)-1));}
+    else if(k==='flatLen'){it.shape.flatLen=Math.min(x,Math.max(1,(+it.w||0)-1));}
+    else it.shape[k]=x;
+    render();}
   function enabledLines(it){return (it.lines||[]).map((l,i)=>Object.assign({},l,{L:OFFLINES[i].L,col:OFFCOL[OFFLINES[i].L]})).filter(l=>l.en);}
   // ---- backside offsets: the back face can be OFF, SAME as the front, or have its OWN simpler line set ----
   // (user rule 2026-07-07: front 3-4 offsets, back often just 1 — never force them to mirror.)
@@ -205,13 +354,23 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // ---- Glass / Beading (production rules): the word GLASS in the part text turns a framed door into a
   // glass frame — NO insert; instead a BEADING picture-frame piece is generated on a thin block.
   // Defaults: beading size 19.85mm · thickness 3mm (or 6mm) · fit clearance 0.15mm (guide = size+clear) · round corners ON.
-  function isGlassItem(it){return /\bGLASS\b/i.test(String(it&&it.text||''))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
-  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false};}
-  function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else it.beading[k]=Math.max(0,+v||0);render();}
+  // Glazed = the explicit Glazing toggle (it.glazed, additive 2026-07-20) OR the legacy GLASS keyword in the
+  // part text — old saved jobs keep working untouched.
+  function isGlassItem(it){return (!!(it&&it.glazed)||/\bGLASS\b/i.test(String(it&&it.text||'')))&&(it.type==='trad'||it.type==='flush'||it.type==='reeded');}
+  // Rear-rebate construction (Joinery Supply spec): plain square-edge frame, glass fitted from the FRONT,
+  // rear rebate = front lip + glass seat (= pane thickness) + bead seat; the one-piece bead is a real piece.
+  function beadingOf(it){const b=it.beading||{};return {size:(+b.size>0?+b.size:19.85),th:(String(b.th)==='6'||b.th==='6mm')?6:3,clear:(b.clear!=null&&+b.clear>=0)?+b.clear:0.15,round:b.round!==false,glassTh:(String(b.glassTh)==='6')?6:4,
+    lip:(+b.lip>0?+b.lip:9),beadSeat:(+b.beadSeat>0?+b.beadSeat:9)};}
+  // The toggle is authoritative: switching Glazing OFF also drops the legacy GLASS keyword from the text.
+  function setGlazed(i,on){const it=items[i];
+    if(on)it.glazed=true;else{delete it.glazed;if(/\bGLASS\b/i.test(String(it.text||'')))it.text=normPartText(String(it.text||'').replace(/\bGLASS\b/ig,'').replace(/\s{2,}/g,' ').trim());}
+    render();}
+  function setBeading(i,k,v){const it=items[i];it.beading=it.beading||{};if(k==='round')it.beading.round=!!v;else if(k==='th')it.beading.th=(String(v)==='6')?6:3;else if(k==='glassTh')it.beading.glassTh=(String(v)==='6')?6:4;else it.beading[k]=Math.max(0,+v||0);render();}
   // beading piece = cavity + size per side, nests on "<material name> 3mm/6mm"
   // one beading frame PER internal opening (multi-panel glass doors get one per cavity)
   function beadingSpecsFor(it){
     if(!isGlassItem(it))return [];
+    if(shapeOf(it))return [];                                        // glazing on shaped doors needs a shaped bead — not supported yet
     const b=beadingOf(it);
     return doorCavities(it).filter(c=>c.w>0&&c.h>0).map(cav=>({mat:parseMat(it.mat).name+' '+b.th+'mm',w:Math.round((cav.w+b.size*2)*100)/100,h:Math.round((cav.h+b.size*2)*100)/100,size:b.size,guide:b.size+b.clear,clear:b.clear,round:b.round}));
   }
@@ -220,7 +379,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
 
   // ---- Groove / LED Channel: decorative grooves drawn across a flat part; optional rectangular LED channel ----
-  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:!!g.on,dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:100),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
+  // Grooves are a FLAT-door feature only (Ednei 2026-07-21): framed/insert styles never get groove geometry
+  // or groove toolpaths. The stored settings are kept, they just stop being effective off a flat board.
+  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:(!!g.on&&(it&&it.type==='flat')),dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:100),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
   function ensureGroove(i){const it=items[i];it.groove=it.groove||{on:false,dir:'vertical',spacing:100};it.groove.led=it.groove.led||{on:false,width:4,start:100};return it.groove;}
   function setGrooveOn(i,v){ensureGroove(i).on=!!v;render();}
   function setGrooveDir(i,v){ensureGroove(i).dir=(v==='horizontal'?'horizontal':'vertical');render();}
@@ -245,6 +406,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function insertSpecsFor(it){
     if(it.type!=='trad'&&it.type!=='flush'&&it.type!=='reeded')return [];
     if(isGlassItem(it))return [];                                     // glass doors don't generate inserts (production rule)
+    if(shapeOf(it))return [];                                         // shaped doors: the sloped opening needs a shaped insert — skipped until that exists
     const m=parseMat(it.mat),mainTh=parseInt(m.th)||0;
     const autoTh=it.type==='trad'?(mainTh===18?9:(mainTh===22?12:0)):(mainTh===18?12:(mainTh===22?15:0));
     if(!autoTh)return [];
@@ -260,16 +422,17 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function insertSpecFor(it){const a=insertSpecsFor(it);return a.length?a[0]:null;}
   function setInsOv(i,k,v){const it=items[i];it.insOv=it.insOv||{};if(k==='th')it.insOv.th=parseInt(v)||0;else it.insOv.matName=v;render();}
   function clearInsOv(i){delete items[i].insOv;render();}
-  // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4. Side auto: H>=W -> left, else top.
-  // Hinges ALWAYS run along the LONGEST side. raw = 'auto' | first | second long edge.
-  // Resolved from the given w,h so it follows the part's real orientation (entered or placed).
-  function resolveHingeSide(w,h,raw){
-    const horiz=(+w>=+h);                 // is the long side horizontal?
-    const first=horiz?'top':'left', second=horiz?'bottom':'right';
-    if(!raw||raw==='auto')return first;
-    return (raw==='bottom'||raw==='right')?second:first;
+  // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4 (over the SPAN).
+  // Hinges ALWAYS run along the door's HEIGHT — the LEFT/RIGHT edges as TYPED (Ednei 2026-07-17).
+  // A 600w x 400h door is hinged on a 400mm edge, never on the 600mm one; the old rule used the LONGEST
+  // side, so landscape doors came out hinged along the wrong edge. raw = 'auto' | 'left' | 'right'
+  // ('auto' = left). rot = the part is rotated 90° on the sheet, where that vertical edge becomes a
+  // horizontal one: left -> top (same transpose placedCavs uses, so tall doors keep today's placement).
+  function resolveHingeSide(raw,rot){
+    const s=(raw==='right')?'right':'left';
+    return rot?(s==='left'?'top':'bottom'):s;
   }
-  // hinge positions along the LONG side, measured from the top (vertical side) / left (horizontal side).
+  // hinge positions along the span, measured from the top (vertical side) / left (horizontal side).
   // h.custom = array of mm positions (individual editing); otherwise evenly spread from the end offset.
   function hingePositions(h,span){
     // Hinges default to evenly spaced (centre-to-centre) between the first and last. Stored custom positions
@@ -285,17 +448,44 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const out=[];for(let k=0;k<n;k++)out.push(first+(last-first)*k/(n-1));
     return out;
   }
+  // Hinge hardware catalogue (2026-07-19, configurator parity): per-model cup geometry for the drilling op.
+  // inset = edge → cup CENTRE (Ø35 cup: K + 17.5; K5 default ⇒ 22.5mm — exactly the value that was hard-coded
+  // before, so existing jobs are byte-identical). depth = the maker's standard cup drilling depth, shown as a
+  // HINT only — the drilling op still requires its own explicit depth (deliberate safety policy).
+  // guide = the two fixing holes beside the cup (the European "45/9.5" pattern: `spacing` apart along the
+  // door edge, `offset` from the cup centre measured INTO the door). dia/depth per maker; `kind` screw|dowel.
+  // ⚠ These guide numbers come from published catalogue/reseller data, NOT from a measured jig — they draw in
+  // the preview + DXF only and are NEVER emitted to NC (see tpDrillMoves) until Ednei verifies them.
+  const HINGE_MODELS={
+    generic:{name:'Generic 35mm',cup:35,inset:22.5,depth:13,guide:null},
+    blum:{name:'Blum CLIP top (screw-on)',cup:35,inset:22.5,depth:13,guide:{kind:'screw',dia:3.5,spacing:45,offset:9.5,depth:10,verified:false}},
+    blum_inserta:{name:'Blum Inserta (dowel)',cup:35,inset:22.5,depth:13,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:12,verified:false}},
+    hettich:{name:'Hettich Sensys (TB 45/9.5)',cup:35,inset:22.5,depth:12.8,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}},
+    grass:{name:'Grass Tiomos',cup:35,inset:22.5,depth:12.6,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}}
+  };
+  // guide-hole centres for ONE hinge cup centre, in the same y-up/local frame as hingeCenters
+  function hingeGuidePts(c,side,g){
+    if(!g)return [];
+    const half=g.spacing/2,off=g.offset;
+    if(side==='left'||side==='right'){const gx=(side==='left')?c.x+off:c.x-off;   // offset INTO the door
+      return [{x:gx,y:c.y-half},{x:gx,y:c.y+half}];}
+    const gy=(side==='bottom')?c.y+off:c.y-off;
+    return [{x:c.x-half,y:gy},{x:c.x+half,y:gy}];
+  }
+  function hingeModelOf(it){const m=it&&it.hinges&&it.hinges.model;return HINGE_MODELS[m]?m:'generic';}
+  function hingeRecommended(span){return span>1500?4:span>900?3:2;}
   function hingeInfo(it){
     if(!it.hinges||!it.hinges.on)return{on:false};
     const W=+it.w||0,H=+it.h||0;
     const raw=it.hinges.side||'auto';
-    const side=resolveHingeSide(W,H,raw);
-    const span=Math.max(W,H);
+    const side=resolveHingeSide(raw);
+    const span=H;                                     // hinges run along the HEIGHT as typed
     const custom=(Array.isArray(it.hinges.custom)&&it.hinges.custom.length)?it.hinges.custom.slice():null;
-    let count=2; if(span>1500)count=4; else if(span>900)count=3;
+    let count=hingeRecommended(span);
     if(it.hinges.count&&it.hinges.count!=='auto')count=+it.hinges.count;
     if(custom)count=custom.length;
-    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,custom,auto:(!it.hinges.count||it.hinges.count==='auto')&&!custom};
+    const model=hingeModelOf(it);
+    return{on:true,side,count,offset:+it.hinges.offset||100,span,rawSide:raw,custom,auto:(!it.hinges.count||it.hinges.count==='auto')&&!custom,model,inset:HINGE_MODELS[model].inset};
   }
 
   // ---- offset profiles (reusable line sets) ----
@@ -304,11 +494,20 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // 20.94 x 8mm moulding section (118 pts, normalised to local origin), drawn once per sheet in the DXF.
   const OGEE_PTS=[20.937,2.035,20.894,1.957,20.781,1.782,20.692,1.662,20.579,1.525,20.439,1.371,20.27,1.204,20.128,1.077,19.98,0.954,19.825,0.837,19.665,0.725,19.5,0.62,19.33,0.522,19.156,0.431,18.978,0.347,18.797,0.271,18.613,0.204,18.427,0.145,18.239,0.096,18.049,0.056,17.859,0.027,17.669,0.008,17.478,0,17.214,0.003,16.95,0.017,16.686,0.043,16.423,0.08,16.162,0.127,15.903,0.185,15.647,0.254,15.395,0.332,15.102,0.438,14.851,0.544,14.641,0.645,14.47,0.739,14.239,0.886,14.145,0.955,13.856,1.161,13.577,1.381,13.311,1.617,13.062,1.869,12.824,2.132,12.711,2.268,12.603,2.409,12.405,2.707,12.242,2.994,12.11,3.264,12.004,3.517,11.847,3.953,11.785,4.131,11.728,4.277,11.588,4.55,11.437,4.817,11.297,5.091,11.225,5.227,11.145,5.357,11.048,5.487,10.943,5.611,10.728,5.855,10.527,6.111,10.424,6.236,10.312,6.354,10.193,6.455,10.068,6.547,9.812,6.727,9.561,6.912,9.4,7.022,9.213,7.141,8.999,7.265,8.758,7.392,8.487,7.518,8.187,7.641,7.918,7.736,7.664,7.814,7.423,7.875,7.196,7.923,6.984,7.957,6.786,7.981,6.438,8,6.155,7.992,5.941,7.97,5.797,7.946,5.728,7.932,5.514,7.889,5.302,7.836,5.091,7.773,4.884,7.701,4.68,7.618,4.482,7.525,4.289,7.422,4.103,7.309,3.885,7.16,3.687,7.012,3.508,6.867,3.347,6.724,3.203,6.586,3.076,6.452,2.868,6.206,2.715,5.994,2.611,5.824,2.52,5.648,2.389,5.38,2.323,5.192,2.243,5.011,2.148,4.838,2.041,4.674,1.922,4.519,1.792,4.373,1.65,4.239,1.498,4.116,1.337,4.004,1.167,3.906,0.989,3.82,0.803,3.749,0.611,3.692,0.412,3.651,0.209,3.626,0,3.617];
   const OGEE_PROFILE=(function(){const a=[];for(let i=0;i<OGEE_PTS.length;i+=2)a.push({x:OGEE_PTS[i],y:OGEE_PTS[i+1]});return {pts:a,w:20.94,h:8};})();
-  const BUILTIN_PRESETS=['None','Plain Shaker','Ogee'];
+  const BUILTIN_PRESETS=['None','Plain Shaker','Ogee','Shaker V-groove (draft)','V Shaker (draft)','Art Deco (draft)','Raised & Field (draft)','Ovolo (draft)','Faux Frame (draft)'];
   let profiles={
     'None':{side:'front',lines:mkLines(null)},
     'Plain Shaker':{side:'front',lines:mkLines({A:{mm:0}})},
-    'Ogee':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4.5},C:{mm:6.5},D:{mm:17.5},E:{mm:23.5},F:{mm:27}}),profile:OGEE_PROFILE}
+    'Ogee':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4.5},C:{mm:6.5},D:{mm:17.5},E:{mm:23.5},F:{mm:27}}),profile:OGEE_PROFILE},
+    // DRAFT presets (2026-07-19, joinerysupply benchmark): APPROXIMATE offset lines for preview/planning only.
+    // No cut template matches these names, so they never emit NC — each becomes real via the VCarve pipeline
+    // (Ednei's .ToolpathTemplate + reference .nc → converted template + golden), same as Plain Shaker/Ogee.
+    'Shaker V-groove (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:4}})},
+    'V Shaker (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:6}})},
+    'Art Deco (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:12},C:{mm:24},D:{mm:36}})},
+    'Raised & Field (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:15},C:{mm:40}})},
+    'Ovolo (draft)':{side:'front',lines:mkLines({A:{mm:0},B:{mm:5},C:{mm:9}})},
+    'Faux Frame (draft)':{side:'front',lines:mkLines({A:{mm:80}})}
   };
   // 2026-07-12: 'Shaker' renamed 'Plain Shaker'; 'All offsets' (example-only) removed. Old files/settings may
   // still carry those keys — external preset sets are sanitised (legacy keys dropped, factory names never
@@ -516,12 +715,18 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           // files carry only the INNER opening in panelSize → convert (+ frame) so old jobs render IDENTICAL
           panelSize:(part.kabBottomPart!=null&&+part.kabBottomPart>0)?Math.round(+part.kabBottomPart)
             :((part.panelSize===''||part.panelSize==null)?'':Math.max(1,num(part.panelSize,0)+((num(part.height,0)>=num(part.width,0))?f.b:f.r))),
+          midrails:(Array.isArray(part.kabMidrails)&&part.kabMidrails.length)?part.kabMidrails.map(r=>({c:+r.c,th:+r.th})).filter(r=>r.c>0&&r.th>0):undefined,
+          recessDepth:(part.kabRecessDepth!=null&&+part.kabRecessDepth>0)?+part.kabRecessDepth:undefined,
+          shape:(part.kabShape&&typeof part.kabShape==='object'&&part.kabShape.kind)?JSON.parse(JSON.stringify(part.kabShape)):undefined,
+          glazed:(part.kabGlazed===true)?true:undefined,
           midFrame:(part.frameMiddle===''||part.frameMiddle==null)?'':Math.max(0,num(part.frameMiddle,0)),
           backMode:(part.kabBackMode==='custom')?'custom':undefined,
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
-          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined},
+          hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined,model:(typeof part.kabHingeModel==='string'&&part.kabHingeModel)?part.kabHingeModel:undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
-          offsetName:'Custom'
+          // preset NAME travels in the additive kabOffsetName (2026-07-21) so a reopened job lights the right
+          // Door Style button again; production files (no such field) keep the old 'Custom' behaviour.
+          offsetName:(typeof part.kabOffsetName==='string'&&part.kabOffsetName)?normPresetName(part.kabOffsetName):'Custom'
         };
         out.push(it);
       });
@@ -623,6 +828,13 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     // the corrected ABSOLUTE "Bottom part" travels in the additive kabBottomPart (2026-07-15 semantics fix)
     if(it.panelSize===''||it.panelSize==null){o.panelSize='';}
     else{const bf=((+it.h||0)>=(+it.w||0))?f.b:f.r;o.panelSize=String(Math.max(1,Math.round(+it.panelSize-bf)));o.kabBottomPart=+it.panelSize;}
+    // ABSOLUTE midrails (additive 2026-07-19): the full rail list travels in kabMidrails; the production
+    // fields fall back to an equal split with the same opening count so old readers stay sane.
+    const kmr=midrailsOf(it);if(kmr){o.kabMidrails=kmr.map(r=>({c:r.c,th:r.th}));o.panels=kmr.length+1;o.panelSize='';delete o.kabBottomPart;}
+    if(it.recessDepth!==''&&it.recessDepth!=null)o.kabRecessDepth=+it.recessDepth;   // per-door recess depth (data only, additive)
+    const ksh=shapeOf(it);if(ksh)o.kabShape=JSON.parse(JSON.stringify(ksh));         // head shape (additive; width/height stay the bounding box)
+    if(it.glazed)o.kabGlazed=true;                                                   // explicit Glazing toggle (additive; the legacy GLASS keyword still works)
+    if(it.offsetName&&it.offsetName!=='Custom')o.kabOffsetName=it.offsetName;         // offset preset name (additive) — restores the Door Style button on reload
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -632,6 +844,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     o.frameTop=(f.t===bf?'':f.t); o.frameRight=(f.r===bf?'':f.r); o.frameBottom=(f.b===bf?'':f.b); o.frameLeft=(f.l===bf?'':f.l); o.frameMiddle='';
     const hi=it.hinges||{};
     o.hinges=hi.on?'Yes':'No'; o.hingeSide=hi.side||'auto'; o.hingeOffset=num(hi.offset,100); o.hingeSpacing='';
+    if(hi.on&&hi.model&&hi.model!=='generic')o.kabHingeModel=hi.model;   // hardware model (additive 2026-07-19)
     o.pocketingEnabled=it.lines[0].en?'Yes':''; o.pocketRoundCorners=it.pocketRound||'No'; o.pocketSideMode=it.pocketSide||'front';
     if(backModeOf(it)==='custom'){o.kabBackMode='custom';o.kabBackLines=JSON.parse(JSON.stringify(it.backLines||[]));}   // additive Kabacal fields — production ignores them
     o.sprayFinish=it.spray?'Yes':'No'; o.spraySides=[];
@@ -736,7 +949,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function downloadFastCnc(name){ensureOrderNumber();const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||project.number||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){ensureOrderNumber();const n=prompt('Save as — file name:',project.number||'ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1,'PROFILE':177};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'HINGE_GUIDE':4,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1,'PROFILE':177};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -833,7 +1046,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   }
   function hingeCenters(p,bx,by){
     const h=p.hinge,out=[],inset=22.5;
-    const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
+    const side=resolveHingeSide(h.rawSide,p.rot);     // hinged edge as the part actually sits
     if(side==='left'||side==='right'){
       const cx=side==='left'?bx+inset:bx+p.w-inset;
       hingePositions(h,p.h).forEach(pos=>out.push({x:cx,y:by+p.h-pos}));      // pos measured from the TOP edge (y-up here)
@@ -864,7 +1077,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         const round=(p.lines||[]).some(l=>l.rd);
         layers.add('OUT');
         var o=rRectD(bx,by,p.w,p.h);
-        if(round||p.insRound||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        var shpOut=placedOutline(p);
+        if(shpOut)body+=dxfPoly('OUT',shpOut.map(q=>rPtD(bx+q.x,by+(p.h-q.y))),true);   // shaped head: TRUE closed outline polygon
+        else if(round||p.insRound||(p.isBeading&&p.beadRound!==false))body+=dxfRoundRect('OUT',o.x,o.y,o.w,o.h,2.5);else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
         if(p.isBeading){
           // beading piece: INSIDE = glass opening; BEADING = cut guide clearance mm OUTSIDE the outline
           const bs=p.beadSize||19.85,bc=(p.beadClear!=null?p.beadClear:0.15);
@@ -873,7 +1088,14 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         }
         // internal openings: cavities in y-up local coords (one for plain doors, N split by the centre rail)
         const dCavs=placedCavs(p).map(c=>({x:bx+c.x,y:by+(p.h-c.y-c.h),w:c.w,h:c.h}));
-        if(p.glass){
+        // shaped single-opening door: cavity + offset lines follow the outline (closed polygons)
+        const cavPolyD=placedCavityPoly(p);
+        if(cavPolyD){
+          const toD=pts=>pts.map(q=>rPtD(bx+q.x,by+(p.h-q.y)));
+          if(!(p.lines&&p.lines.length)){layers.add('OFFSET_A');body+=dxfPoly('OFFSET_A',toD(cavPolyD),true);}
+          (p.lines||[]).forEach(l=>{if(!(+l.mm>=0))return;const ip=(+l.mm>0)?polyInset(cavPolyD,()=>+l.mm):cavPolyD;if(ip){const lyr='OFFSET_'+l.L;layers.add(lyr);body+=dxfPoly(lyr,toD(ip),true);}});
+        }
+        else if(p.glass){
           // glass frame: only INSIDE (cavity) + BEADING (rebate guide) — production keeps just these three lines
           const gg=(p.glass.guide||20);
           dCavs.forEach(c=>{if(c.w>1&&c.h>1){
@@ -894,7 +1116,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           }});
         }
         else if(framed&&!(p.lines&&p.lines.length)){dCavs.forEach(c=>{if(c.w>1&&c.h>1){layers.add('OFFSET_A');var fr=rRectD(c.x,c.y,c.w,c.h);body+=dxfRect('OFFSET_A',fr.x,fr.y,fr.w,fr.h);}});}
-        (p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
+        if(!cavPolyD)(p.lines||[]).forEach(l=>{if(isFlushDoor&&l.L==='A'&&!(+l.mm))return;const lyr='OFFSET_'+l.L;
           dCavs.forEach(c=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw>1&&ih>1){layers.add(lyr);var rr=rRectD(c.x+l.mm,c.y+l.mm,iw,ih);if(l.rd)body+=dxfRoundRect(lyr,rr.x,rr.y,rr.w,rr.h,2.5);else body+=dxfRect(lyr,rr.x,rr.y,rr.w,rr.h);}});});
         if(p.isInsert){
           layers.add('IN');
@@ -908,7 +1130,14 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
             else{for(let xx=8;xx<p.w-6;xx+=sp){var a2=rPtD(bx+xx,by+8),b2=rPtD(bx+xx,by+p.h-8);if(k%2===0)body+=dxfLine('REEDED',a2.x,a2.y,b2.x,b2.y);else body+=dxfLine('REEDED',b2.x,b2.y,a2.x,a2.y);k++;}}
           }
         }
-        if(p.hinge&&p.hinge.on){layers.add('hinges');hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);});}
+        if(p.hinge&&p.hinge.on){layers.add('hinges');
+          // HINGE = the 35mm cup (layer name 'hinges' is the frozen VCarve-gadget contract — never renamed).
+          // HINGE_GUIDE = the maker's fixing/dowel holes, one pair per hinge (additive layer, 2026-07-21).
+          const hg=(HINGE_MODELS[p.hinge.model||'generic']||HINGE_MODELS.generic).guide;
+          const hSide=resolveHingeSide(p.hinge.rawSide,p.rot);
+          hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);
+            if(hg)hingeGuidePts(c,hSide,hg).forEach(q=>{layers.add('HINGE_GUIDE');var qc=rPtD(q.x,q.y);body+=dxfCircle('HINGE_GUIDE',qc.x,qc.y,hg.dia/2);});
+          });}
         if(p.groove){const gr=p.groove;layers.add('GROOVE');
           if(gr.dir==='vertical'){groovePositions(p.w,gr.spacing).forEach(pos=>{var a=rPtD(bx+pos,by),b2=rPtD(bx+pos,by+p.h);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
           else{groovePositions(p.h,gr.spacing).forEach(pos=>{var a=rPtD(bx,by+pos),b2=rPtD(bx+p.w,by+pos);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
@@ -990,7 +1219,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   }
 
   // ---- pricing tables (sample of the production book) ----
-  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo':{'18mm':60,'22mm':70},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'19mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
+  const PRICES={'MDF':{'3mm':15,'6mm':25,'9mm':35,'12mm':40,'15mm':45,'18mm':55,'22mm':65,'25mm':75},'MR MDF':{'3mm':25,'6mm':35,'9mm':40,'12mm':50,'15mm':55,'18mm':65,'22mm':75,'25mm':85},'FR MDF':{'12mm':60,'18mm':80,'25mm':100},'Veneered MDF':{'18mm':85,'25mm':105},'Black MDF':{'18mm':90},'MDF Hidrofugo':{'18mm':60,'22mm':70,'25mm':80},'MDF Hidrofugo Plus':{'12mm':50,'18mm':65},'Birch Ply':{'12mm':75,'18mm':95,'24mm':120},'Marine Ply':{'12mm':120,'18mm':160},'MFC':{'18mm':55,'25mm':65},'Veneered Chipboard':{'18mm':80,'19mm':80,'25mm':100},'Melamine board':{'18mm':55},'Laminated HPL':{'18mm':90}};
   // Ednei's bar (2026-07-16), in this exact order. kab_favs_v marks lists saved AFTER this change:
   // stored favs from before it are ignored once (one-time reset to the requested five), then edits stick again.
   const FAVS_DEFAULT=['MDF Hidrofugo 18mm','MDF Hidrofugo 22mm','Veneered Chipboard 19mm','MR MDF 18mm','MR MDF 22mm'];
@@ -1096,6 +1325,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function roundAll(i,on){items[i].pocketRound=on?'Yes':'No';items[i].lines.forEach(l=>l.rd=on);render();}
   function setHingeOn(i,v){const h=items[i].hinges;h.on=v;if(v&&h.side!=='left'&&h.side!=='right')h.side='left';render();}
   function setHingeSide(i,v){items[i].hinges.side=v;render();}
+  function setHingeModel(i,v){items[i].hinges.model=HINGE_MODELS[v]?v:'generic';render();}
   function setHingeCount(i,v){const it=items[i];it.hinges.count=v;   // changing the count re-spreads evenly, keeping any custom first/last ends
     if(Array.isArray(it.hinges.custom)&&it.hinges.custom.length>=2){
       const span=Math.max(+it.w||0,+it.h||0),first=+it.hinges.custom[0],last=+it.hinges.custom[it.hinges.custom.length-1];
@@ -1245,7 +1475,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function moveSelTo(mat){selSet.forEach(i=>{if(items[i])items[i].mat=mat;});multiBase=null;closeModal();render();}
   // multi-edit propagation: whatever block the inspector changed on the primary item is copied to every
   // selected part. Width/height/quantity are NEVER copied (locked in multi-edit).
-  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','groove','panels','midFrame','panelSize','backMode','backLines','scribe'];
+  const MULTI_FIELDS=['type','mat','size','grain','text','frame','frameLink','lines','pocketSide','pocketRound','offsetName','hinges','spray','sprayCfg','reed','insOv','beading','glazed','groove','panels','midFrame','panelSize','midrails','shape','recessDepth','backMode','backLines','scribe'];
   function propagateMulti(){
     if(selSet.size<2||selItem<0||selItem>=items.length||!multiBase)return;
     const src=items[selItem];
@@ -1275,6 +1505,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const hon=uni(it=>hingeInfo(it).on?1:0);
     if(hon===1){const hs=uni(it=>hingeInfo(it).side),ho=uni(it=>hingeInfo(it).offset);H.hinges=(hs?cap(hs):'On')+(ho!=null?' · '+ho+'mm':'');}else H.hinges='';
     H.spray=(uni(it=>it.spray?1:0)===1)?'On':'';
+    const shk=uni(it=>{const s=shapeOf(it);return s?s.kind:'square';});
+    H.shape=shk==='rake'?'Single rake':(shk==='splay'?'Splay':'');
+    H.glazing=(uni(it=>isGlassItem(it)?1:0)===1)?(uni(it=>beadingOf(it).glassTh)+'mm glass'):'';
     const g=uni(it=>grainOf(it));H.grain=g==='off'?'Off':(g==='long'?'Longest side':(g==='short'?'Shortest side':''));
     const gon=uni(it=>grooveOf(it).on?1:0);
     if(gon===1){const gd=uni(it=>grooveOf(it).dir),gs=uni(it=>grooveOf(it).spacing);H.groove=(gd?cap(gd):'On')+(gs!=null?' · '+gs+'mm':'');}else H.groove='';
@@ -1306,8 +1539,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const secs=[];
     if(has){
       secs.push(['part','Dimensions',secParts(i,it),St.part]);
-      secs.push(['doortype','Door Type',secDoorType(i,it),St.doortype]);
+      secs.push(['doortype','Door Style',secDoorType(i,it),St.doortype]);   // Ednei 2026-07-21: style before shape
+      secs.push(['shape','Shape',secShape(i,it),St.shape]);
       secs.push(['offset','Frame & Panels',tabOffset(i,it),St.offset]);
+      secs.push(['glazing','Glazing',secGlazing(i,it),St.glazing]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
       secs.push(['grain','Grain',secGrain(i,it),St.grain]);   // Ednei 2026-07-16: Grain is less important — sits below Hinges
       secs.push(['groove','Groove',secGroove(i,it),St.groove]);
@@ -1321,10 +1556,42 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     box.innerHTML=html;
     const zi=document.getElementById('zoomInsp');if(zi)zi.innerHTML=html;   // mirror into the zoom Edit drawer (same handlers, same state)
   }
+  // Door Style = DIRECT buttons (Ednei 2026-07-21), no preset chips. Two groups: plain styles (Flat, Plain
+  // Shaker EOD — both flat boards, the EOD one carries the shaker offset line) and INSERT styles, which keep
+  // their existing insert recipes untouched (Traditional/Flushback/Reeded).
+  // plain (non-insert) styles = a flat board + the matching offset preset
+  const FLAT_STYLES={flat:'None',shaker:'Plain Shaker',ogee:'Ogee'};
+  function doorStyleOf(it){
+    if(it.type!=='flat')return it.type;
+    const nm=normPresetName(it.offsetName||'');
+    const hit=Object.keys(FLAT_STYLES).filter(k=>k!=='flat'&&FLAT_STYLES[k]===nm)[0];
+    return hit||'flat';
+  }
+  function setDoorStyle(i,style){
+    const it=items[i];
+    if(FLAT_STYLES[style]){it.type='flat';applyProfile(i,FLAT_STYLES[style]);}
+    else{it.type=style;render();}
+    if(typeof tplAutoSyncItem==='function')tplAutoSyncItem(i);
+    render();
+  }
   function secDoorType(i,it){
+    const cur=doorStyleOf(it);
+    const btn=(k,label,col,icon,tip)=>`<button class="typebtn ${cur===k?'on':''}" style="${cur===k?('background:'+col+';border-color:'+col):''}" title="${tip}" onclick="setDoorStyle(${i},'${k}')">${icon(cur===k?'#fff':col)}<span>${label}</span></button>`;
     const presets=Object.keys(profiles).filter(n=>n!=='None');
-    return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
-      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Frame &amp; Panels</b> section.</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Frame &amp; Panels</b> section to reuse it here.</div>'}${(function(){const s=(typeof tplCutStatus==='function')?tplCutStatus(i):'';return s?'<div class="sub" style="margin-top:8px;padding:5px 8px;border-radius:7px;background:rgba(16,122,59,.09);color:#0e7a3b;font-weight:600">'+s+' <span style="font-weight:400;opacity:.8">— edit in the Toolpaths tab</span></div>':'';})()}`;
+    return `<div class="insp-type" style="padding:2px 0">
+        ${btn('flat','Flat',TYPES.flat.color,TYPES.flat.icon,'Plain flat board — no frame recess, no insert')}
+        ${btn('shaker','Plain Shaker',TYPES.flat.color,TYPES.trad.icon,'Flat board with the Plain Shaker frame recess machined on the door itself — no separate insert piece')}
+        ${btn('ogee','Ogee',TYPES.reeded.color,TYPES.trad.icon,'Flat board with the Ogee moulded profile machined on the door itself — no separate insert piece (22mm carries the validated Ogee cut template)')}
+      </div>
+      <div class="sub" style="font-weight:700;margin-top:8px">Insert</div>
+      <div class="insp-type" style="padding:2px 0">
+        ${btn('trad','Traditional',TYPES.trad.color,TYPES.trad.icon,'Framed door + a separate insert panel (existing insert recipe)')}
+        ${btn('flush','Flushback',TYPES.flush.color,TYPES.flush.icon,'Flushback door + its 12mm insert (existing insert recipe)')}
+        ${btn('reeded','Reeded',TYPES.reeded.color,TYPES.reeded.icon,'Reeded door + its reeded insert (existing insert recipe)')}
+      </div>
+      <div class="sub" style="margin-top:4px">Insert styles generate their own insert piece — nested, priced and machined as before.</div>
+      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" title="Apply the ${esc(n)} offset preset to this door" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Frame &amp; Panels</b> section.</div>`:''}
+      ${(function(){const s=(typeof tplCutStatus==='function')?tplCutStatus(i):'';return s?'<div class="sub" style="margin-top:8px;padding:5px 8px;border-radius:7px;background:rgba(16,122,59,.09);color:#0e7a3b;font-weight:600">'+s+' <span style="font-weight:400;opacity:.8">— edit in the Toolpaths tab</span></div>':'';})()}`;
   }
   // Shared frame editor (2026-07-13): clean labelled Top/Bottom/Left/Right fields (a single box when linked). Used by
   // the Frame & Panels section — replaces the old cramped 44px inputs with tiny letter labels
@@ -1342,8 +1609,60 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       <div class="ed-field" style="flex:1;min-width:88px"><label>Width (mm)</label><input type="number" value="${it.w}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'w',+this.value)"></div>
       <div class="ed-field" style="flex:1;min-width:88px"><label>Height (mm)</label><input type="number" value="${it.h}" ${M?'disabled title="Locked in multi-edit"':''} onchange="upd(${i},'h',+this.value)"></div>
     </div>
+    ${(function(){const pm=parseMat(it.mat),ths=Object.keys(PRICES[pm.name]||{});if(ths.length<2)return '';
+      return '<div class="ed-field" style="margin-top:8px"><label>Thickness — '+esc(pm.name)+'</label><div class="preset-chips" style="margin-top:2px">'+ths.map(t=>'<button class="preset-chip '+(pm.th===t?'on':'')+'" title="Switch this door to '+esc(pm.name)+' '+t+' (price and cut templates follow)" onclick="upd('+i+',\'mat\',\''+esc(pm.name+' '+t)+'\')">'+t+'</button>').join('')+'</div></div>';})()}
     <div class="ed-field" style="margin-top:8px"><label>Text / engraving</label><input type="text" value="${esc(it.text||'')}" onchange="upd(${i},'text',this.value)" placeholder="e.g. Pantry — type G for Glass"></div>
     <div class="sub" style="margin-top:2px">Material = the coloured chip above (or the group bars). Quantity = the − / + stepper on the part row. Frame, panels and rails are in <b>Frame &amp; Panels</b> below.</div>`;}
+  // Glazing (2026-07-20, Joinery Supply construction): plain square-edge frame, glass fitted from the FRONT,
+  // rear rebate = front lip + glass seat + bead seat, one-piece bead included. All glazing controls live
+  // here (the Frame & Panels card is a read-only summary) so nothing is duplicated.
+  function secGlazing(i,it){
+    const framed=(it.type==='trad'||it.type==='flush'||it.type==='reeded');
+    if(!framed)return '<div class="sub">Glazing needs a framed door style (Traditional, Flushback or Reeded) — pick one in <b>Door Style</b>.</div>';
+    const on=isGlassItem(it),b=beadingOf(it),sh=shapeOf(it),bead=beadingSpecFor(it);
+    const th=parseInt(parseMat(it.mat).th)||18,total=b.lip+b.glassTh+b.beadSeat;
+    return `
+    <label class="tg" style="font-weight:700"><input type="checkbox" ${on?'checked':''} onchange="setGlazed(${i},this.checked)"> Glaze this door</label>
+    ${on?`
+    <div class="sub" style="margin-top:6px">Replaces the centre panel with glass: the opening is cut clean through and rebated on the back, with a separate one-piece bead to hold the glass.</div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="min-width:150px"><label>Glass thickness</label><div class="seg3" style="margin-top:2px"><button class="segbtn ${b.glassTh===4?'on':''}" onclick="setBeading(${i},'glassTh','4')">4 mm</button><button class="segbtn ${b.glassTh===6?'on':''}" onclick="setBeading(${i},'glassTh','6')">6 mm</button></div></div>
+      <div class="ed-field" style="flex:1;min-width:96px"><label>Bead width (mm)</label><input type="number" step="0.01" min="1" value="${b.size}" onchange="setBeading(${i},'size',this.value)"></div>
+      <div class="ed-field" style="min-width:110px"><label>Bead board</label><select onchange="setBeading(${i},'th',this.value)"><option value="3" ${b.th===3?'selected':''}>3 mm</option><option value="6" ${b.th===6?'selected':''}>6 mm</option></select></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="flex:1;min-width:92px"><label>Front lip (mm)</label><input type="number" step="0.5" min="1" value="${b.lip}" onchange="setBeading(${i},'lip',this.value)" title="Square-edge lip left on the FRONT face — the glass sits behind it"></div>
+      <div class="ed-field" style="flex:1;min-width:92px"><label>Bead rebate (mm)</label><input type="number" step="0.5" min="1" value="${b.beadSeat}" onchange="setBeading(${i},'beadSeat',this.value)" title="Rear seat depth for the one-piece bead"></div>
+      <div class="ed-field" style="flex:1;min-width:88px"><label>Fit gap (mm)</label><input type="number" step="0.01" min="0" value="${b.clear}" onchange="setBeading(${i},'clear',this.value)"></div>
+      <label class="tg" style="font-size:12px;margin-bottom:5px"><input type="checkbox" ${b.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
+    </div>
+    <div class="sub" style="margin-top:8px;padding:6px 8px;border-radius:7px;background:rgba(180,83,9,.08);color:#92400e">
+      <b>Construction</b> — plain square-edge frame · glass fitted from the front · rear rebate: <b>${b.lip}mm front lip</b> → <b>${b.glassTh}mm glass rebate</b> → <b>${b.beadSeat}mm bead rebate</b> (${total}mm of the ${th}mm board${total>=th?' — <b>deeper than the board</b>, reduce a value':''}) · one-piece bead included.
+    </div>
+    ${sh?'<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped door: glazing pieces are not generated (a sloped opening needs a shaped bead) — set Shape to Square to glaze.</div>'
+      :(bead?`<div class="sub" style="margin-top:6px">Bead piece: <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b> — nested, priced and exported automatically (one per opening).</div>`:'')}`
+    :'<div class="sub" style="margin-top:6px">Not glazed — the opening gets the usual insert panel.</div>'}`;}
+  // head shape editor (2026-07-19): Square / Single rake / Flat-top splay — see shapeOf for the v1 policy
+  function secShape(i,it){const sh=shapeOf(it),kind=sh?sh.kind:'square';const H=+it.h||0,W=+it.w||0;
+    return `
+    <div class="seg3">
+      <button class="segbtn ${kind==='square'?'on':''}" title="Flat top — a plain rectangle" onclick="setShapeKind(${i},'square')">Square</button>
+      <button class="segbtn ${kind==='rake'?'on':''}" title="One slope across the head, set by the two leg heights" onclick="setShapeKind(${i},'rake')">Single rake</button>
+      <button class="segbtn ${kind==='splay'?'on':''}" title="A flat run on one side, then a rake down to a shorter leg" onclick="setShapeKind(${i},'splay')">Flat-top splay</button>
+    </div>
+    ${kind==='rake'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Leg A — left height (mm)</label><input type="number" min="1" value="${sh.legL}" onchange="setShapeField(${i},'legL',this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Leg B — right height (mm)</label><input type="number" min="1" value="${sh.legR}" onchange="setShapeField(${i},'legR',this.value)"></div>
+    </div>
+    <div class="sub" style="margin-top:5px">The taller leg should equal the door Height (${H}mm) — equal legs make a plain rectangle. The internal opening stays rectangular UNDER the lowest head point (drop ${headDropOf(it)}mm).</div>`:''}
+    ${kind==='splay'?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="min-width:96px"><label>Flat top on</label><div class="seg3" style="margin-top:2px"><button class="segbtn ${sh.side==='left'?'on':''}" onclick="setShapeField(${i},'side','left')">Left</button><button class="segbtn ${sh.side==='right'?'on':''}" onclick="setShapeField(${i},'side','right')">Right</button></div></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Flat top length (mm)</label><input type="number" min="1" value="${sh.flatLen}" onchange="setShapeField(${i},'flatLen',this.value)"></div>
+      <div class="ed-field" style="flex:1;min-width:110px"><label>Short leg height (mm)</label><input type="number" min="1" value="${sh.shortLeg}" onchange="setShapeField(${i},'shortLeg',this.value)"></div>
+    </div>
+    <div class="sub" style="margin-top:5px">The tall side is the Height (${H}mm) from Dimensions; the head rakes from the flat run down to the short leg. Opening stays rectangular under the lowest point (drop ${headDropOf(it)}mm).</div>`:''}
+    ${sh?`<div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">⚠ Shaped head: the frame and every offset line FOLLOW the shaped outline — the preview and the DXF carry the true sloped geometry (a 50mm frame stays 50mm around the whole perimeter). Kabacal's own NC runs ONLY drilling on shaped doors; every shape-following cut comes from the DXF in VCarve. Auto inserts and glazing are skipped on shaped doors.</div>`
+      :'<div class="sub" style="margin-top:6px">Flat top — plain rectangle (default). Rake/splay heads are for sloped ceilings and under-stair doors.</div>'}`;}
   function secGrain(i,it){const g=grainOf(it);return `
     <div class="seg3">
       <button class="segbtn ${g==='off'?'on':''}" onclick="upd(${i},'grain','off')">Off</button>
@@ -1351,7 +1670,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       <button class="segbtn ${g==='short'?'on':''}" title="Grain runs along the SHORTEST side — part stands long-side across the sheet" onclick="upd(${i},'grain','short')">↕ Shortest side</button>
     </div>
     <div class="sub" style="margin-top:6px">Grain on = the part never rotates in the nesting and the sheet shows a woodgrain texture.</div>`;}
-  function secGroove(i,it){const gr=grooveOf(it);return `
+  function secGroove(i,it){const gr=grooveOf(it);const flat=(it.type==='flat');
+    if(!flat)return `<label class="tg" style="font-weight:700;opacity:.55"><input type="checkbox" disabled ${(it.groove&&it.groove.on)?'checked':''}> Grooves on this part</label>
+      <div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">Flat doors only — ${esc(TYPES[it.type].name)} is a framed/insert style, so no groove geometry or groove toolpaths are produced. Switch <b>Door Style</b> to <b>Flat</b> to use grooves.</div>`;
+    return `
     <label class="tg" style="font-weight:700"><input type="checkbox" ${gr.on?'checked':''} onchange="setGrooveOn(${i},this.checked)"> Grooves on this part</label>
     ${gr.on?`
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
@@ -1442,15 +1764,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // "Frame & Panels" (2026-07-16 reorg): Frame → Mid rail → Panels → Bottom part, then presets/offsets.
   // Mid rail and Bottom part stay VISIBLE at 1 panel but disabled (they only apply from 2 panels up) —
   // same setters as before (setMidFrame/setPanels/setPanelSize), zero geometry change.
-  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);return `
+  function tabOffset(i,it){const f=resolveFrame(it);const ins=insertSpecFor(it);const bead=beadingSpecFor(it);const bcfg=beadingOf(it);const n=panelsOf(it),portrait=(+it.h||0)>=(+it.w||0);const rails=midrailsOf(it);return `
     ${bead?`<div class="ins-card" style="border-color:#b45309;background:#fffbeb;flex-wrap:wrap">
-      <b style="color:#92400e">GLASS</b> — no insert; creates beading frame <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
-      <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <label class="sub">size <input type="number" step="0.01" value="${bcfg.size}" onchange="setBeading(${i},'size',this.value)" style="width:62px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
-        <label class="sub">th <select onchange="setBeading(${i},'th',this.value)" style="padding:3px;border:1px solid var(--line);border-radius:6px"><option value="3" ${bcfg.th===3?'selected':''}>3mm</option><option value="6" ${bcfg.th===6?'selected':''}>6mm</option></select></label>
-        <label class="sub">fit gap <input type="number" step="0.01" value="${bcfg.clear}" onchange="setBeading(${i},'clear',this.value)" style="width:56px;padding:3px;border:1px solid var(--line);border-radius:6px">mm</label>
-        <label class="tg" style="font-size:11px"><input type="checkbox" ${bcfg.round?'checked':''} onchange="setBeading(${i},'round',this.checked)"> round corners</label>
-      </span></div>`:''}
+      <b style="color:#92400e">GLAZED</b> — no insert; one-piece bead <b>${bead.w}×${bead.h}mm</b> on <b>${esc(bead.mat)}</b>
+      <span class="sub" style="flex-basis:100%">${bcfg.glassTh}mm glass · edit everything in the <b>Glazing</b> section.</span></div>`:''}
     ${ins?(function(){
       const names=Object.keys(PRICES);if(names.indexOf(ins.matName)<0)names.unshift(ins.matName);
       const ths=Object.keys(PRICES[ins.matName]||{}).map(t=>parseInt(t));if(ths.indexOf(ins.insTh)<0)ths.unshift(ins.insTh);
@@ -1461,15 +1778,38 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         ${it.insOv?`<span class="link" onclick="clearInsOv(${i})" title="Back to the automatic recipe">↺ reset</span>`:''}
         <span class="sub" style="flex-basis:100%" title="Counted in parts, quote, DXF and toolpaths">nests on its own sheet · priced &amp; machined</span></div>`;})():''}
     <div class="sub" style="font-weight:700;margin:2px 0 0">Frame</div>
+    <div class="preset-chips" style="margin:3px 0 4px">${[['Micro',10],['Skinny',25],['Shaker',45],['Standard',50],['Classic',80]].map(p=>`<button class="preset-chip ${(it.frameLink&&f.t===p[1]&&f.r===p[1])?'on':''}" title="${p[0]} — ${p[1]}mm all sides" onclick="setFrame(${i},${p[1]})">${p[0]} ${p[1]}</button>`).join('')}</div>
     ${frameEditor(i,it,true)}
     <div class="sub" style="margin:0 0 8px">cavity ${cavityOf(it).w} × ${cavityOf(it).h} mm</div>
     <div style="display:flex;gap:8px;margin:0 0 4px;flex-wrap:wrap">
-      <div class="ed-field" style="flex:1;min-width:96px"><label>Mid rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${n>1?f.t:'—'}" ${n>1?'':'disabled'} onchange="setMidFrame(${i},this.value)" title="${n>1?'The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)':'Needs 2+ panels — set Panels to 2 to use a mid rail'}"></div>
-      <div class="ed-field" style="flex:1;min-width:64px;max-width:96px"><label>Panels</label><input type="number" min="1" max="8" value="${n}" onchange="setPanels(${i},this.value)" title="Internal openings inside the door — split along the long side"></div>
-      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} part (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="${n>1?'equal':'—'}" ${n>1?'':'disabled'} onchange="setPanelSize(${i},this.value)" title="${n>1?('ABSOLUTE distance from the '+(portrait?'bottom':'right')+' of the piece to the top of the '+(portrait?'lower':'right')+' section — INCLUDES the '+(portrait?'bottom':'right')+' frame (e.g. frame 50 + opening 350 = 400). The upper opening absorbs the rest; frames and rail never move. Empty = equal split.'):'Needs 2 panels — set Panels to 2 first'}"></div>
+      <div class="ed-field" style="flex:1;min-width:96px"><label>Mid rail (mm)</label><input type="number" min="0" value="${(it.midFrame===''||it.midFrame==null)?'':it.midFrame}" placeholder="${(n>1&&!rails)?f.t:'—'}" ${(n>1&&!rails)?'':'disabled'} onchange="setMidFrame(${i},this.value)" title="${rails?'Custom midrails active — edit the rail list below (each rail has its own thickness)':(n>1?'The rail(s) BETWEEN openings — independent of the outer frame (empty = same as the outer top frame)':'Needs 2+ panels — set Panels to 2 to use a mid rail')}"></div>
+      <div class="ed-field" style="flex:1;min-width:64px;max-width:96px"><label>Panels</label><input type="number" min="1" max="8" value="${rails?rails.length+1:n}" ${rails?'disabled':''} onchange="setPanels(${i},this.value)" title="${rails?'Custom midrails active — the rail list below sets the openings (set Midrails to None to use this again)':'Internal openings inside the door — split along the long side'}"></div>
+      <div class="ed-field" style="flex:1;min-width:104px"><label>${portrait?'Bottom':'Right'} part (mm)</label><input type="number" min="1" value="${(it.panelSize===''||it.panelSize==null)?'':it.panelSize}" placeholder="${(n>1&&!rails)?'equal':'—'}" ${(n>1&&!rails)?'':'disabled'} onchange="setPanelSize(${i},this.value)" title="${rails?'Custom midrails active — position the rails directly below':(n>1?('ABSOLUTE distance from the '+(portrait?'bottom':'right')+' of the piece to the top of the '+(portrait?'lower':'right')+' section — INCLUDES the '+(portrait?'bottom':'right')+' frame (e.g. frame 50 + opening 350 = 400). The upper opening absorbs the rest; frames and rail never move. Empty = equal split.'):'Needs 2 panels — set Panels to 2 first')}"></div>
     </div>
-    ${n>1?`<div class="sub" style="margin:0 0 8px">${(function(){const cs=doorCavities(it);const side=portrait?'bottom':'right';const dir=portrait?'tall (top→bottom)':'wide (left→right)';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:''}
-    <div style="max-width:130px;margin:0 auto 10px">${offsetPreview(it)}</div>
+    <div class="sub" style="font-weight:700;margin:6px 0 2px">Midrails <span style="font-weight:400">— centres measured from the ${portrait?'bottom':'right'} edge of the piece</span></div>
+    <div class="preset-chips" style="margin:0 0 4px">
+      <button class="preset-chip ${(!rails&&n===1)?'on':''}" title="No midrails" onclick="setMidrailPreset(${i},'none')">None</button>
+      <button class="preset-chip" title="One rail dead centre — two equal openings" onclick="setMidrailPreset(${i},'2eq')">Two equal</button>
+      <button class="preset-chip" title="Two rails — three equal openings" onclick="setMidrailPreset(${i},'3eq')">Three equal</button>
+      <button class="preset-chip" title="One rail — 60% opening on top, 40% at the ${portrait?'bottom':'right'}" onclick="setMidrailPreset(${i},'6040')">60 / 40</button>
+      <button class="preset-chip ${rails?'on':''}" title="Free rail list — add each rail with its own centre and thickness" onclick="setMidrailPreset(${i},'custom')">Custom</button>
+    </div>
+    ${rails?rails.map((r,k)=>`<div style="display:flex;gap:8px;margin:0 0 4px;flex-wrap:wrap;align-items:flex-end">
+      <div class="ed-field" style="flex:1;min-width:130px"><label>Rail ${k+1} — centre (mm)</label><input type="number" min="1" value="${r.c}" onchange="setMidrailField(${i},${k},'c',this.value)" title="Centre of this rail measured from the ${portrait?'bottom':'right'} edge of the piece"></div>
+      <div class="ed-field" style="flex:1;min-width:100px"><label>Thickness (mm)</label><input type="number" min="1" value="${r.th}" onchange="setMidrailField(${i},${k},'th',this.value)"></div>
+      <button class="btn ghost tiny" style="margin-bottom:3px" onclick="delMidrail(${i},${k})" title="Remove this rail">✕</button>
+    </div>`).join('')+`<div style="margin:0 0 6px"><button class="btn ghost tiny" onclick="addMidrail(${i})">+ Add midrail</button></div>`:''}
+    ${(n>1||rails)?`<div class="sub" style="margin:0 0 8px">${(function(){const cs=doorCavities(it);const dir=portrait?'tall (top→bottom)':'wide (left→right)';
+      if(rails)return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rails at '+rails.map(r=>r.c+'mm (th '+r.th+')').join(', ')+' from the '+(portrait?'bottom':'right')+'.';
+      const side=portrait?'bottom':'right';return cs.length+' openings: '+cs.map(c=>Math.round(portrait?c.h:c.w)).join(' / ')+'mm '+dir+' · rail '+midFrameOf(it)+'mm. The '+side+' PART is measured from the '+side+' edge of the piece and INCLUDES that frame ('+(portrait?f.b:f.r)+'mm) — its opening = part − frame. Resizing it or the door re-splits only the other openings, never the frame or rail.';})()}</div>`:''}
+    <div style="display:flex;gap:8px;margin:0 auto 6px;align-items:flex-start;justify-content:center;flex-wrap:wrap">
+      <div style="width:130px">${offsetPreview(it)}</div>
+      <div style="width:170px">${sectionPreview(it)}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin:0 0 10px;align-items:center;flex-wrap:wrap">
+      <label class="sub">Pocket depth <select onchange="setRecessDepth(${i},this.value)" style="padding:4px;border:1px solid var(--line);border-radius:7px;margin-left:4px" title="Per-door recess depth for the cavity. Saved with the job; the NC keeps the validated template depths until this value is proven on the machine (air-cut first).">${['auto',4,5,6,7,8,9].map(o=>`<option value="${o}" ${String(o)===String(it.recessDepth===''||it.recessDepth==null?'auto':it.recessDepth)?'selected':''}>${o==='auto'?'auto (template)':o+' mm'}</option>`).join('')}</select></label>
+      ${(it.recessDepth!==''&&it.recessDepth!=null)?'<span class="sub" style="color:#b45309">saved with the job — NC still uses the validated template depth until this is machine-proven</span>':''}
+    </div>
     <div class="prof-pick">
       <span class="sub" style="font-weight:700">Preset:</span>
       <select onchange="applyProfile(${i},this.value)">${Object.keys(profiles).map(p=>`<option ${p===it.offsetName?'selected':''}>${p}</option>`).join('')}${profiles[it.offsetName]?'':`<option selected>${esc(it.offsetName)}</option>`}</select>
@@ -1526,7 +1866,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const pts=[0].concat(arr,[h.span]);let bi=0,bg=0;for(let k=0;k+1<pts.length;k++){const g=pts[k+1]-pts[k];if(g>bg){bg=g;bi=k;}}
     arr.push(Math.round((pts[bi]+pts[bi+1])/2));it.hinges.custom=arr.sort((a,b)=>a-b);render();}
   function tabHinges(i,it){
-    const cur=(it.hinges.side==='right')?'right':'left';   // only the two long edges, labelled Left/Right
+    const cur=(it.hinges.side==='right')?'right':'left';   // the two vertical edges (height), Left/Right
     const h=hingeInfo(it);
     if(!it.hinges.on) return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
@@ -1545,20 +1885,43 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" checked onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <label class="sub">Model <select onchange="setHingeModel(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px" title="Hinge hardware — sets the cup geometry for the drilling op and travels with the job">${Object.keys(HINGE_MODELS).map(k=>`<option value="${k}" ${k===h.model?'selected':''}>${HINGE_MODELS[k].name}</option>`).join('')}</select></label>
       <label class="sub">Side <select onchange="setHingeSide(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['left','right'].map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select></label>
       <label class="sub">From ends <input type="number" value="${+it.hinges.offset||100}" onchange="setHingeOffset(${i},this.value)" style="width:58px;padding:5px;border:1px solid var(--line);border-radius:7px"> mm</label>
-      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(h.count)?'selected':''}>${o}</option>`).join('')}</select></label>
+      <label class="sub">Count <select onchange="setHingeCount(${i},this.value)" style="padding:5px;border:1px solid var(--line);border-radius:7px">${['auto',2,3,4,5].map(o=>`<option ${String(o)===String(h.count)?'selected':''}>${o}</option>`).join('')}</select>${(String(h.count)!=='auto'&&+h.count!==hingeRecommended(h.span))?` <span class="chip" style="background:#fef3c7;color:#92400e;border-color:#f59e0b55" title="For a ${h.span}mm side the recommended count is ${hingeRecommended(h.span)}">rec ${hingeRecommended(h.span)}</span>`:''}</label>
       ${hingeDiagram(it)}
     </div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">${rows}</div>
     <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost tiny" onclick="setHingeCount(${i},${n+1})">${ic('plus',12)} Add hinge</button>${h.custom?`<button class="btn ghost tiny" title="Reset both ends to ${h.offset}mm from each end and re-spread evenly" onclick="hingeAuto(${i})">${ic('reset',12)} Reset to symmetric</button>`:''}</div>
-    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
+    ${(function(){const g=HINGE_MODELS[h.model].guide;return g?`<div class="sub" style="margin-top:6px;padding:5px 8px;border-radius:7px;background:rgba(180,83,9,.08);color:#92400e"><b>HINGE_GUIDE</b> — ${esc(HINGE_MODELS[h.model].name)}: 2 × Ø${g.dia}mm ${g.kind} holes per hinge, ${g.spacing}mm apart, ${g.offset}mm from the cup centre into the door${g.depth?', ~'+g.depth+'mm deep':''}. Drawn in the preview and the DXF (layer <b>HINGE_GUIDE</b>) — <b>never sent to the NC</b> until you verify the pattern against the real jig/catalogue.</div>`:'<div class="sub" style="margin-top:6px">No guide-hole pattern for this model — the cup is drawn on its own.</div>';})()}
+    <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · ${esc(HINGE_MODELS[h.model].name)}: Ø${HINGE_MODELS[h.model].cup} cup, centre ${HINGE_MODELS[h.model].inset}mm from the edge, maker's standard depth ${HINGE_MODELS[h.model].depth}mm (the drilling op still asks for its own depth) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
 
   function tabSpray(i,it){return `
     <label class="tg"><input type="checkbox" ${it.spray?'checked':''} onchange="sprayOn(${i},this.checked)"> Spray finish</label>${ap(i,'spray')}
     ${it.spray?`<div class="ed-field" style="margin-top:8px"><label>Spray profile (rate)</label><select onchange="setSprayProfile(${i},this.value)">${Object.keys(SPRAY_RATES).map(p=>`<option ${sprayProfileOf(it)===p?'selected':''}>${p}</option>`).join('')}</select><div class="sub" style="margin-top:3px">≈ ${sprayAreaOf(it).toFixed(2)} m² × £${SPRAY_RATES[sprayProfileOf(it)]}/m² = <b>£${Math.round(sprayAreaOf(it)*SPRAY_RATES[sprayProfileOf(it)]*(+it.q||1))}</b> (×${+it.q||1})</div></div>`:''}
     ${it.spray?sprayEditorHtml(i,it):'<div class="sub" style="margin-top:8px">Standard = no spray. Turn on to mark which faces/edges get painted.</div>'}`;}
 
+  // SECTION view (2026-07-19): a cut through the door edge at the cavity. Real curve when the preset carries
+  // a PROFILE (Ogee); otherwise schematic ticks at each enabled offset line's XY position. Depths are only
+  // real for profile presets — the schematic marks positions, not cut depths (those live in the CAM ops).
+  function sectionPreview(it){
+    const m=parseMat(it.mat),th=parseInt(m.th)||18;
+    const prof=(profiles[it.offsetName]&&profiles[it.offsetName].profile)||null;
+    const el=enabledLines(it);
+    if(!prof&&!el.length)return '';
+    const W=170,H=64,pad=10,topY=14;
+    const span=Math.max(prof?prof.w+6:0,el.length?Math.max(...el.map(l=>l.mm))+12:0,24);
+    const sc=Math.min((W-2*pad)/span,(H-topY-8)/th);
+    let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;border:1px solid var(--line);border-radius:8px;background:#fff">`;
+    s+=`<text x="${pad}" y="10" font-size="8" font-weight="700" fill="var(--muted)">SECTION — from the cavity edge</text>`;
+    s+=`<rect x="${pad}" y="${topY}" width="${(span*sc).toFixed(1)}" height="${(th*sc).toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1"/>`;
+    if(prof){let d='';prof.pts.forEach((p,k)=>{d+=(k?'L':'M')+(pad+p.x*sc).toFixed(1)+' '+(topY+p.y*sc).toFixed(1)+' ';});
+      s+=`<path d="${d}" fill="none" stroke="#b45309" stroke-width="1.2"/><text x="${(pad+prof.w*sc+3).toFixed(1)}" y="${topY+9}" font-size="7.5" fill="#b45309">${prof.w}×${prof.h}mm profile</text>`;}
+    el.forEach(l=>{const x=pad+l.mm*sc;
+      s+=`<line x1="${x.toFixed(1)}" y1="${topY-3}" x2="${x.toFixed(1)}" y2="${(topY+th*sc).toFixed(1)}" stroke="${OFFCOL[l.L]}" stroke-width="1" stroke-dasharray="${prof?'2 2':'none'}"/><text x="${x.toFixed(1)}" y="${topY-5}" font-size="7" text-anchor="middle" fill="${OFFCOL[l.L]}">${l.L}</text>`;});
+    s+=`<text x="${pad}" y="${H-3}" font-size="7" fill="var(--muted)">board ${th}mm · ${prof?'profile = real cut':'marks = line positions (depths live in the cut ops)'}</text>`;
+    return s+'</svg>';
+  }
   // preview box matches the part's real W×H aspect (landscape parts draw landscape)
   function offsetPreview(it){
     const VW=160,VH=120,pad=10,w=Math.max(1,+it.w||1),h=Math.max(1,+it.h||1);
@@ -1569,14 +1932,44 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     // stays visible even with no offset line enabled. The cavity is uneven-aware (e.g. a 305 bottom rail shows a
     // deeper bottom band). Previously only the offset lines were drawn, so a framed door with no offset line —
     // or an uneven frame — looked like a plain rectangle (the "frame disappears" bug). Cut geometry is unchanged.
-    s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
+    const shPrev=shapeOf(it),shPts=shPrev?shapeOutline(w,h,shPrev):null;
+    if(shPts){const d=shPts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${d}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;}
+    else s+=`<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#e5eaf1" stroke="#334155" stroke-width="1.5"/>`;
     // one opening per REAL cavity (Ednei 2026-07-16): 2 panels show 2 openings, mid rail visible —
     // doorCavities is the same source the sheets/DXF/toolpaths use, so the thumbnail always agrees.
     const iw=(+it.w||0)-f.l-f.r, ih=(+it.h||0)-f.t-f.b;
     const cavs=(iw>0&&ih>0)?doorCavities(it):[];
-    cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
+    // LIVE frame diagram (Ednei 2026-07-21): the frame band itself is painted (outline minus every opening,
+    // evenodd — so it follows a shaped outline too) and each side carries its value. Thicker value = visibly
+    // thicker band, because the whole preview is to scale. Labels sit inside the band when it is deep enough,
+    // otherwise just outside the edge, so they never disappear on a thin frame.
+    const cavPolyPrev=doorCavityPoly(it);
+    const dOuter=shPts?(shPts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z')
+      :`M${x0.toFixed(1)} ${y0.toFixed(1)} L${(x0+bw).toFixed(1)} ${y0.toFixed(1)} L${(x0+bw).toFixed(1)} ${(y0+bh).toFixed(1)} L${x0.toFixed(1)} ${(y0+bh).toFixed(1)} Z`;
+    const dHoles=cavPolyPrev
+      ?(cavPolyPrev.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z')
+      :cavs.filter(c=>c.w*sc>1&&c.h*sc>1).map(c=>{const cx=x0+c.x*sc,cy=y0+c.y*sc,cw=c.w*sc,ch=c.h*sc;
+        return `M${cx.toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${(cy+ch).toFixed(1)} L${cx.toFixed(1)} ${(cy+ch).toFixed(1)} Z`;}).join(' ');
+    if(dHoles)s+=`<path d="${dOuter} ${dHoles}" fill-rule="evenodd" fill="#93c5fd55"><title>frame band — T${f.t} · B${f.b} · L${f.l} · R${f.r} mm</title></path>`;
+    // shaped door: the opening and EVERY offset line are polygons that follow the outline (2026-07-21 —
+    // the thumbnail was still drawing the rectangular fallback on top of the sloped band)
+    if(cavPolyPrev){
+      const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${pd(cavPolyPrev)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening follows the shape · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></path>`;
+      enabledLines(it).forEach(l=>{const ip=polyInset(cavPolyPrev,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="1.4"/>`;});
+    }
+    else cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
       if(cw>1&&ch>1)s+=`<rect x="${(x0+c.x*sc).toFixed(1)}" y="${(y0+c.y*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening ${Math.round(c.w)}×${Math.round(c.h)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;});
-    enabledLines(it).forEach(l=>{
+    if(dHoles){
+      const lbl=(x,y,txt,rot)=>`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="6" font-weight="700" text-anchor="middle" fill="#1e3a8a"${rot?` transform="rotate(-90 ${x.toFixed(1)} ${y.toFixed(1)})"`:''}>${txt}</text>`;
+      const cx=x0+bw/2,cy=y0+bh/2,IN=7;                                   // band deep enough to hold the text?
+      s+=lbl(cx,(f.t*sc>=IN)?(y0+f.t*sc/2+2):(y0-2),'T '+f.t,false);
+      s+=lbl(cx,(f.b*sc>=IN)?(y0+bh-f.b*sc/2+2):(y0+bh+5),'B '+f.b,false);
+      s+=lbl((f.l*sc>=IN)?(x0+f.l*sc/2):(x0-3),cy,'L '+f.l,true);
+      s+=lbl((f.r*sc>=IN)?(x0+bw-f.r*sc/2):(x0+bw+3),cy,'R '+f.r,true);
+    }
+    if(!cavPolyPrev)enabledLines(it).forEach(l=>{
       const li=OFFLINES.findIndex(o=>o.L===l.L),lr=it.lines[li];
       cavs.forEach(c=>{
         const rx=x0+(c.x+lr.mm)*sc, ry=y0+(c.y+lr.mm)*sc, rw=(c.w-2*lr.mm)*sc, rh=(c.h-2*lr.mm)*sc;
@@ -1610,7 +2003,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function sprayDesc(it){const c=it.sprayCfg||{};const faces=[c.front&&'front',c.back&&'back'].filter(Boolean);const edges=[c.eT&&'top',c.eB&&'bottom',c.eL&&'left',c.eR&&'right'].filter(Boolean);const inner=[c.iT,c.iB,c.iL,c.iR].filter(Boolean).length;if(!faces.length&&!edges.length&&!inner)return 'Click the faces / edges to mark what gets painted.';const parts=[];if(faces.length)parts.push(faces.join('+'));if(edges.length)parts.push(edges.length+' edge'+(edges.length>1?'s':''));if(inner)parts.push(inner+' inner');return 'Painted: '+parts.join(' · ');}
   function sprayEditorHtml(i,it){const c=it.sprayCfg||{};const hasFrame=enabledLines(it).length>0||it.type!=='flat';const col=p=>c[p]?'#16a34a':'#e2e8f0';const faceFill=c.front?'#bbf7d0':'#f8fafc';let s='<div class="spray-edit">';s+=`<svg viewBox="0 0 110 84" style="width:150px;height:auto;border:1px solid var(--line);border-radius:6px;background:#fff">`;s+=`<rect x="22" y="16" width="66" height="50" fill="${faceFill}" stroke="#94a3b8" stroke-width="0.8" style="cursor:pointer" onclick="sprayToggle(${i},'front')"></rect>`;s+=`<text x="55" y="43" font-size="5" text-anchor="middle" fill="#475569" style="pointer-events:none">${c.front?'FACE ✓':'face'}</text>`;s+=`<rect x="75" y="17.5" width="11" height="8" rx="1.5" fill="${c.back?'#16a34a':'#fff'}" stroke="#16a34a" stroke-width="0.6" style="cursor:pointer" onclick="sprayToggle(${i},'back')"></rect>`;s+=`<text x="80.5" y="23.4" font-size="4.6" text-anchor="middle" fill="${c.back?'#fff':'#16a34a'}" style="pointer-events:none">B</text>`;s+=`<rect x="22" y="10.5" width="66" height="4.5" fill="${col('eT')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eT')"></rect>`;s+=`<rect x="22" y="67" width="66" height="4.5" fill="${col('eB')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eB')"></rect>`;s+=`<rect x="16.5" y="16" width="4.5" height="50" fill="${col('eL')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eL')"></rect>`;s+=`<rect x="89" y="16" width="4.5" height="50" fill="${col('eR')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eR')"></rect>`;if(hasFrame){s+=`<rect x="40" y="30" width="30" height="22" fill="#fff" stroke="#cbd5e1" stroke-width="0.5" style="pointer-events:none"></rect>`;s+=`<rect x="40" y="30" width="30" height="3" fill="${col('iT')}" style="cursor:pointer" onclick="sprayToggle(${i},'iT')"></rect>`;s+=`<rect x="40" y="49" width="30" height="3" fill="${col('iB')}" style="cursor:pointer" onclick="sprayToggle(${i},'iB')"></rect>`;s+=`<rect x="40" y="30" width="3" height="22" fill="${col('iL')}" style="cursor:pointer" onclick="sprayToggle(${i},'iL')"></rect>`;s+=`<rect x="67" y="30" width="3" height="22" fill="${col('iR')}" style="cursor:pointer" onclick="sprayToggle(${i},'iR')"></rect>`;}s+=`</svg>`;s+=`<div class="sub" style="flex:1;min-width:150px">Click the <b>face</b> (front) · small <b>B</b> = back · the <b>edges</b>${hasFrame?' · inner frame edges':''}.<br><b>${sprayDesc(it)}</b><br><span class="link" onclick="sprayApplyAll(${i})">↧ Apply this spray to all items</span></div>`;s+='</div>';return s;}
 
-  // aspect-aware: box matches the part shape; dots sit on the resolved LONG edge
+  // aspect-aware: box matches the part shape; dots sit on the hinged (left/right) edge
   function hingeDiagram(it){
     const h=hingeInfo(it);if(!h.on)return '';
     const VW=72,VH=72,pad=8,w=Math.max(1,+it.w||1),hh=Math.max(1,+it.h||1);
@@ -1719,10 +2112,30 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     g.innerHTML=h;
   }
   function zMeasRedraw(){const inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');if(svg)zMeasDraw(svg,null);}
+  // ---- zoom DIMENSIONS overlay (2026-07-19): part W/H + opening sizes drawn on the zoomed sheet ----
+  let zDimsOn=false;
+  function toggleZoomDims(){zDimsOn=!zDimsOn;const ov=document.getElementById('zoomOverlay');if(ov&&ov.classList.contains('show'))openZoom(_zoomIdx);}
+  function zDimsDraw(svg){
+    let g=svg.querySelector('#zDims');
+    if(!g){g=document.createElementNS('http://www.w3.org/2000/svg','g');g.setAttribute('id','zDims');g.style.pointerEvents='none';svg.appendChild(g);}
+    if(!zDimsOn){g.innerHTML='';return;}
+    const m=svg.getScreenCTM&&svg.getScreenCTM(),k=m&&m.a?Math.max(0.4,11/m.a):2;   // ≈11px on screen
+    const d=nestSvgs[_zoomIdx];let h='';
+    ((d&&d.parts)||[]).forEach(p=>{
+      const x=p.x/10,y=p.y/10,w=p.w/10,hh=p.h/10;
+      h+='<text x="'+(x+w/2)+'" y="'+(y+hh+0.9*k)+'" text-anchor="middle" font-size="'+(0.85*k).toFixed(2)+'" font-weight="700" fill="#0f766e">↔ '+Math.round(p.w)+'</text>';
+      h+='<text x="'+(x-0.35*k)+'" y="'+(y+hh/2)+'" text-anchor="middle" font-size="'+(0.85*k).toFixed(2)+'" font-weight="700" fill="#0f766e" transform="rotate(-90 '+(x-0.35*k)+' '+(y+hh/2)+')">↕ '+Math.round(p.h)+'</text>';
+      try{placedCavs(p).forEach(c=>{
+        if(c.w/10>3.2*k&&c.h/10>1.2*k)h+='<text x="'+(x+(c.x+c.w/2)/10)+'" y="'+(y+(c.y+c.h/2)/10+0.3*k)+'" text-anchor="middle" font-size="'+(0.75*k).toFixed(2)+'" fill="#64748b">'+Math.round(c.w)+'×'+Math.round(c.h)+'</text>';
+      });}catch(e){}
+    });
+    g.innerHTML=h;
+  }
+  function zDimsRedraw(){const inner=document.getElementById('zoomInner'),svg=inner&&inner.querySelector('svg');if(svg)zDimsDraw(svg);}
   function openZoom(i){const d=nestSvgs[i];if(!d)return;if(i!==_zoomIdx){zMeasA=null;zMeasFix=null;}_zoomIdx=i;let ov=document.getElementById('zoomOverlay');if(!ov){ov=document.createElement('div');ov.id='zoomOverlay';ov.className='zoomov';ov.addEventListener('click',e=>{if(e.target===ov)closeZoom();});document.body.appendChild(ov);}
     const tot=nestSvgs.length,prevOff=i<=0,nextOff=i>=tot-1;
-    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zMeasOn?'primary':'ghost'} tiny" onclick="toggleZoomMeas()" title="Ruler — click two points to measure in mm; snaps to sheet, part and opening edges (Esc to exit)">📏 Ruler: ${zMeasOn?'ON':'OFF'}</button> <button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zMeasOn?'Ruler — click two points to measure (snaps to edges) · Esc exits the ruler · ':''}${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
-    ov.classList.add('show');setupZoomPanZoom();zBuildSnapGeo();if(zMeasOn)zMeasRedraw();if(zoomEdit)renderInspector();}
+    ov.innerHTML=`<div class="zoombox${zoomEdit?' zediting':''}"><div class="zoomhead"><span style="display:flex;align-items:center;gap:6px"><button class="btn ghost tiny" ${prevOff?'disabled':''} onclick="navZoom(-1)" title="Previous sheet (←)">◀</button><b>${esc(d.label)}</b><button class="btn ghost tiny" ${nextOff?'disabled':''} onclick="navZoom(1)" title="Next sheet (→)">▶</button><span class="sub">${i+1} / ${tot}</span></span><span>${d.key?`<label class="tg" style="font-size:11px;gap:4px" title="Selected sheets become the target of Sheet Size / Nesting and of Toolpaths (Profile → Sheets: Selected)"><input type="checkbox" ${selSheets.has(d.key)?'checked':''} onchange="zoomSheetSel('${esc(d.key)}',this.checked)"> Sheet for toolpaths</label> `:''}<button class="btn ${zMeasOn?'primary':'ghost'} tiny" onclick="toggleZoomMeas()" title="Ruler — click two points to measure in mm; snaps to sheet, part and opening edges (Esc to exit)">📏 Ruler: ${zMeasOn?'ON':'OFF'}</button> <button class="btn ${zDimsOn?'primary':'ghost'} tiny" onclick="toggleZoomDims()" title="Draw every part's width/height and each opening's size on the sheet">📐 Dims: ${zDimsOn?'ON':'OFF'}</button> <button class="btn ${zoomEdit?'primary':'ghost'} tiny" onclick="toggleZoomEdit()" title="Edit the selected part / sheet without leaving the zoom">${ic('pencil',13)} Edit mode: ${zoomEdit?'ON':'OFF'}</button> ${zoomEdit?`<button class="btn ghost tiny" onclick="zoomReNest()" title="Re-pack the parts now (layout is frozen while editing)">${ic('reset',13)} Re-nest</button> `:''}<span class="sub" id="zoomPct">100%</span> <button class="btn ghost tiny" onclick="zoomFit()">Fit</button> <button class="btn ghost tiny" onclick="closeZoom()">Close ✕</button></span></div><div class="zoombody"><div class="zoominsp" id="zoomInsp"></div><div class="zoomscroll" id="zoomScroll"><div id="zoomInner">${d.svg}</div></div></div><div class="sub" style="text-align:center;padding-top:2px">${zMeasOn?'Ruler — click two points to measure (snaps to edges) · Esc exits the ruler · ':''}${zoomEdit?'Edit mode — click a part to select · Ctrl+click for several · edit on the left · ':''}← / → change sheet · scroll to zoom · drag to pan · Esc to close</div></div>`;
+    ov.classList.add('show');setupZoomPanZoom();zBuildSnapGeo();if(zMeasOn)zMeasRedraw();if(zDimsOn)zDimsRedraw();if(zoomEdit)renderInspector();}
   function navZoom(dir){const n=_zoomIdx+dir;if(n>=0&&n<nestSvgs.length)openZoom(n);}
   function zoomSheetSel(key,on){toggleSheetSel(key,on);openZoom(_zoomIdx);}   // tick the zoomed sheet as the active/target sheet
   function toggleZoomEdit(){
@@ -1756,7 +2169,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     function apply(){clampPan();inner.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.s})`;const p=document.getElementById('zoomPct');if(p)p.textContent=Math.round(st.s*100)+'%';}
     function fit(){const vw=scroll.clientWidth,vh=scroll.clientHeight,pad=14;let bw=vw-2*pad,bh=bw/aspect;if(bh>vh-2*pad){bh=vh-2*pad;bw=bh*aspect;}st.bw=bw;st.bh=bh;sizeSvg();st.s=1;st.tx=(vw-bw)/2;st.ty=(vh-bh)/2;apply();}
     function zoomAt(cx,cy,f){const ns=Math.min(20,Math.max(1,st.s*f));if(Math.abs(ns-st.s)<1e-4)return;const px=(cx-st.tx)/st.s,py=(cy-st.ty)/st.s;st.s=ns;st.tx=cx-px*ns;st.ty=cy-py*ns;apply();}
-    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);if(isMain&&zMeasOn)zMeasRedraw();},{passive:false});
+    scroll.addEventListener('wheel',e=>{e.preventDefault();const r=scroll.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.15:1/1.15);if(isMain&&zMeasOn)zMeasRedraw();if(isMain&&zDimsOn)zDimsRedraw();},{passive:false});
     let drag=null;
     if(isMain)scroll.addEventListener('pointermove',e=>{if(zMeasOn&&!drag){const s2=inner.querySelector('svg');if(s2)zMeasDraw(s2,zSnap(s2,e));}});
     scroll.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,tx:st.tx,ty:st.ty,moved:false};scroll.style.cursor='grabbing';try{scroll.setPointerCapture(e.pointerId);}catch(_){}});
@@ -1774,7 +2187,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     scroll.addEventListener('pointerup',end);
     scroll.addEventListener('pointercancel',()=>{drag=null;scroll.style.cursor='grab';});
     scroll.addEventListener('pointerleave',()=>{drag=null;scroll.style.cursor='grab';});
-    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();if(isMain&&zMeasOn){zBuildSnapGeo();zMeasRedraw();}}};
+    const ctrl={fit,refresh:html=>{inner.innerHTML=html;sizeSvg();apply();if(isMain&&zMeasOn){zBuildSnapGeo();zMeasRedraw();}if(isMain&&zDimsOn)zDimsRedraw();}};
     if(!scrollId)_zoom=ctrl;          // default ids = the main nesting zoom keeps its global handle
     fit();
     return ctrl;
@@ -1843,11 +2256,12 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function genParts(){
     const groups=new Map();const add=(mat,p)=>{if(!groups.has(mat))groups.set(mat,[]);groups.get(mat).push(p);};
     items.forEach((it,i)=>{
-      const insA=insertSpecsFor(it);const h=hingeInfo(it);const f=resolveFrame(it);
+      const insA=insertSpecsFor(it);const h=hingeInfo(it);const f0=resolveFrame(it);
+      const shp=shapeOf(it);const f=shp?{t:f0.t+headDropOf(it),r:f0.r,b:f0.b,l:f0.l}:f0;   // shaped head: effective top frame includes the head drop
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0,qn=Math.max(1,Math.round(+it.q||1));n<qn;n++){   // qty is ALWAYS >=1 — a 0/blank/NaN qty never yields a hidden empty part
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,pnl:pnl,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,frame0:shp?f0:undefined,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:grooveOf(it).on?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
@@ -2292,7 +2706,15 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const st=(sel===true?'sel':(sel||''));const selOn=st==='sel',sibOn=st==='sib';
     const X=p.x/10,Y=p.y/10,W=p.w/10,H=p.h/10;let s='';
     s+=`<g class="npart${selOn?' sel':(sibOn?' sib':'')}" data-key="${p.key||''}" data-w="${p.w}" data-h="${p.h}">`;
-    s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
+    const shOut=placedOutline(p);
+    if(shOut){   // shaped head: TRUE outline carries the selection (class bbox = the nester's reserved box,
+                 // excluded from the selection CSS so the blue highlight never fills the empty triangle)
+      const dPath=shOut.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      s+=`<rect class="bbox" x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="${DXFC.OUT}" stroke-width="0.15" stroke-dasharray="1 1"/>`;
+      s+=`<path class="pshape" d="${dPath}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h} (shaped head)</title></path>`;
+    }else{
+      s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
+    }
     if(p.isInsert){
       // concentric insert step lines (cavity + overlay) + reeded hatch
       const a=Math.min(W,H);const cols=[OFFCOL.A,OFFCOL.B];
@@ -2321,7 +2743,14 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const framed=(p.type==='trad'||p.type==='flush'||p.type==='reeded');
     // internal openings: ONE cavity for a plain door, N cavities split by the centre rail (p.pnl)
     const cavs=placedCavs(p).map(c=>({x:X+c.x/10,y:Y+c.y/10,w:c.w/10,h:c.h/10}));
-    if(p.glass){
+    // shaped single-opening door: the cavity + every offset line FOLLOW the outline (polygon inset)
+    const cavPoly=placedCavityPoly(p);
+    if(cavPoly){
+      const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${pd(cavPoly)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;
+      (p.lines||[]).forEach(l=>{const ip=polyInset(cavPoly,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
+    }
+    else if(p.glass){
       // glass frame: only INSIDE (cavity, blue) + BEADING rebate guide (amber) — no offset lines
       const g10=(p.glass.guide||20)/10;
       cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6){
@@ -2332,7 +2761,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     }
     // framed door types always show the frame outline in the nest, even with no offset lines (item 2)
     else if(framed&&!(p.lines&&p.lines.length)){cavs.forEach(c=>{if(c.w>0.6&&c.h>0.6)s+=`<rect x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" width="${c.w.toFixed(1)}" height="${c.h.toFixed(1)}" fill="none" stroke="${OFFCOL.A}" stroke-width="0.4"/>`;});}
-    (p.lines||[]).forEach(l=>{
+    if(!cavPoly)(p.lines||[]).forEach(l=>{
       cavs.forEach(c=>{const lx=c.x+l.mm/10, ty=c.y+l.mm/10, rw=c.w-2*l.mm/10, rh=c.h-2*l.mm/10;
         if(rw>0.6&&rh>0.6)s+=`<rect x="${lx.toFixed(1)}" y="${ty.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${l.rd?0.25:0}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="0.3"/>`;});
     });
@@ -2347,10 +2776,16 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     }
     if(p.hinge&&p.hinge.on){
       const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
-      const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
+      const side=resolveHingeSide(h.rawSide,p.rot);    // hinged edge as the part actually sits
       const dot=(dx,dy)=>`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="${r.toFixed(2)}" fill="#dc2626"/>`;
-      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);});}
-      else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);});}
+      // HINGE_GUIDE preview: the maker's two fixing holes beside every cup (drawn only — never in the NC)
+      const hg=(HINGE_MODELS[h.model||'generic']||HINGE_MODELS.generic).guide;
+      const gr2=hg?Math.max(0.22,Math.min(0.6,r*(hg.dia/35)*3)):0;
+      const gdot=(dx,dy)=>`<circle cx="${dx.toFixed(2)}" cy="${dy.toFixed(2)}" r="${gr2.toFixed(2)}" fill="none" stroke="#dc2626" stroke-width="0.25"/>`;
+      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8){s+=dot(ex,dy);
+        if(hg){const gx=(side==='left')?ex+hg.offset/10:ex-hg.offset/10,hh=hg.spacing/20;s+=gdot(gx,dy-hh)+gdot(gx,dy+hh);}}});}
+      else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8){s+=dot(dx,ey);
+        if(hg){const gy=(side==='top')?ey+hg.offset/10:ey-hg.offset/10,hw=hg.spacing/20;s+=gdot(dx-hw,gy)+gdot(dx+hw,gy);}}});}
     }
     // grooves across the whole part + optional LED channel rectangle
     if(p.groove){
@@ -2755,6 +3190,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     svg+=cncLabelTextSvg(fit,textBox.x,textBox.y,textBox.w,textBox.h);
     if(useQr)svg+=qrSvgFragment(label.qrPayload||compactQrPayload(label),qrBox.qrX,qrBox.qrY,qrBox.qrSize);
     if(fscText)svg+=`<text x="22" y="278" class="cnc-fsc" font-size="15" text-anchor="start">${esc(fscText)}</text>`;
+    if(label.p&&label.p.shape)svg+=`<text x="378" y="264" font-size="14" font-weight="900" text-anchor="end" fill="#000">&#9888; SHAPED — OUT VIA VCARVE</text>`;
     svg+=`<text x="${websiteX}" y="280" class="website" text-anchor="middle"${websiteFit}>www.fastcnc.co.uk</text></svg>`;
     return svg;
   }
@@ -2998,8 +3434,12 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function printLabelsMap(){const pages=collectLabelMapPages();if(!pages.length){alert('Add parts before printing the labels map.');return;}openRawPrintHtml(labelMapPrintHtml(pages));}
   function printA4Labels(){const pages=collectLabelMapPages();if(!pages.length){alert('Add parts before printing A4 labels.');return;}openRawPrintHtml(a4LabelsPrintHtml(pages));}
   // --- Checklist: rich TSV (human-readable, Excel-friendly, Smart Takeoff can parse it back) + QR-app JSON ---
-  function checklistFrameText(it){const f=it.frame||{t:0,r:0,b:0,l:0};if(!f.t&&!f.r&&!f.b&&!f.l)return '';return (f.t===f.r&&f.t===f.b&&f.t===f.l)?String(f.t):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);}
-  function checklistHingesText(it){const h=it.hinges||{};if(!h.on)return '';if(Array.isArray(h.custom)&&h.custom.length)return (h.side||'auto')+' @['+h.custom.map(v=>Math.round(+v||0)).join(';')+']';return (h.side||'auto')+' '+(h.count||'auto')+' @'+(h.offset!=null?h.offset:100);}
+  function checklistFrameText(it){const f=it.frame||{t:0,r:0,b:0,l:0};const mr=midrailsOf(it);
+    const base=(!f.t&&!f.r&&!f.b&&!f.l)?'':((f.t===f.r&&f.t===f.b&&f.t===f.l)?String(f.t):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l));
+    return mr?(base?base+' ':'')+'rails '+mr.map(r=>r.c+'('+r.th+')').join(' '):base;}
+  function checklistHingesText(it){const h=it.hinges||{};if(!h.on)return '';const mdl=(h.model&&HINGE_MODELS[h.model]&&h.model!=='generic')?' '+HINGE_MODELS[h.model].name:'';
+    if(Array.isArray(h.custom)&&h.custom.length)return (h.side||'auto')+' @['+h.custom.map(v=>Math.round(+v||0)).join(';')+']'+mdl;
+    return (h.side||'auto')+' '+(h.count||'auto')+' @'+(h.offset!=null?h.offset:100)+mdl;}
   function buildChecklistPayload(){
     const groups=buildSheetGroups();
     const labels=collectPartLabels(groups);
@@ -3014,7 +3454,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const rows=labels.map(l=>{
       const it=items[l.itemIdx]||{};
       const sz=String(l.size||'').split('x');
-      const typeName=l.role==='insert'?'Insert':(l.role==='beading'?'Beading':(TYPES[it.type]?TYPES[it.type].name:'Flat'));
+      const shX=(l.role==='part')?shapeOf(it):null;
+      const typeName=(l.role==='insert'?'Insert':(l.role==='beading'?'Beading':(TYPES[it.type]?TYPES[it.type].name:'Flat')))+(shX?' SHAPED-'+shX.kind:'');
       return [l.partNo,1,sz[0]||'',sz[1]||'',l.thickness,l.material,typeName,l.sheetNo,l.code,
         l.role!=='part'?'':checklistFrameText(it),
         l.role!=='part'?'':(it.offsetName&&it.offsetName!=='None'?it.offsetName:''),
@@ -3292,6 +3733,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // lines cut real geometry for parts whose offset preset enables that line (Ogee etc.).
   function tpOpRects(p,P){
     const L=(P&&P.layer)||'OUT';
+    // SHAPED doors (2026-07-20): the frame/cavity now FOLLOW the sloped outline — no rectangular geometry
+    // here matches the DXF any more, so EVERY layer op on a shaped part cuts NOTHING (drilling has its own
+    // op and still runs). All shape-following cuts come from the DXF in VCarve until machine-validated.
+    if(p.shape)return [];
     // FLUSHBACK structural layers (reference DXF geometry): rings = CAVITY expanded by d. A BAND (two
     // rings) is cut VCarve-style — the OUTER ring from its inside, the INNER ring from its outside, so
     // both kerfs land INSIDE the band (rc.side overrides P.side per ring). These layers exist ONLY on
@@ -3312,7 +3757,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       const out=[];[[6.9,'inside'],[11.95,'outside']].forEach(q=>{const o=q[0],rc={x:p.x+o,y:p.y+o,w:p.w-2*o,h:p.h-2*o,side:q[1]};if(rc.w>1&&rc.h>1)out.push(rc);});
       return out;
     }
-    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?[{x:p.x,y:p.y,w:p.w,h:p.h}]:[];   // unknown layers cut NOTHING (was: part outline)
+    if(!/^OFFSET_[A-G]$/.test(L))return (L==='OUT')?((p.shape||(p.pnPiece&&(p.pnPiece.wrapL||p.pnPiece.wrapR)))?[]:[{x:p.x,y:p.y,w:p.w,h:p.h}]):[];   // unknown layers cut NOTHING; shaped heads + wrapped V↔H panels: OUT not machine-validated → cut NOTHING (outline via VCarve/DXF)
     const ln=(p.lines||[]).find(l=>l&&l.en!==false&&('OFFSET_'+l.L)===L);
     if(!ln)return [];
     const mm=Math.max(0,+ln.mm||0);
@@ -3505,7 +3950,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const finalZ=+(topZ-cutD).toFixed(3);
     const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
     const fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
-    const inset=22.5,side=resolveHingeSide(p.w,p.h,hi.rawSide),pts=[];
+    const inset=(+hi.inset>0)?+hi.inset:22.5,side=resolveHingeSide(hi.rawSide,p.rot),pts=[];   // cup centre from the hinge model (22.5 = legacy default)
     if(side==='left'||side==='right'){const ex=(side==='left')?p.x+inset:p.x+p.w-inset;hingePositions(hi,p.h).forEach(pos=>pts.push([ex,p.y+pos]));}
     else{const ey=(side==='top')?p.y+inset:p.y+p.h-inset;hingePositions(hi,p.w).forEach(pos=>pts.push([p.x+pos,ey]));}
     const mY=y=>S.h-y;
@@ -4590,7 +5035,11 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           const reach=(+tool.dia||0)+(+P.allowance||0)+((P.lastPass&&P.lastPass.on)?(+P.lastPass.val||0):0);
           if(reach>mx)mx=reach;});
         return (mx>f.sh.g+0.001)?('⚠ kerf reaches '+mx.toFixed(2)+'mm but parts are packed at '+f.sh.g+'mm — neighbouring faces get grazed '+(mx-f.sh.g).toFixed(2)+'mm. Set Spacing/gap ≥ '+(Math.ceil(mx*10)/10)+'mm in Nesting.'):'';})();
-      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}</div></div>
+      const shapedN=(f.sh.parts||[]).filter(p=>!p.isBack&&p.shape).length;
+      const wrapN=(f.sh.parts||[]).filter(p=>p.pnPiece&&(p.pnPiece.wrapL||p.pnPiece.wrapR)).length;
+      const shapeWarn=(shapedN?('⚠ '+shapedN+' shaped door'+(shapedN>1?'s':'')+' on this sheet: shape-following cuts (OUT + cavity/offset ops) are NOT in this NC — cut them from the DXF in VCarve; drilling still runs.'):'')
+        +(wrapN?((shapedN?'<br>':'')+'⚠ '+wrapN+' wrapped V–H joint panel'+(wrapN>1?'s':'')+' on this sheet: the stepped OUT outline is NOT in this NC — cut it from the DXF in VCarve.'):'');
+      rows+=`<div class="tpl-item"><div class="tpl-meta"><b>Sheet ${i+1}</b> · ${esc(f.mat)} · ${esc(f.sh.S.label||f.sh.sz)} · ${f.th}mm<div class="sub">${tools} · ${names}${warn?' · <span style="color:#b45309;font-weight:700">'+warn+'</span>':''}${gapWarn?'<br><span style="color:#dc2626;font-weight:700">'+gapWarn+'</span>':''}${shapeWarn?'<br><span style="color:#b45309;font-weight:700">'+shapeWarn+'</span>':''}</div></div>
         <div class="tpl-act"><button class="btn ghost tiny" title="Same file with every Z lifted — run the whole job in the AIR to validate before cutting material" onclick="tpDownloadNC(${i},true)">☁ Air-cut</button> <button class="btn primary tiny" onclick="tpDownloadNC(${i})">${ic('export',12)} Download .NC</button></div></div>`;
     });
     openModal('Save Toolpaths — Pegasus (Syntec) .NC',dupWarn+`<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" onclick="tpExportPackage()">${ic('export',13)} Production package (.zip)</button><span class="sub">all NCs + labels + <b>manifest.csv</b> in one order folder — the same ID everywhere, for SYNTEC ScanMode / Workinglist</span></div><div class="warn amber" style="margin-bottom:10px">Z-zero: <b>${camJob.zZero==='bed'?'Machine Bed':'Material Surface'}</b> · Datum: <b>${TP_ANCH[camJob.datum]||'centre'}</b> · Sheet: <b>${camJob.orient==='landscape'?'landscape (as drawn)':'portrait — short side across X'}</b> — load the sheet and zero the machine the same way. <b>Dry-run in the air first:</b> the <b>☁ Air-cut</b> button exports the SAME file with every Z lifted <input id="tpAirMm" type="number" min="10" step="5" value="50" style="width:52px;padding:2px 4px;border:1px solid var(--line);border-radius:5px">mm — run it above the sheet, watch the path, then cut for real.</div><label class="tg" style="display:block;margin-bottom:10px;font-size:12px"><input type="checkbox" ${camJob.ncComments?'checked':''} onchange="camJob.ncComments=this.checked;saveCamState()"> Add <b>()</b> production comments to the NC — job / client / material / parts + a line per operation. <span style="color:#b45309">Opt-in: <b>air-cut first</b> — the SYNTEC must accept () comments (machine parameter). The machining lines are byte-identical; only () lines are added. <code>:1248</code> is untouched.</span></label><div class="tpl-list">${rows}</div>`,true);
@@ -4840,6 +5289,18 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       if(frameUsed&&(f.l+f.r>=w||f.t+f.b>=h))bad.push('frame ≥ part');
       else if(panelsOf(it)>1&&doorCavities(it).length<panelsOf(it))bad.push('rails don\'t fit');
       else if(panelsOf(it)>1&&it.panelSize!==''&&it.panelSize!=null&&+it.panelSize<=((h>=w)?f.b:f.r))bad.push('bottom part ≤ frame');   // the ABSOLUTE bottom part must exceed its own frame
+      const mrr=midrailsOf(it);
+      if(mrr){const dd=(h>=w)?{len:h,near:f.b,far:f.t}:{len:w,near:f.r,far:f.l};
+        if(mrr.some(r=>r.c-r.th/2<dd.near||r.c+r.th/2>dd.len-dd.far))bad.push('midrail outside opening');
+        let ov=false;for(let k=1;k<mrr.length;k++)if(mrr[k].c-mrr[k].th/2<mrr[k-1].c+mrr[k-1].th/2)ov=true;
+        if(ov)bad.push('midrails overlap');
+      }
+      const shx=shapeOf(it);
+      if(shx){
+        if(shx.kind==='rake'&&Math.max(shx.legL,shx.legR)!==h)bad.push('tallest leg ≠ height');
+        if(shx.kind==='splay'&&(shx.flatLen>=w||shx.shortLeg>=h))bad.push('splay out of range');
+        if(frameUsed&&(f.t+headDropOf(it)+f.b>=h))bad.push('shape leaves no opening');
+      }
       const hi=hingeInfo(it);
       if(hi.on&&Array.isArray(hi.custom)&&hi.custom.some(p=>p<0||p>hi.span))bad.push('hinge off part');
     }
@@ -5058,7 +5519,29 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // Pure geometry engine — no DOM, no storage, no app globals (tools/check.mjs executes this block).
   const PN_CAP={'8x4':2400,'10x4':3000};      // usable piece length per sheet class (confirmed rule numbers)
   const PN_CROSS=1206;                        // max piece cross dimension (fits the 1220 sheet width with margins)
+  const PN_VW={s105:1520,max:2000};           // vertical panel WIDTH tiers (columns): >PN_CROSS needs a 10x5, >s105 a special-order sheet, hard max 2000mm
   const PN_SHK={min:150,max:700,target:350};  // shaker cavity width limits + auto target
+  // Sheet class for a VERTICAL panel by physical width w (cross) and height h (length on the sheet): a column wider
+  // than the standard 1206 needs a 10x5 (fits 1525), wider than 1520 a special-order sheet. Standard columns keep
+  // the existing height rule (8x4 <=2400 tall, else 10x4). Only fires for panels the user deliberately made wide —
+  // a normal AUTO layout never exceeds PN_CROSS, so goldens stay byte-identical.
+  function pnVSheet(w,h){ if(w>PN_VW.s105+0.5)return 'special'; if(w>PN_CROSS+0.5)return '10x5'; return (h>PN_CAP['8x4'])?'10x4':'8x4'; }
+  // Vertical column widths for a span SL from pinned widths (pinsIn[i] = mm to pin column i, null/0 = flex). Pinned
+  // columns keep their width (clamped 60..2000); the leftover divides EQUALLY among the flex columns, adding flex
+  // columns so none breaks the 2000 max. If the pins alone fill/overflow the wall they're scaled to fit exactly
+  // (scaled:true) with no flex. This is the "pin the ones I set, the rest divide equally" reflow (Ednei 2026-07-18).
+  function pnVColLayout(SL,pinsIn){
+    const clampW=w=>Math.min(PN_VW.max,Math.max(60,+w||0));
+    let arr=(pinsIn||[]).map(w=>(+w>0)?clampW(w):null);
+    const pinSum=arr.reduce((s,w)=>s+(w||0),0);
+    let flexN=arr.filter(w=>w==null).length;
+    if(pinSum>=SL-1){const k=pinSum>0?SL/pinSum:1;return {widths:arr.filter(w=>w!=null).map(w=>w*k),scaled:pinSum>SL+1};}
+    let rem=SL-pinSum;
+    if(flexN===0){flexN=Math.max(1,Math.ceil(rem/PN_VW.max));arr=arr.concat(Array(flexN).fill(null));}
+    while(rem/flexN>PN_VW.max+0.5){arr.push(null);flexN++;}
+    const fw=rem/flexN;
+    return {widths:arr.map(w=>w==null?fw:w),scaled:false};
+  }
   function pnThick(mat){const m=String(mat||'').match(/(\d+(?:\.\d+)?)mm/);return m?+m[1]:18;}
   function pnRoomDefs(room){
     const rSkOn=room.skirtOn!==false, rSkH=+(room.skirtH!=null?room.skirtH:225)||0, walls=room.walls||[];
@@ -5067,6 +5550,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       target:+(room.target!=null?room.target:PN_SHK.target)||PN_SHK.target,
       th:pnThick(room.mat),
       doorAllow:+(room.doorAllow!=null?room.doorAllow:175)||175,
+      vhWrap:room.vhJoint!=='flat',   // V↔H WRAP joint (2026-07-19, room standard — default ON): vertical panel wraps a horizontal neighbour
       skirtOn:rSkOn,
       skirtH:rSkH,
       // Per-wall skirting: a wall may carry `skirt:{mode:'custom',on,h}` to override the room default.
@@ -5114,10 +5598,27 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // Width capped at 1200 (under the 1206 sheet-cross), height default = room vertical panel height, ≤3000 (10x4).
   function pnZoneRect(z,wall,D){
     const W=Math.max(0,+wall.w||0);
-    const w=Math.max(120,Math.min(+z.w>0?+z.w:1200,1200,W||1200));
+    const w=Math.max(120,Math.min(+z.w>0?+z.w:1200,PN_VW.max,W||PN_VW.max));   // width follows the vertical tiers (2026-07-18): >1206 → 10x5 · >1520 → special-order · hard max 2000
     const x=Math.max(0,Math.min(Math.max(0,W-w),+z.x||0));
     const h=Math.max(300,Math.min(+z.h>0?+z.h:((D&&D.vPanelH)||3000),PN_CAP['10x4']));
     return {x0:x,x1:x+w,w:w,h:h};
+  }
+  // Sanitised zone rects for a WHOLE wall (2026-07-18): zones sorted by x and resolved so they never overlap each
+  // other or run past the wall — a later zone is pushed right of the previous one and, when no room is left, SHRUNK
+  // to the free gap (min 120, else dropped from the layout). Fixes "panel C rendered inside panel D" when zones were
+  // created/edited on top of each other. pnWallSpans and pnZonePieces share THIS one source so the horizontal band
+  // always agrees with the vertical panels. Non-overlapping zones pass through untouched (byte-identical).
+  function pnZoneRects(wall,D){
+    const W=Math.max(0,+wall.w||0),out={};let prevEnd=0,clash=false;
+    (wall.vZones||[]).map(z=>({z:z,r:pnZoneRect(z,wall,D)})).sort((a,b)=>a.r.x0-b.r.x0).forEach(e=>{
+      let x=e.r.x0,w=e.r.w;
+      if(x<prevEnd){x=prevEnd;clash=true;}
+      if(x+w>W){x=Math.max(prevEnd,W-w);if(x+w>W){w=W-x;clash=true;}}
+      if(w<120){out[e.z.id]=null;clash=true;return;}
+      out[e.z.id]={x0:x,x1:x+w,w:w,h:e.r.h};prevEnd=x+w;
+    });
+    out._clash=clash;
+    return out;
   }
   // coverage spans of one wall between doors/objects/vertical-zones (a window does NOT break coverage — it is a
   // cutout). A vertical zone is a hard stop with 40/40 joints on both sides, so the horizontal band auto-refills
@@ -5125,7 +5626,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function pnWallSpans(wall,D){
     const W=Math.max(0,+wall.w||0);
     const stops=(wall.openings||[]).filter(o=>o.type==='door'||o.type==='object').map(o=>({r:pnOpRect(o,wall),t:o.type,o}));
-    if((wall.dir||'h')!=='v')(wall.vZones||[]).forEach(z=>stops.push({r:pnZoneRect(z,wall,D),t:'vzone',o:z}));
+    if((wall.dir||'h')!=='v'){const zr=pnZoneRects(wall,D);(wall.vZones||[]).forEach(z=>{const r=zr[z.id];if(r)stops.push({r:r,t:'vzone',o:z});});}
     stops.sort((a,b)=>a.r.x0-b.r.x0);
     const ruleOf=t=>t==='door'?'door':(t==='vzone'?'joint':'normal');
     const spans=[];let cur=0,lr=wall.sideL||'normal',lOpen=null;
@@ -5143,6 +5644,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       const w=walls[wi];if(w.noPanel)continue;if((w.dir||'h')==='v')continue;
       const spans=pnWallSpans(w,D);
       spans.forEach((sp,si)=>{
+        if(sp.x1-sp.x0<60)return;   // sliver between stops (e.g. the 40mm cap-overhang strip beside a zone) — the wrap fills it, never a 40mm band panel
         const prev=runs[runs.length-1];
         const canChain=si===0&&sp.x0<=0.5&&prev&&prev.endWi===wi-1&&prev.endsClean&&prev.rr==='joint'&&(w.sideL||'normal')==='joint'&&(walls[wi-1].dir||'h')!=='v';
         if(canChain){
@@ -5311,9 +5813,29 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     }
     return p;
   }
+  // Cap ("closing panel") vertical extent above a door/object (2026-07-20): base = the opening's top. The cap's
+  // TOP is the wall's band line — or, when the WRAP standard is on and the cap's overhang edges are FLANKED by
+  // vertical zones, the TALLEST flanking zone's height ("B follows the height of A and C" — Ednei's A|B|C rule).
+  // Returns null when the opening has no cap (topPanel off / no headroom). Shared by the cap builder and the zone
+  // wrap so both always agree. bandH = the wall's own band line (hPanelH, or vPanelH on a vertical wall).
+  function pnCapExt(wall,o,D,zr,bandH){
+    if((o.topPanel||'yes')==='no')return null;
+    const r=pnOpRect(o,wall),top=(+o.bottom||0)+(+o.h||0),f=D.frame;
+    let capTop=bandH,fL=false,fR=false;
+    if(D.vhWrap&&zr){
+      let mh=0;
+      (wall.vZones||[]).forEach(z=>{const rr=zr[z.id];if(!rr)return;
+        if(Math.abs(rr.x1-(r.x0-f/2))<=1.5){fL=true;mh=Math.max(mh,rr.h);}
+        if(Math.abs(rr.x0-(r.x1+f/2))<=1.5){fR=true;mh=Math.max(mh,rr.h);}});
+      if((fL||fR)&&mh>capTop)capTop=mh;
+    }
+    if(top>=capTop-40)return null;
+    return {top:top,capTop:capTop,flankL:fL,flankR:fR};
+  }
   // cap panels above doors/objects + the separate lower panel under windows (confirmed rules incl. sill)
   function pnOpeningPieces(wall,wi,D,pieces){
     const bandH=((wall.dir||'h')==='v')?D.vPanelH:D.hPanelH,f=D.frame,W=+wall.w||0;
+    const zr=(D.vhWrap&&(wall.dir||'h')!=='v'&&(wall.vZones||[]).length)?pnZoneRects(wall,D):null;   // for flanked tall caps (A|B|C)
     (wall.openings||[]).forEach(o=>{
       const r=pnOpRect(o,wall),b0=+o.bottom||0,top=b0+(+o.h||0);
       if(o.type==='window'){
@@ -5328,17 +5850,22 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       // object base, object width, joint sides — the band already splits at the object so this fills the void
       // beneath it. Doors reach the floor (b0=0) so they never get one; too small a gap = no useless strip.
       if(o.type==='object'&&b0>2*f&&r.x1>r.x0+40)pieces.push(pnCapPiece(wi,r.x0,r.x1,0,b0,D,{isLower:true}));
-      if((o.topPanel||'yes')==='no'||top>=bandH-40)return;   // above-object cap (closing panel) — reuses the cap logic below
-      const cx0=Math.max(0,r.x0-f/2),cx1=Math.min(W,r.x1+f/2),capH=bandH-top,capW=cx1-cx0;
+      // above-opening cap (closing panel). With the WRAP standard, a cap FLANKED by vertical zones rises to the
+      // tallest flank ("B follows A and C" — base always the opening's top) and the ±f/2 overhang happens ONLY on
+      // flanked sides (an unflanked side would overlap the band, so there the cap stops at the opening edge).
+      const ce=pnCapExt(wall,o,D,zr,bandH);
+      if(!ce)return;
+      const capT=ce.capTop,risen=capT>bandH+0.5;
+      const cx0=Math.max(0,r.x0-((!risen||ce.flankL)?f/2:0)),cx1=Math.min(W,r.x1+((!risen||ce.flankR)?f/2:0)),capH=capT-top,capW=cx1-cx0;
       if(capH>PN_CROSS&&capW>PN_CROSS){
         const n=Math.ceil(capW/PN_CROSS),cw=capW/n;
-        for(let i=0;i<n;i++)pieces.push(pnCapPiece(wi,cx0+i*cw,cx0+(i+1)*cw,top,bandH,D,{isCap:true,dir:'v'}));
+        for(let i=0;i<n;i++)pieces.push(pnCapPiece(wi,cx0+i*cw,cx0+(i+1)*cw,top,capT,D,{isCap:true,dir:'v'}));
       } else if(capW>((D.sheetPref==='8x4')?PN_CAP['8x4']:PN_CAP['10x4'])){
         const mini={len:capW,seams:[],lr:'joint',rr:'joint'};mini.grid=pnRunGrid(mini,D,0);
         const st={run:mini,a:0,b:capW,cuts:mini.grid.frames.slice()};
         const bs=[0].concat(pnCandidates(st,D)[0]).concat([capW]);
-        for(let i=0;i<bs.length-1;i++)pieces.push(pnCapPiece(wi,cx0+bs[i],cx0+bs[i+1],top,bandH,D,{isCap:true}));
-      } else pieces.push(pnCapPiece(wi,cx0,cx1,top,bandH,D,{isCap:true}));
+        for(let i=0;i<bs.length-1;i++)pieces.push(pnCapPiece(wi,cx0+bs[i],cx0+bs[i+1],top,capT,D,{isCap:true}));
+      } else pieces.push(pnCapPiece(wi,cx0,cx1,top,capT,D,{isCap:true}));
     });
   }
   function pnApplyNotches(wall,wi,D,pieces){
@@ -5360,14 +5887,25 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     const f=D.frame,H=D.vPanelH;
     pnWallSpans(wall,D).forEach(sp=>{
       const SL=sp.x1-sp.x0;if(SL<40)return;
-      let n=(+wall.vCols>0)?Math.round(+wall.vCols):Math.max(1,Math.ceil(SL/PN_CROSS));
-      n=Math.max(n,Math.ceil(SL/PN_CROSS));                    // max-width rule beats a requested column count
-      const cw=SL/n;
-      for(let i=0;i<n;i++){
-        const lRule=i===0?sp.lr:'joint',rRule=i===n-1?sp.rr:'joint',sk=D.skirtFor(wi);
-        const p={wi,dir:'v',x0:sp.x0+i*cw,x1:sp.x0+(i+1)*cw,y0:0,y1:H,w:cw,h:H,sheet:H>PN_CAP['8x4']?'10x4':'8x4',
+      // Column count: AUTO (no vCols) keeps the standard-sheet split (<=PN_CROSS) — byte-identical to before. A
+      // requested vCols is now HONOURED even when it makes wide columns (up to the 2000 hard max) so the user can
+      // build 10x5 / special-order vertical panels; extra columns are only forced past 2000mm.
+      // Per-column WIDTHS: an explicit wall.vColW (pinned mm per column position, null = flex) lets the user size
+      // individual vertical panels — pinned columns keep their width, the rest divide the remainder EQUALLY (columns
+      // added if a flex/pin would break the 2000 max). No pin → the uniform vCols/auto split, byte-identical to before.
+      let widths;
+      if(wall.vColW&&wall.vColW.some(w=>+w>0)){const rr=pnVColLayout(SL,wall.vColW);widths=rr.widths;
+        if(rr.scaled)warns.push('Vertical panel widths on Wall '+(wi+1)+' exceed the wall — scaled to fit.');}
+      else{const n=(+wall.vCols>0)?Math.max(Math.round(+wall.vCols),Math.ceil(SL/PN_VW.max)):Math.max(1,Math.ceil(SL/PN_CROSS));widths=Array(n).fill(SL/n);}
+      const nC=widths.length;let cx=sp.x0;
+      for(let i=0;i<nC;i++){
+        const cw=widths[i],vsheet=pnVSheet(cw,H);
+        const lRule=i===0?sp.lr:'joint',rRule=i===nC-1?sp.rr:'joint',sk=D.skirtFor(wi);
+        const p={wi,dir:'v',x0:cx,x1:cx+cw,y0:0,y1:H,w:cw,h:H,sheet:vsheet,
           sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
-        if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(H)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
+        if(vsheet==='special')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
+        else if(vsheet==='10x5')warns.push('Vertical panel '+Math.round(cw)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
+        else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(H)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
         const inner=cw-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+wall.vRows||2)),cy0=p.sides.b,cy1=H-f;
         if(inner>=80&&cy1-cy0>=60){
           const nc=pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
@@ -5383,6 +5921,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           rowsY.forEach(ry=>{if(ry[1]-ry[0]<40)return;for(let c=0;c<nc;c++)p.cells.push({x:p.sides.l.mm+c*(ccw+f),y:ry[0],w:ccw,h:ry[1]-ry[0]});});
         }
         pieces.push(p);
+        cx+=cw;
       }
     });
   }
@@ -5392,8 +5931,10 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function pnZonePieces(wall,wi,D,pieces,warns){
     if((wall.dir||'h')==='v')return;
     const f=D.frame,W=Math.max(0,+wall.w||0),sk=D.skirtFor(wi);
+    const zr=pnZoneRects(wall,D);
+    if(zr._clash)warns.push('Vertical panels on Wall '+(wi+1)+' overlapped or ran past the wall — positions/widths auto-adjusted (check them).');
     (wall.vZones||[]).forEach(z=>{
-      const r=pnZoneRect(z,wall,D);
+      const r=zr[z.id];if(!r)return;
       // side margin = what ABUTS this zone edge (mirrors pnWallSpans for horizontal spans): the wall edge →
       // wall.sideL/R; a DOOR → the door allowance (doorAllow); an OBJECT → normal frame; another panel/zone
       // mid-wall → joint (frame/2). Previously a mid-wall edge was ALWAYS 'joint', so a vertical panel butting a
@@ -5403,10 +5944,58 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       const lRule=r.x0<=0.5?(wall.sideL||'normal'):abut(r.x0,'l');
       const rRule=r.x1>=W-0.5?(wall.sideR||'normal'):abut(r.x1,'r');
       const p={wi,dir:'v',isZone:true,zid:z.id,x0:r.x0,x1:r.x1,y0:0,y1:r.h,w:r.w,h:r.h,
-        sheet:r.h>PN_CAP['8x4']?'10x4':'8x4',
         sides:{l:{rule:lRule,mm:pnSideMM(lRule,D)},r:{rule:rRule,mm:pnSideMM(rRule,D)},t:f,b:sk.on?(sk.h+f):f},cells:[]};
-      if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
-      const inner=r.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
+      // ---- V↔H WRAP joint (2026-07-19, room standard `vhJoint` — Ednei's "Vertical + Horizontal joint.dxf") ----
+      // Where this vertical panel meets the horizontal BAND, its outline STEPS: beside the band the joint margin is
+      // f/2 (40 + the band's own 40 reads as one full 80 frame); ABOVE the band's top the panel WIDENS by f/2 and
+      // carries the full frame alone — the outline wraps the neighbour, the cavity line stays STRAIGHT. Model: the
+      // piece becomes the WIDE bbox with margin f on that side + a f/2-deep NOTCH over the covered range (the notch
+      // is exactly where the neighbour sits — nesting/tier/areas/DXF all see the true cut piece). A neighbouring
+      // vertical ZONE covers up to its own height (full-height neighbour → nothing exposed → no wrap). Doors keep
+      // the allowance rule; wall ends never wrap; the wrap is skipped if the bbox would break the 2000 hard max.
+      if(D.vhWrap){
+        const ext=f/2;
+        const zoneAt=(x,which)=>{let best=null;(wall.vZones||[]).forEach(oz=>{if(oz===z)return;const orr=zr[oz.id];if(!orr)return;
+          if(which==='l'?Math.abs(orr.x1-x)<=1.5:Math.abs(orr.x0-x)<=1.5)best=orr;});return best;};
+        // Cap OVERHANG abut (A|B|C, 2026-07-20): this zone's edge sits at the ±f/2 overhang line of a door/object
+        // cap — the neighbour is the CAP over [top..capTop]; below its base the zone GROWS +f/2 to the opening
+        // edge (the strip the cap overhangs is free — the opening itself is never covered).
+        const capAt=(x,which)=>{let best=null;(wall.openings||[]).forEach(o=>{
+          if(o.type!=='door'&&o.type!=='object')return;
+          const orr=pnOpRect(o,wall);const ce=pnCapExt(wall,o,D,zr,D.hPanelH);if(!ce)return;
+          if(which==='r'?Math.abs((orr.x0-f/2)-x)<=1.5:Math.abs((orr.x1+f/2)-x)<=1.5)best=ce;});return best;};
+        const wrapSide=(side,rule,edgeX,atWallEdge)=>{
+          if(atWallEdge)return null;
+          if(rule==='joint'){
+            const nz=zoneAt(edgeX,side);
+            if(nz)return (r.h>nz.h+ext)?{ext:ext,y0:0,y1:Math.min(r.h,nz.h),grow:true}:null;
+            const ce=capAt(edgeX,side);
+            if(ce)return {ext:ext,y0:ce.top,y1:Math.min(r.h,ce.capTop),grow:true};
+            return (r.h>D.hPanelH+ext)?{ext:ext,y0:0,y1:Math.min(r.h,D.hPanelH),grow:true}:null;
+          }
+          // zone sits ON the door/object line itself: the cap's overhang covers our top strip — carve it out
+          // (NO growth: never into the opening). Margins unchanged (door allowance / normal frame).
+          const o=(wall.openings||[]).find(op=>{if(op.type!=='door'&&op.type!=='object')return false;const orr=pnOpRect(op,wall);return Math.abs((side==='l'?orr.x1:orr.x0)-edgeX)<=1.5;});
+          if(o){const ce=pnCapExt(wall,o,D,zr,D.hPanelH);if(ce&&r.h>ce.top+1)return {ext:ext,y0:ce.top,y1:Math.min(r.h,ce.capTop),grow:false};}
+          return null;
+        };
+        const wl=wrapSide('l',lRule,r.x0,r.x0<=0.5),wr=wrapSide('r',rRule,r.x1,r.x1>=W-0.5);
+        const growSum=((wl&&wl.grow)?ext:0)+((wr&&wr.grow)?ext:0);
+        const growOk=p.w+growSum<=PN_VW.max+0.5;
+        if(wl&&(!wl.grow||growOk)){
+          if(wl.grow){p.x0-=ext;p.w+=ext;p.sides.l={rule:'joint',mm:f};}
+          p.wrapL=wl;(p.notches=p.notches||[]).push({x:0,y:wl.y0,w:ext,h:wl.y1-wl.y0,wrap:true});
+        }
+        if(wr&&(!wr.grow||growOk)){
+          if(wr.grow){p.x1+=ext;p.w+=ext;p.sides.r={rule:'joint',mm:f};}
+          p.wrapR=wr;(p.notches=p.notches||[]).push({x:p.w-ext,y:wr.y0,w:ext,h:wr.y1-wr.y0,wrap:true});
+        }
+      }
+      p.sheet=pnVSheet(p.w,p.h);
+      if(p.sheet==='special')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a SPECIAL-ORDER sheet — over the 1520mm 10x5 width.');
+      else if(p.sheet==='10x5')warns.push('Vertical panel '+Math.round(p.w)+'mm wide (Wall '+(wi+1)+') needs a 10x5 sheet.');
+      else if(D.sheetPref==='8x4'&&p.sheet==='10x4')warns.push('Vertical panel '+Math.round(r.h)+'mm tall needs a 10x4 sheet (Wall '+(wi+1)+').');
+      const inner=p.w-p.sides.l.mm-p.sides.r.mm,rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)),cy0=p.sides.b,cy1=r.h-f;
       if(inner>=80&&cy1-cy0>=60){
         const nc=(+z.cols>0)?Math.max(1,Math.round(+z.cols)):pnBalanceCount(inner,f,D.target),ccw=(inner-f*(nc-1))/nc;
         if(ccw>40){
@@ -5458,6 +6047,52 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       }
     });
     pnChoose(stretches,D,walls,deps,basePieces).forEach(p=>pieces.push(p));
+    // Per-panel WIDTH pins on the horizontal band (wall.hColW, additive; index = band-panel position left→right,
+    // 2026-07-18). Pinned panels keep their width (200..3000, the 10x4 cap); the OTHER panels of the SAME contiguous
+    // stretch divide the remainder equally. Every internal cut stays a 40/40 joint (sides untouched) and each
+    // resized panel's shaker grid re-balances to the room target — "fix the ones I set, the rest split equally,
+    // frames respected, shakers follow organically". No pins → this pass is inert (slicing above byte-identical).
+    walls.forEach((w,wi)=>{
+      if(!w||w.noPanel||(w.dir||'h')==='v')return;
+      const pins=w.hColW;if(!pins||!pins.some(x=>+x>0))return;
+      const band=pieces.filter(p=>p.wi===wi&&p.dir==='h'&&!p.isCap&&!p.isLower&&!p.isZone).sort((a,b)=>a.x0-b.x0);
+      if(!band.length)return;
+      const capMax=PN_CAP['10x4'],f=D.frame;
+      const spans=[];let cur=[band[0]];
+      for(let i=1;i<band.length;i++){if(Math.abs(band[i].x0-band[i-1].x1)<=1.5)cur.push(band[i]);else{spans.push(cur);cur=[band[i]];}}
+      spans.push(cur);
+      let ord=0;
+      spans.forEach(sp=>{
+        const a=sp[0].x0,Lsp=sp[sp.length-1].x1-a;
+        const pinW=sp.map(()=>{const v=pins[ord++];return (+v>0)?Math.min(capMax,Math.max(200,+v)):null;});
+        if(!pinW.some(v=>v!=null))return;
+        let pinSum=0,flexN=0;pinW.forEach(v=>{if(v!=null)pinSum+=v;else flexN++;});
+        let widths;
+        if(flexN===0){const k=pinSum>0?Lsp/pinSum:1;widths=pinW.map(v=>v*k);
+          if(Math.abs(Lsp-pinSum)>1.5)warns.push('Panel widths on Wall '+(wi+1)+' don\'t add up to the wall — scaled to fit.');}
+        else{
+          const fw=(Lsp-pinSum)/flexN;
+          if(fw<150){const k=Math.max(0.1,(Lsp-150*flexN)/Math.max(1,pinSum));widths=pinW.map(v=>v!=null?v*k:150);
+            warns.push('Panel widths on Wall '+(wi+1)+' exceed the wall — pinned widths scaled to fit.');
+            const s=widths.reduce((t,v)=>t+v,0),adj=(Lsp-s)/flexN;widths=widths.map((v,i2)=>pinW[i2]==null?v+adj:v);}
+          else widths=pinW.map(v=>v==null?fw:v);
+        }
+        let x=a;
+        sp.forEach((p,i2)=>{
+          const wd=widths[i2];
+          p.x0=x;p.x1=x+wd;p.w=wd;x+=wd;
+          if(pinW[i2]!=null)p.hPinned=true;
+          p.sheet=(wd>PN_CAP['8x4'])?'10x4':'8x4';
+          if(wd>capMax+0.5)warns.push('Panel on Wall '+(wi+1)+' is '+Math.round(wd)+'mm — longer than a 10x4 sheet allows.');
+          const inner=wd-p.sides.l.mm-p.sides.r.mm,cy0=p.sides.b,cy1=p.h-p.sides.t;
+          p.cells=[];
+          if(inner>=PN_SHK.min*0.5&&cy1-cy0>=60){
+            const c=pnBalanceCount(inner,f,D.target),cw2=(inner-f*(c-1))/c;
+            for(let i3=0;i3<c;i3++)p.cells.push({x:p.sides.l.mm+i3*(cw2+f),y:cy0,w:cw2,h:cy1-cy0});
+          }
+        });
+      });
+    });
     walls.forEach((w,wi)=>{if(w&&w.noPanel)return;pnApplyNotches(w,wi,D,pieces);});
     // stable names per wall in VISUAL order (left→right, bottom→top): Wall 3A / 3B / 3C (+ room prefix).
     // p.vn = visual sequence number across the whole room — DXF part numbers follow it.
@@ -5492,7 +6127,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       const dR=(ov.sideR==='gap')?pt:((ov.sideR==='overlap')?-pt:0);
       if(dL||dR){const nx0=p.x0+dL,nx1=p.x1-dR;
         if(nx1-nx0>=80){p.x0=nx0;p.x1=nx1;p.w=p.x1-p.x0;p.ovPhys=true;
-          p.sheet=(Math.max(p.w,p.h)>PN_CAP['8x4'])?'10x4':'8x4';}
+          p.sheet=(p.dir==='v')?pnVSheet(p.w,p.h):((Math.max(p.w,p.h)>PN_CAP['8x4'])?'10x4':'8x4');}
         else p.ovNote='gap/overlap ignored — the panel would be under 80mm wide';}
       const seen={},bands=[];
       (p.cells||[]).forEach(cl=>{const k=Math.round(cl.y)+'_'+Math.round(cl.h);if(!seen[k]){seen[k]=1;bands.push([cl.y,cl.h]);}});
@@ -5506,7 +6141,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         const hh=Math.min(Math.max(+ov.h,minH),maxH);
         if(Math.abs(hh-(+ov.h))>0.5)p.ovNote='height clamped to '+Math.round(hh)+'mm (sheet limit '+Math.round(maxH)+')';
         p.y1=p.y0+hh;p.h=hh;p.ovH=hh;
-        if(p.dir==='v')p.sheet=(p.h>PN_CAP['8x4'])?'10x4':'8x4';
+        if(p.dir==='v')p.sheet=pnVSheet(p.w,p.h);
       }
       // per-panel FRAME — internal grid only (top/bottom margins + cell gaps); joint halves stay 40/40
       if(+ov.frame>0){const sk=D.skirtFor(p.wi,p.pid);p.sides.t=fL;p.sides.b=(p.y0<=0.5&&sk.on&&!p.isCap&&!p.isLower)?(sk.h+fL):fL;p.ovFrame=fL;}
@@ -5652,6 +6287,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       if(prev.panelNotes)w.panelNotes=prev.panelNotes;
       if(prev.skirt)w.skirt=prev.skirt;
       if(prev.vZones)w.vZones=prev.vZones;
+      if(prev.vColW)w.vColW=prev.vColW;   // per-column width pins (2026-07-18) survive a plan recompile
+      if(prev.hColW)w.hColW=prev.hColW;
       walls.push(w);
     });
     const byEdge={};walls.forEach(w=>{byEdge[w._edge]=w;});
@@ -5722,8 +6359,13 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // 10x4 sheets (offcut sharing), only then open 8x4 sheets. 7mm margin + 7mm gap (production rule).
   function pnNestRoom(room,pieces){
     const parts=pieces.map((p,i)=>({key:'pn'+i,w:Math.max(1,Math.round(p.w)),h:Math.max(1,Math.round(p.h)),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false},label:p.name||('P'+(i+1)),pnPiece:p}));
-    const big=parts.filter(p=>Math.max(p.w,p.h)>PN_CAP['8x4']);
-    const small=parts.filter(p=>Math.max(p.w,p.h)<=PN_CAP['8x4']).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+    // A wide vertical panel needs a bigger sheet than 8x4/10x4: 10x5 (<=1520 wide) or a bespoke special-order
+    // sheet (<=2000). Pull those out FIRST so they never overflow a standard bin; std pieces nest exactly as before,
+    // so a job with no wide panels leaves this branch inert and is byte-identical.
+    const cls=p=>{const s=p.pnPiece&&p.pnPiece.sheet;return (s==='10x5'||s==='special')?s:'std';};
+    const std=parts.filter(p=>cls(p)==='std'),p105=parts.filter(p=>cls(p)==='10x5'),pSpecial=parts.filter(p=>cls(p)==='special');
+    const big=std.filter(p=>Math.max(p.w,p.h)>PN_CAP['8x4']);
+    const small=std.filter(p=>Math.max(p.w,p.h)<=PN_CAP['8x4']).sort((a,b)=>(b.w*b.h)-(a.w*a.h));
     const bins10=big.length?packMulti(big,SHEETS['10x4'],7,7):[];
     const rest=[];
     small.forEach(p=>{
@@ -5732,9 +6374,14 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       if(!placed)rest.push(p);
     });
     const bins8=rest.length?packMulti(rest,SHEETS['8x4'],7,7):[];
+    const bins105=p105.length?packMulti(p105,SHEETS['10x5'],7,7):[];
     const sheets=[];
     bins10.forEach(b=>sheets.push({sz:'10x4',S:SHEETS['10x4'],g:7,margin:7,parts:b.parts}));
     bins8.forEach(b=>sheets.push({sz:'8x4',S:SHEETS['8x4'],g:7,margin:7,parts:b.parts}));
+    bins105.forEach(b=>sheets.push({sz:'10x5',S:SHEETS['10x5'],g:7,margin:7,parts:b.parts}));
+    // special-order (oversize) vertical panels: one bespoke sheet each, sized to the panel + 7mm margins, FLAGGED
+    // for the quote/production. Priced as a 10x5 placeholder (flag-only per spec — a real special price is set later).
+    pSpecial.forEach(p=>sheets.push({sz:'10x5',special:true,S:{w:Math.round(p.w)+14,h:Math.round(p.h)+14},g:7,margin:7,parts:[Object.assign({},p,{x:7,y:7})]}));
     let cost=0,area=0,sheetA=0;
     sheets.forEach(s=>{cost+=priceForSheet(room.mat,s.sz);sheetA+=s.S.w*s.S.h;s.parts.forEach(p=>{area+=p.w*p.h;});});
     return {sheets,cost,waste:Math.max(0,sheetA-area)};
@@ -5743,7 +6390,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   // material £/sheet (default = price book per sheet size, overridable) + CNC service £/sheet
   // (default £330, overridable). Empty panelRooms = zero rows = doors-only quote unchanged.
   function pnQuote(){
-    const out={rows:[],total:0,sheetN:0,partN:0};
+    const out={rows:[],total:0,sheetN:0,partN:0,specialN:0,n105:0};
     if(!panelRooms||!panelRooms.length)return out;
     panelRooms.forEach(room=>{
       let L;try{L=pnRoom(room);}catch(e){return;}
@@ -5755,9 +6402,11 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       mc=Math.round(mc);
       const cncEff=Math.round(cncRate*nest.sheets.length);
       const total=mc+cncEff;
-      const szs={};nest.sheets.forEach(s=>{szs[s.sz]=(szs[s.sz]||0)+1;});
-      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,matOv,cncRate,cncEff,total,szs});
-      out.total+=total;out.sheetN+=nest.sheets.length;out.partN+=L.pieces.length;
+      // szs label: bespoke special-order sheets show as their own bucket, not as a normal 10x5 (display only —
+      // money math above is untouched; no special/10x5 sheets → identical output, QUOTE goldens byte-identical)
+      const szs={};let spN=0,n105=0;nest.sheets.forEach(s=>{const k2=s.special?'special order':s.sz;szs[k2]=(szs[k2]||0)+1;if(s.special)spN++;else if(s.sz==='10x5')n105++;});
+      out.rows.push({room:room.name||'Room',mat:room.mat,sheets:nest.sheets.length,parts:L.pieces.length,mc,matOv,cncRate,cncEff,total,szs,specialN:spN,n105});
+      out.total+=total;out.sheetN+=nest.sheets.length;out.partN+=L.pieces.length;out.specialN+=spN;out.n105+=n105;
     });
     return out;
   }
@@ -5769,6 +6418,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       +d.panels.rows.map(r=>{const szs=Object.keys(r.szs).map(k=>r.szs[k]+'× '+k).join(' · ');
         return '<tr><td>'+esc(r.room)+'</td><td>'+esc(r.mat)+'</td><td class="c">'+r.sheets+'<div style="font-size:9px;color:#64748b">'+szs+'</div></td><td class="c">'+r.parts+'</td><td class="r">'+moneyP(r.mc)+'</td><td class="r">'+moneyP(r.cncEff)+'</td><td class="r">'+moneyP(r.total)+'</td></tr>';}).join('')
       +'</tbody></table>'
+      +(d.panels.specialN?'<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;padding:6px 9px;font-size:11px;margin:6px 0">⚠ '+d.panels.specialN+' SPECIAL-ORDER sheet'+(d.panels.specialN>1?'s':'')+' required — vertical panel over 1520mm (10x5 width limit). Sheet must be bought/ordered; confirm supply and price before production.</div>':'')
+      +(d.panels.n105?'<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;padding:6px 9px;font-size:11px;margin:6px 0">⚠ '+d.panels.n105+' × 10x5 sheet'+(d.panels.n105>1?'s':'')+' required (panel wider than 1206mm) — check stock.</div>':'')
       +'<table class="msum"><tbody><tr><td><b>Doors total</b></td><td class="r"><b>'+moneyP(d.bodyTot)+'</b></td></tr><tr><td><b>Panels total</b></td><td class="r"><b>'+moneyP(d.panels.total)+'</b></td></tr></tbody></table>';
   }
   // ---- Panels square metres (2026-07-15) ----
@@ -5804,11 +6455,15 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function pnQuotePanelsExtra(){
     const areas=pnQuoteAreas();if(!areas.count)return '';
     const multi=areas.rooms.length>1;
+    // wide-panel sheet triggers (2026-07-18): panels over 1206mm need a 10x5, over 1520mm a special-order sheet
+    let w105=0,wSp=0;areas.rooms.forEach(r=>r.L.pieces.forEach(p=>{if(p.sheet==='special')wSp++;else if(p.sheet==='10x5')w105++;}));
     let h='<div class="qsec">Wall Panels</div>'
       +'<table class="msum"><tbody>'
       +'<tr><td>Total panels</td><td class="r"><b>'+areas.count+'</b></td></tr>'
       +'<tr><td>Panel material area</td><td class="r"><b>'+areas.mat.toFixed(2)+' m²</b></td></tr>'
       +'<tr><td>Painted front area (front only)</td><td class="r"><b>'+areas.painted.toFixed(2)+' m²</b></td></tr>'
+      +(w105?'<tr><td style="color:#b45309">Panels needing a 10x5 sheet (&gt;1206mm)</td><td class="r"><b style="color:#b45309">'+w105+'</b></td></tr>':'')
+      +(wSp?'<tr><td style="color:#b45309">⚠ Panels needing a SPECIAL-ORDER sheet (&gt;1520mm)</td><td class="r"><b style="color:#b45309">'+wSp+'</b></td></tr>':'')
       +'</tbody></table>';
     if(pnQuotePano){h+='<div class="qsec">Panels — panoramic view</div>';
       areas.rooms.forEach(r=>{h+='<div class="dwg-sheet">'+(multi?'<div class="dwg-cap">'+esc(r.room.name||'Room')+'</div>':'')+pnPanoSvg(r.room,r.L,true)+'</div>';});}
@@ -5828,8 +6483,31 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     // was a reflection (det −1) → it silently SWAPPED left/right on rotated panels (a door-side 147mm frame
     // came out on the wrong edge). Point map (x,y)→(y, W0−x) is a proper CW rotation, matching the Doors net
     // (placedCavs transpose + y-flip). Non-rotated is unchanged. Verified 2026-07-13.
-    const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w}:{x:r.x,y:r.y,w:r.w,h:r.h};
+    const tf=r=>rot?{x:r.y,y:W0-r.x-r.w,w:r.h,h:r.w,wrap:r.wrap}:{x:r.x,y:r.y,w:r.w,h:r.h,wrap:r.wrap};
     return {cells:(pc.cells||[]).map(tf),notches:(pc.notches||[]).map(tf)};
+  }
+  // Stepped outline of a WRAPPED vertical panel (V↔H joint, 2026-07-19; intervals 2026-07-20): the bbox minus a
+  // f/2-deep joint notch over each side's COVERED range [y0..y1] (where the horizontal neighbour sits — the band
+  // from the floor, or a cap panel over an object/door at any height). Local y-up points (0..w × 0..h); writers
+  // map the points themselves (rotation/doc frame). Plain pieces return null → callers keep the rectangle.
+  function pnWrapPts(pc){
+    if(!pc||(!pc.wrapL&&!pc.wrapR))return null;
+    const W0=Math.max(1,Math.round(pc.w)),H0=Math.max(1,Math.round(pc.h));
+    const seg=(wr)=>{if(!wr)return null;const y0=Math.max(0,Math.round(wr.y0!=null?wr.y0:0)),y1=Math.min(H0,Math.round(wr.y1!=null?wr.y1:wr.cov||0));
+      return (y1-y0>1)?{e:Math.round(wr.ext),y0:y0,y1:y1}:null;};
+    const R=seg(pc.wrapR),Lw=seg(pc.wrapL);
+    const pts=[];
+    // right side, bottom→top (solid edge x=W0, notch x=W0−e over [y0..y1])
+    if(R){
+      if(R.y0>0.5)pts.push({x:W0,y:0},{x:W0,y:R.y0},{x:W0-R.e,y:R.y0});else pts.push({x:W0-R.e,y:0});
+      if(R.y1<H0-0.5)pts.push({x:W0-R.e,y:R.y1},{x:W0,y:R.y1},{x:W0,y:H0});else pts.push({x:W0-R.e,y:H0});
+    } else pts.push({x:W0,y:0},{x:W0,y:H0});
+    // left side, top→bottom (solid edge x=0, notch x=e over [y0..y1])
+    if(Lw){
+      if(Lw.y1<H0-0.5)pts.push({x:0,y:H0},{x:0,y:Lw.y1},{x:Lw.e,y:Lw.y1});else pts.push({x:Lw.e,y:H0});
+      if(Lw.y0>0.5)pts.push({x:Lw.e,y:Lw.y0},{x:0,y:Lw.y0},{x:0,y:0});else pts.push({x:Lw.e,y:0});
+    } else pts.push({x:0,y:H0},{x:0,y:0});
+    return pts;
   }
   function pnDxfForThickness(th,list){
     const SHEETGAP=250;let body='';const layers=new Set(['0','text']);let yOrigin=0,sheetNo=0,pnum=0;
@@ -5846,7 +6524,15 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         const bx=p.x,by=Hn-(p.y+p.h);
         layers.add('OUT');
         const o=rRectD(bx,by,p.w,p.h);
-        body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
+        // wrapped V↔H joint panel (2026-07-19): the OUT is the true STEPPED contour (bbox minus the f/2 joint
+        // notch — Ednei's reference "Vertical + Horizontal joint.dxf"), rotation-aware via the same point map as
+        // the cells. Plain pieces keep the rectangle byte-for-byte.
+        const wpts=pnWrapPts(p.pnPiece);
+        if(wpts){
+          const W0=Math.max(1,Math.round(p.pnPiece.w));
+          const rot=p.rot===90||p.rot===1||p.rot===true;
+          body+=dxfPoly('OUT',wpts.map(q=>{const t=rot?{x:q.y,y:W0-q.x}:q;const sx=bx+t.x,sy=by+t.y;return {x:Hn-sy,y:oy+sx};}),true);
+        } else body+=dxfRect('OUT',o.x,o.y,o.w,o.h);
         const geo=pnCellRects(p);
         const lines=(entry.lines||[]).map((l,i)=>({en:!!(l&&l.en),mm:+(l&&l.mm)||0,rd:!!(l&&l.rd),L:'ABCDEFG'[i]})).filter(l=>l.en);
         geo.cells.forEach(c=>{
@@ -5859,7 +6545,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
             body+=(l.rd?dxfRoundRect(lyr,r.x,r.y,r.w,r.h,2.5):dxfRect(lyr,r.x,r.y,r.w,r.h));
           });
         });
-        geo.notches.forEach(n=>{if(n.w>2&&n.h>2){layers.add('INSIDE');const r=rRectD(bx+n.x,by+n.y,n.w,n.h);body+=dxfRect('INSIDE',r.x,r.y,r.w,r.h);}});
+        geo.notches.forEach(n=>{if(n.wrap)return;   // wrap notches live in the stepped OUT contour, not INSIDE
+          if(n.w>2&&n.h>2){layers.add('INSIDE');const r=rRectD(bx+n.x,by+n.y,n.w,n.h);body+=dxfRect('INSIDE',r.x,r.y,r.w,r.h);}});
         const R=o,partNo=String(pnum);
         const M=dxfPartMetrics(R.x,R.y,R.w,R.h,partNo);
         if(M.numberFont>0){layers.add('PART_NUMBER');
@@ -5955,14 +6642,16 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           if(ovR>0.5){body+=dxfText('text',x0+measured,H+34+wlf+6,Math.max(20,wlf*0.7),'overlap +'+Math.round(ovR),false);}
           L.pieces.filter(p=>p.wi===wi).forEach(p=>{                                          // panels inset by the left gap (overlap extends the piece past the wall)
             const px=x0+clL+p.x0,pw=p.x1-p.x0,py=p.y0,ph=p.y1-p.y0;
-            body+=dxfRect('OUT',px,py,pw,ph);
+            const wpts=pnWrapPts(p);   // wrapped V↔H joint → stepped outline (wall coords, no rotation)
+            if(wpts)body+=dxfPoly('OUT',wpts.map(q=>({x:px+q.x,y:py+q.y})),true);
+            else body+=dxfRect('OUT',px,py,pw,ph);
             // shaker cavities + the room's offset/pocket lines inset inside each one (mirrors the Sheet DXF detail)
             (p.cells||[]).forEach(c=>{if(c.w<=2||c.h<=2)return;
               if(!rlines.length){layers.add('OFFSET_A');body+=dxfRect('OFFSET_A',px+c.x,py+c.y,c.w,c.h);}
               rlines.forEach(l=>{const iw=c.w-2*l.mm,ih=c.h-2*l.mm;if(iw<=1||ih<=1)return;const lyr='OFFSET_'+l.L;layers.add(lyr);
                 if(l.rd)body+=dxfRoundRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih,2.5);else body+=dxfRect(lyr,px+c.x+l.mm,py+c.y+l.mm,iw,ih);});
             });
-            (p.notches||[]).forEach(n=>{if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
+            (p.notches||[]).forEach(n=>{if(n.wrap)return;if(n.w>2&&n.h>2)body+=dxfRect('INSIDE',px+n.x,py+n.y,n.w,n.h);});
             const fz=Math.max(22,Math.min(70,ph*0.14,pw*0.5));
             body+=dxfText('text',px+18,py+ph-fz-16,fz,'Wall '+(wi+1)+(p.letter||''),false);
             body+=dxfText('text',px+18,py+16,Math.max(16,fz*0.7),'panel '+Math.round(p.w)+' x '+Math.round(p.h),false);   // PHYSICAL panel size
@@ -6091,6 +6780,32 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     else ov[field]=val;
     pnRefresh();}
   function pnPieceAuto(){const w=pnWallObj();if(!w||!w.panelOv)return;delete w.panelOv[pnSel.id];pnRefresh();}
+  // per-VERTICAL-column physical WIDTH pin (wall.vColW, index = column position). Pin THIS column's width; the OTHER
+  // columns of the wall re-flow to fill it (pnVColLayout) — so the array is seeded to the CURRENT column count with
+  // nulls, keeping the other columns present. Empty/0 or the Auto button clears the pin; all-clear → back to auto.
+  function pnColWCount(){const r=pnRoomObj();if(!r)return 0;try{return pnRoom(r).pieces.filter(p=>p.wi===pnSel.wall&&p.dir==='v'&&!p.isCap&&!p.isLower&&!p.isZone).length;}catch(e){return 0;}}
+  function pnColWSet(val){const w=pnWallObj();if(!w)return;const k=parseInt(String(pnSel.id).split('p').pop());if(!(k>0))return;
+    const n=Math.max(k,pnColWCount());w.vColW=w.vColW||[];while(w.vColW.length<n)w.vColW.push(null);
+    const t=String(val).trim();w.vColW[k-1]=(t===''||+t<=0)?null:Math.min(PN_VW.max,Math.max(60,pnNum(t)));
+    if(w.vColW.every(x=>x==null))delete w.vColW;
+    pnRefresh();}
+  function pnColWAuto(){const w=pnWallObj();if(!w||!w.vColW)return;const k=parseInt(String(pnSel.id).split('p').pop());
+    if(k>0&&k<=w.vColW.length)w.vColW[k-1]=null;
+    if(w.vColW.every(x=>x==null))delete w.vColW;
+    pnRefresh();}
+  // per-HORIZONTAL-band-panel physical WIDTH pin (wall.hColW; index = the panel's position among this wall's band
+  // panels, left→right). Pinned panels keep their width; the other panels of the SAME contiguous stretch re-flow to
+  // fill it (equal shares), joints stay 40/40, the shaker grid re-balances. Max 3000 (10x4 cap). Empty/0/Auto clears.
+  function pnHBandOf(){const r=pnRoomObj();if(!r)return [];try{return pnRoom(r).pieces.filter(p=>p.wi===pnSel.wall&&p.dir==='h'&&!p.isCap&&!p.isLower&&!p.isZone).sort((a,b)=>a.x0-b.x0);}catch(e){return [];}}
+  function pnHColWSet(val){const w=pnWallObj();if(!w)return;const band=pnHBandOf();const k=band.findIndex(p=>p.pid===pnSel.id);if(k<0)return;
+    w.hColW=w.hColW||[];while(w.hColW.length<band.length)w.hColW.push(null);
+    const t=String(val).trim();w.hColW[k]=(t===''||+t<=0)?null:Math.min(PN_CAP['10x4'],Math.max(200,pnNum(t)));
+    if(w.hColW.every(x=>x==null))delete w.hColW;
+    pnRefresh();}
+  function pnHColWAuto(){const w=pnWallObj();if(!w||!w.hColW)return;const band=pnHBandOf();const k=band.findIndex(p=>p.pid===pnSel.id);
+    if(k>=0&&k<w.hColW.length)w.hColW[k]=null;
+    if(w.hColW.every(x=>x==null))delete w.hColW;
+    pnRefresh();}
   // ---- mixed orientation: a physical VERTICAL panel = a vertical zone on the wall (wall.vZones) ----
   function pnZoneOf(wall,pid){if(!wall||String(pid).indexOf('vz')!==0)return null;const id=String(pid).slice(2);return (wall.vZones||[]).find(z=>String(z.id)===id)||null;}
   function pnPieceOrient(v){
@@ -6100,7 +6815,16 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
     if(v==='v'&&!p.isZone){
       // turn THIS panel into a physical vertical panel; the wall auto-refills the rest as horizontal
       w.vZones=w.vZones||[];
-      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:Math.min(Math.round(p.w),1200),h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
+      // AUTO width (2026-07-20, Ednei): respect the frames and make the vertical shakers MATCH the horizontals —
+      // the widest whole number of the piece's OWN shaker width that fits 1200, using the piece's ACTUAL side
+      // margins (wall edge 80 / joint 40 / door 175) so the new columns come out exactly the same width as the
+      // band's. zw = nc·cellW + (nc−1)·f + lm + rm. Manual edit can then go to 2000.
+      const D0=pnRoomDefs(r),f0=D0.frame,cellW=(p.cells&&p.cells.length?p.cells[0].w:D0.target)||D0.target;
+      const lm0=(p.sides&&p.sides.l?p.sides.l.mm:f0/2),rm0=(p.sides&&p.sides.r?p.sides.r.mm:f0/2);
+      const base=Math.min(Math.round(p.w),1200);
+      const nc0=Math.floor((base-lm0-rm0+f0)/(cellW+f0));
+      const zw=Math.max(120,nc0>=1?Math.round(nc0*cellW+(nc0-1)*f0+lm0+rm0):base);
+      const z={id:'z'+(++pnUid),x:Math.round(p.x0),w:zw,h:Math.min(+(r.vPanelH)||3000,3000),cols:0,rows:0};
       w.vZones.push(z);
       pnSel={room:pnSel.room,wall:pnSel.wall,kind:'piece',id:'vz'+z.id};
       pnRefresh();
@@ -6112,15 +6836,17 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   }
   function pnZoneSet(field,val){
     const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;const n=pnNum(val);
-    if(field==='w')z.w=Math.max(120,Math.min(1200,n));
+    if(field==='w')z.w=Math.max(120,Math.min(PN_VW.max,n));   // vertical tiers: >1206 → 10x5 · >1520 → special-order · max 2000 (2026-07-18)
     else if(field==='h')z.h=Math.max(300,Math.min(PN_CAP['10x4'],n));
     else if(field==='x')z.x=Math.max(0,n);
     pnRefresh();
   }
-  function pnZoneStep(field,d){
+  function pnZoneStep(field,d,cur){
     const w=pnWallObj(),z=pnZoneOf(w,pnSel.id);if(!z)return;
-    if(field==='cols')z.cols=Math.max(0,Math.round(+z.cols||0)+d);
-    else z.rows=Math.max(1,Math.round(+z.rows>0?+z.rows:2)+d);
+    // seed from the DISPLAYED count (cur) — from AUTO, "−" now goes to shown−1 instead of being stuck at auto,
+    // so a single wide shaker (1 column) is reachable. Min 1.
+    if(field==='cols')z.cols=Math.max(1,Math.round(+z.cols>0?+z.cols:(+cur||1))+d);
+    else z.rows=Math.max(1,Math.round(+z.rows>0?+z.rows:(+cur||2))+d);
     pnRefresh();
   }
   // ---- per-wall skirting override (room default unless the wall sets its own) ----
@@ -6233,7 +6959,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       const px=X(p.x0),pw=(p.x1-p.x0)*sc,py=Y(p.y1),ph=(p.y1-p.y0)*sc;
       snapRect(p.x0,p.y0,p.x1,p.y1);
       s+='<g class="pnk" data-pid="'+p.pid+'" data-wi="'+wi+'" style="cursor:pointer">';
-      s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.08':'0.14')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
+      const wq=pnWrapPts(p);   // wrapped V↔H joint panel → true stepped outline (the band fills the notch)
+      if(wq)s+='<polygon points="'+wq.map(q=>X(p.x0+q.x)+','+Y(p.y0+q.y)).join(' ')+'" fill="rgba(37,99,235,0.14)" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
+      else s+='<rect x="'+px+'" y="'+py+'" width="'+pw+'" height="'+ph+'" fill="rgba(37,99,235,'+(p.isCap||p.isLower?'0.08':'0.14')+')" stroke="#2563eb" stroke-width="'+(selp?2:0.9)+'"/>';
       if(p.sides.l.rule==='joint')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
       if(p.sides.r.rule==='joint')s+='<rect x="'+(px+pw-Math.max(1.5,p.sides.r.mm*sc))+'" y="'+py+'" width="'+Math.max(1.5,p.sides.r.mm*sc)+'" height="'+ph+'" fill="rgba(245,158,11,.4)"/>';
       if(p.sides.l.rule==='corner'||p.sides.l.rule==='column')s+='<rect x="'+px+'" y="'+py+'" width="'+Math.max(1.5,p.sides.l.mm*sc)+'" height="'+ph+'" fill="rgba(100,116,139,.22)"/>';
@@ -6249,6 +6977,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
             snapRect(p.x0+c.x+(+l.mm||0),p.y0+c.y+(+l.mm||0),p.x0+c.x+c.w-(+l.mm||0),p.y0+c.y+c.h-(+l.mm||0));}});
       });
       (p.notches||[]).forEach(n=>{
+        if(n.wrap)return;   // wrap notch = the stepped outline above; the band panel occupies that strip
         snapRect(p.x0+n.x,p.y0+n.y,p.x0+n.x+n.w,p.y0+n.y+n.h);
         s+='<rect x="'+X(p.x0+n.x)+'" y="'+Y(p.y0+n.y+n.h)+'" width="'+(n.w*sc)+'" height="'+(n.h*sc)+'" fill="var(--bg)" stroke="#2563eb" stroke-width="0.6" stroke-dasharray="4 3"/>';
       });
@@ -6337,20 +7066,28 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   function pnSheetsSvg(room,L){
     const nest=pnNestRoom(room,L.pieces);
     if(!nest.sheets.length)return '<div class="pn-hint" style="padding:30px 10px;text-align:center">No panels to nest yet.</div>';
-    const pad=16,vbW=940,sc=(vbW-2*pad)/3050,capH=18;
-    let y=pad,s='';
-    nest.sheets.forEach((sh,i)=>{
-      const shH=sh.S.h*sc;
-      s+='<text x="'+pad+'" y="'+(y+11)+'" font-size="11" font-weight="700" fill="var(--ink)">Sheet '+(i+1)+' · '+sh.sz+' · '+sh.parts.length+' parts · '+money(priceForSheet(room.mat,sh.sz))+'</text>';
-      y+=capH;
-      s+='<rect x="'+pad+'" y="'+y+'" width="'+(sh.S.w*sc)+'" height="'+shH+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="0.8"/>';
-      sh.parts.forEach(p=>{
-        s+='<rect x="'+(pad+p.x*sc)+'" y="'+(y+p.y*sc)+'" width="'+(p.w*sc)+'" height="'+(p.h*sc)+'" fill="rgba(37,99,235,.16)" stroke="#2563eb" stroke-width="0.6"/>';
-        if(p.w*sc>46&&p.h*sc>10)s+='<text x="'+(pad+(p.x+p.w/2)*sc)+'" y="'+(y+(p.y+p.h/2)*sc+3)+'" text-anchor="middle" font-size="8.5" fill="var(--ink)">'+esc(String(p.label||'').replace(/^.*Wall /,'W'))+'</text>';
+    // Quote/PDF layout (Ednei 2026-07-18): MAX 2 sheets side by side per row, all on ONE shared mm scale
+    // (anchored to the 3050 sheet) so different sheet sizes stay proportional to each other. Each row is its
+    // own <svg> in a break-inside:avoid wrapper → the printed PDF paginates between rows instead of slicing
+    // one giant image (the old one-sheet-per-line full-width stack came out ~258mm tall per room).
+    const pad=16,gut=20,vbW=940,cellW=(vbW-2*pad-gut)/2,sc=cellW/3050,capH=16,out=[];
+    for(let i=0;i<nest.sheets.length;i+=2){
+      const row=nest.sheets.slice(i,i+2);
+      let s='',rowH=0;
+      row.forEach((sh,k)=>{
+        const x=pad+k*(cellW+gut),shH=sh.S.h*sc;
+        s+='<text x="'+x+'" y="'+(pad+10)+'" font-size="10" font-weight="700" fill="var(--ink)">Sheet '+(i+k+1)+' · '+sh.sz+' · '+sh.parts.length+' parts · '+money(priceForSheet(room.mat,sh.sz))+'</text>';
+        s+='<rect x="'+x+'" y="'+(pad+capH)+'" width="'+(sh.S.w*sc)+'" height="'+shH+'" fill="var(--bg)" stroke="var(--muted)" stroke-width="0.8"/>';
+        sh.parts.forEach(p=>{
+          s+='<rect x="'+(x+p.x*sc)+'" y="'+(pad+capH+p.y*sc)+'" width="'+(p.w*sc)+'" height="'+(p.h*sc)+'" fill="rgba(37,99,235,.16)" stroke="#2563eb" stroke-width="0.6"/>';
+          if(p.w*sc>34&&p.h*sc>9)s+='<text x="'+(x+(p.x+p.w/2)*sc)+'" y="'+(pad+capH+(p.y+p.h/2)*sc+2.6)+'" text-anchor="middle" font-size="7.5" fill="var(--ink)">'+esc(String(p.label||'').replace(/^.*Wall /,'W'))+'</text>';
+        });
+        rowH=Math.max(rowH,shH);
       });
-      y+=shH+14;
-    });
-    return '<svg viewBox="0 0 '+vbW+' '+Math.round(y+4)+'" style="width:100%;display:block">'+s+'</svg>';
+      const vbH=Math.round(pad+capH+rowH+8);
+      out.push('<div style="break-inside:avoid">'+'<svg viewBox="0 0 '+vbW+' '+vbH+'" style="width:100%;display:block">'+s+'</svg></div>');
+    }
+    return out.join('');
   }
   // panoramic room view: every wall side by side, click a wall to open it.
   // quote=true (Quote tab / PDF only): HIDE walls with no panels and pack the rest tight (real wall numbers
@@ -6380,7 +7117,9 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       s+='<rect x="'+x0+'" y="'+y0+'" width="'+wpx+'" height="'+hpx+'" fill="var(--bg)" stroke="'+(on?'#2563eb':'var(--muted)')+'" stroke-width="'+(on?1.6:0.8)+'"/>';
       L.pieces.filter(p=>p.wi===wi).forEach(p=>{
         const ppx=x0+p.x0*sc,ppw=(p.x1-p.x0)*sc,ppy=floorY-p.y1*sc,pph=(p.y1-p.y0)*sc;
-        s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        const wq=pnWrapPts(p);   // wrapped V↔H joint → stepped outline in the panorama too
+        if(wq)s+='<polygon points="'+wq.map(q=>(x0+(p.x0+q.x)*sc)+','+(floorY-(p.y0+q.y)*sc)).join(' ')+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
+        else s+='<rect x="'+ppx+'" y="'+ppy+'" width="'+ppw+'" height="'+pph+'" fill="rgba(37,99,235,.15)" stroke="#2563eb" stroke-width="0.5"/>';
         (p.cells||[]).forEach(c=>{if(c.w*sc>3&&c.h*sc>3){
           const cx=x0+(p.x0+c.x)*sc,cy=floorY-(p.y0+c.y+c.h)*sc,cw=c.w*sc,chh=c.h*sc;
           s+='<rect x="'+cx+'" y="'+cy+'" width="'+cw+'" height="'+chh+'" fill="var(--card)" stroke="#2563eb" stroke-width="0.3" stroke-opacity="0.5"/>';
@@ -7100,6 +7839,8 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       '<div class="pn-row"><label>Name</label><input type="text" value="'+esc(room.name||'')+'" onchange="pnSet(\'room\',\'name\',this.value)"></div>'
       +'<div class="pn-row"><label>Sheet use</label>'+pnSegHtml([['auto','Auto 8x4/10x4'],['8x4','8x4 only']],room.sheetPref==='8x4'?'8x4':'auto','pnSet(\'room\',\'sheetPref\',\'%V\')')+'</div>'
       +'<div class="pn-hint">Auto: runs ≤ '+PN_CAP['10x4']+'mm stay one piece on 10x4; longer runs split at frame centrelines with the cheapest 8x4/10x4 mix.</div>'
+      +'<div class="pn-row"><label>V–H joint</label>'+pnSegHtml([['step','Wrap (standard)'],['flat','Straight 40']],room.vhJoint==='flat'?'flat':'step','pnSet(\'room\',\'vhJoint\',\'%V\')')+'</div>'
+      +'<div class="pn-hint">Wrap: beside a horizontal panel a vertical panel keeps a 40mm joint (40+40 reads as one 80 frame); past the neighbour\'s top it widens by 40 and carries the full 80 alone — the outline wraps, the frame line stays straight. Beside an object with a closing panel the frame line steps instead.</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="pn-mini" onclick="pnDupRoom()">⧉ Duplicate room</button>'
       +(panelRooms.length>1?'<button class="pn-mini" onclick="pnDelRoom()" style="color:#dc2626">🗑 Delete room</button>':'')+'</div>');
     s+=pnAcc('r_skirt','Skirting & Sill',(room.skirtOn!==false?Math.round(room.skirtH!=null?room.skirtH:225)+'mm':'off'),
@@ -7253,14 +7994,27 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
         if(p.ovNote)b+='<div class="pn-warn" style="margin:4px 0">⚠ '+esc(p.ovNote)+'</div>';
         b+='<div class="pn-row"><label>Orientation</label>'+pnSegHtml([['h','Horizontal'],['v','Vertical']],isZone?'v':'h','pnPieceOrient(\'%V\')')+'</div>';
         if(isZone){
-          b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel — stands upright on the 10x4 vertical sheet, max 1200 wide × 3000 high. The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
-          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="1200" value="'+Math.round(p.w)+'" onchange="pnZoneSet(\'w\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 1200</span></div>';
+          b+='<div class="pn-hint" style="margin:2px 0 6px">Physical vertical panel. Up to 1206 wide = standard sheet; 1207–1520 = 10x5 sheet; 1521–2000 = special-order sheet (flagged). The rest of the wall auto-refills with horizontal panels; other panels stay as they are.</div>';
+          const zTier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
+          const zWrapExt=(p.wrapL?p.wrapL.ext:0)+(p.wrapR?p.wrapR.ext:0);
+          b+='<div class="pn-row"><label>Width</label><input type="number" min="120" max="2000" value="'+Math.round(p.w-zWrapExt)+'" onchange="pnZoneSet(\'w\',this.value)" title="Width at the joint. Over 1206 needs a 10x5 sheet, over 1520 a special-order sheet, max 2000. With the Wrap joint the CUT piece is +40 per wrapped side (shown below)."><span class="sub" style="margin-left:4px">mm'+(zWrapExt?' · cut '+Math.round(p.w)+' (wrap +'+zWrapExt+')':' · ≤ 2000')+zTier+'</span></div>';
           b+='<div class="pn-row"><label>Height</label><input type="number" min="300" max="3000" value="'+Math.round(p.h)+'" onchange="pnZoneSet(\'h\',this.value)"><span class="sub" style="margin-left:4px">mm · ≤ 3000</span></div>';
-          b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1)">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1)">+</button></span></div>';
-          b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1)">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1)">+</button></span></div>';
+          b+='<div class="pn-row"><label>Columns</label><span class="pn-step"><button onclick="pnZoneStep(\'cols\',-1,'+colsNow+')">−</button><b>'+colsNow+'</b><button onclick="pnZoneStep(\'cols\',1,'+colsNow+')">+</button></span></div>';
+          b+='<div class="pn-row"><label>Rows</label><span class="pn-step"><button onclick="pnZoneStep(\'rows\',-1,'+bandsN+')">−</button><b>'+bandsN+'</b><button onclick="pnZoneStep(\'rows\',1,'+bandsN+')">+</button></span></div>';
           b+='<div class="pn-row" style="margin-top:8px"><button class="pn-mini" onclick="pnPieceOrient(\'h\')" style="font-weight:800">↺ Back to horizontal (remove vertical panel)</button></div>';
         } else {
-          b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
+          if((wall.dir||'h')==='v'&&!p.isCap&&!p.isLower){
+            const ci=parseInt(String(p.pid).split('p').pop())-1,pinned=!!(wall.vColW&&+wall.vColW[ci]>0);
+            const tier=p.sheet==='special'?' · <b style="color:#b45309">SPECIAL-ORDER sheet</b>':(p.sheet==='10x5'?' · <b style="color:#b45309">10x5 sheet</b>':'');
+            b+='<div class="pn-row"><label>Width</label><input type="number" min="60" max="2000" value="'+Math.round(p.w)+'" onchange="pnColWSet(this.value)" title="Physical width of THIS vertical panel. The other columns on the wall re-flow to fill the wall (pinned ones stay). Max 2000mm — over 1206 needs a 10x5, over 1520 a special-order sheet."><span class="sub" style="margin-left:4px">mm'+(pinned?' · pinned':' · auto')+tier+'</span>'+(pinned?' <button class="pn-mini" onclick="pnColWAuto()">Auto</button>':'')+'</div>';
+          } else if(p.dir==='h'&&!p.isCap&&!p.isLower){
+            const hband=(L?L.pieces:[]).filter(x=>x.wi===pnSel.wall&&x.dir==='h'&&!x.isCap&&!x.isLower&&!x.isZone).sort((x,y)=>x.x0-y.x0);
+            const hk=hband.findIndex(x=>x.pid===p.pid);
+            const hPinned=!!(wall.hColW&&hk>=0&&+wall.hColW[hk]>0);
+            b+='<div class="pn-row"><label>Width</label><input type="number" min="200" max="3000" value="'+Math.round(p.w)+'" onchange="pnHColWSet(this.value)" title="Physical width of THIS panel. The joints stay 40/40 frames; the other panels of this stretch re-flow to fill the wall (pinned ones keep their width) and the shaker grid re-balances. Max 3000mm (10x4)."><span class="sub" style="margin-left:4px">mm'+(hPinned?' · pinned':' · auto')+(p.w>PN_CAP['8x4']+0.5?' · <b style="color:#b45309">10x4</b>':'')+'</span>'+(hPinned?' <button class="pn-mini" onclick="pnHColWAuto()">Auto</button>':'')+'</div>';
+          } else {
+            b+='<div class="pn-row"><label>Width</label><span class="sub" title="Panel width comes from the sheet optimizer and the 40/40 joints — change the shaker quantity or joints, or use a Gap/Overlap side below">'+Math.round(p.w)+'mm'+(p.ovPhys?' · gap/overlap':' · from joints')+'</span></div>';
+          }
           b+='<div class="pn-row"><label>Height</label><input type="number" min="100" value="'+Math.round(p.h)+'" onchange="pnPieceOv(\'h\',this.value)" title="This panel only — sheet limits clamp it with a visible note"><span class="sub" style="margin-left:4px">mm'+(ov.h?'':' · auto')+'</span></div>';
           b+='<div class="pn-row"><label>Shaker columns</label><span class="pn-step"><button onclick="pnPieceOv(\'cols\','+(colsNow-1)+')">−</button><b>'+colsNow+((ov.cols||ov.count)?'':' · auto')+'</b><button onclick="pnPieceOv(\'cols\','+(colsNow+1)+')">+</button></span></div>';
           b+='<div class="pn-row"><label>Shaker rows</label><span class="pn-step"><button onclick="pnPieceOv(\'rows\','+(Math.max(1,bandsN-1))+')">−</button><b>'+bandsN+(ov.rows?'':' · auto')+'</b><button onclick="pnPieceOv(\'rows\','+(bandsN+1)+')">+</button></span></div>';
@@ -7573,11 +8327,15 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
       +'<div class="qsec">Drawings</div>'+printSheetsHtml()
       +'<div class="foot">Generated by Kabacal · Quote valid 30 days · FAST CNC Services</div>';
   }
-  function cutFrame(it){const f=resolveFrame(it);const active=(it.lines&&it.lines[0]&&it.lines[0].en)||it.type!=='flat';if(!active)return '—';return (f.t===f.r&&f.r===f.b&&f.b===f.l)?(f.t+'mm'):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);}
+  function cutFrame(it){const f=resolveFrame(it);const active=(it.lines&&it.lines[0]&&it.lines[0].en)||it.type!=='flat';if(!active)return '—';
+    const base=(f.t===f.r&&f.r===f.b&&f.b===f.l)?(f.t+'mm'):('T'+f.t+' R'+f.r+' B'+f.b+' L'+f.l);
+    const mr=midrailsOf(it);return mr?base+' · rails '+mr.map(r=>r.c+'('+r.th+')').join(' '):base;}   // rails = centre(th) from the bottom/right
   function cutOffset(it){const e=enabledLines(it);if(!e.length)return '—';return e.map(l=>l.L).join('')+(it.pocketSide==='front-back'?' F+B':'')+(e.some(l=>l.rd)?' rnd':'');}
-  function cutHinge(it){const h=hingeInfo(it);return h.on?(h.side+' ×'+h.count):'—';}
+  function cutHinge(it){const h=hingeInfo(it);return h.on?(h.side+' ×'+h.count+(h.model&&h.model!=='generic'?' · '+HINGE_MODELS[h.model].name:'')):'—';}
   function buildCutListHtml(){
-    const rows=items.map((it,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+esc(TYPES[it.type].name)+'</td><td class="c">'+it.w+'×'+it.h+'</td><td class="c">'+(+it.q||1)+'</td><td>'+esc(it.mat)+'</td><td>'+cutFrame(it)+'</td><td>'+cutOffset(it)+'</td><td>'+cutHinge(it)+'</td><td>'+esc(it.text||'')+'</td></tr>').join('');
+    const rows=items.map((it,i)=>{const sh=shapeOf(it);
+      const notes=[it.text||'',(it.recessDepth!==''&&it.recessDepth!=null)?('recess '+it.recessDepth+'mm'):''].filter(Boolean).join(' · ');
+      return '<tr><td class="c">'+(i+1)+'</td><td>'+esc(TYPES[it.type].name)+(sh?' <b style="color:#b45309">⚠ SHAPED '+sh.kind+' — cut OUT via VCarve/DXF</b>':'')+'</td><td class="c">'+it.w+'×'+it.h+'</td><td class="c">'+(+it.q||1)+'</td><td>'+esc(it.mat)+'</td><td>'+cutFrame(it)+'</td><td>'+cutOffset(it)+'</td><td>'+cutHinge(it)+'</td><td>'+esc(notes)+'</td></tr>';}).join('');
     const groups=buildSheetGroups();let sh='';groups.forEach((sheets,mat)=>{sh+='<tr><td>'+esc(mat)+'</td><td class="c">'+sheets.length+'</td><td class="c">'+sheets.map(s=>sheetDef(s.sz).label).join(', ')+'</td></tr>';});
     const totalParts=items.reduce((s,i)=>s+(+i.q||0),0);
     return '<div class="head"><div><div class="brand">Kabacal</div><div class="meta">Cut list — workshop</div></div><div style="text-align:right"><div class="meta"><b>'+esc(project.number||'')+'</b></div><div class="meta">'+esc(project.date||'')+'</div></div></div>'
@@ -7817,6 +8575,47 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
   }
   function cloudOpen(){cloudUI.open=true;cloudUI.msg='';cloudUI.err=false;cloudUI.stage=cloudSession?'account':'email';cloudRender();}
   function cloudClose(){cloudUI.open=false;const m=document.getElementById('cloudModal');if(m)m.remove();}
+  // ---- Online Orders (2026-07-19, Etapas A+B do plano): the site's landed orders read straight from
+  // Supabase by a SIGNED-IN ADMIN (migration 0004: app_admins allowlist + read policies). Kills the
+  // email→download→pendrive loop: list → download files → "Open in Kabacal" loads the .fastcnc.
+  async function cloudListOrders(){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{
+      const sb=await sbClient();
+      const r=await sb.from('fastcnc_orders').select('order_id,order_number,status,files,error,created_at').order('created_at',{ascending:false}).limit(50);
+      if(r.error)throw new Error(r.error.message||'query failed');
+      cloudUI.orders=r.data||[];cloudUI.stage='orders';
+      cloudUI.msg=cloudUI.orders.length?'':'No orders yet — they appear here as soon as the site bridge lands one.';
+    }catch(e){
+      cloudUI.msg='Orders unavailable: '+(e&&e.message||e)+' — if this is a permission/RLS error, apply supabase/migrations/0004_orders_read.sql and enrol your user in app_admins (runbook in supabase/README.md).';
+      cloudUI.err=true;
+    }
+    cloudUI.busy=false;cloudRender();
+  }
+  async function cloudOrderFileUrl(path){
+    const sb=await sbClient();
+    const r=await sb.storage.from('fastcnc-orders').createSignedUrl(path,300);
+    if(r.error)throw new Error(r.error.message||'could not sign the file URL');
+    return r.data.signedUrl;
+  }
+  async function cloudDlOrderFile(path,name){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{const u=await cloudOrderFileUrl(path);const a=document.createElement('a');a.href=u;a.download=name||'';document.body.appendChild(a);a.click();a.remove();}
+    catch(e){cloudUI.msg='Download failed: '+(e&&e.message||e);cloudUI.err=true;}
+    cloudUI.busy=false;cloudRender();
+  }
+  async function cloudOpenOrder(path){
+    cloudUI.busy=true;cloudUI.msg='';cloudUI.err=false;cloudRender();
+    try{
+      const u=await cloudOrderFileUrl(path);
+      const resp=await fetch(u);if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const docJson=await resp.json();
+      loadFastCnc(docJson);                        // transactional loader — a rejected file leaves the app untouched
+      cloudUI.msg='Order loaded into the app.';
+      cloudClose();
+    }catch(e){cloudUI.msg='Open failed: '+(e&&e.message||e);cloudUI.err=true;}
+    cloudUI.busy=false;cloudRender();
+  }
   function cloudRender(){
     if(!cloudUI.open)return;
     let ov=document.getElementById('cloudModal');
@@ -7839,6 +8638,25 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           +'<button class="cbtn" onclick="cloudSendLink()"'+dis+'>Send sign-in e-mail</button>'
           +'<button class="cbtn sec" onclick="cloudClose()">Continue without account</button>';
       }
+    }else if(cloudUI.stage==='orders'){
+      const rows=(cloudUI.orders||[]).map(function(o){
+        const d=(o.created_at||'').slice(0,16).replace('T',' ');
+        const st=o.status||'received';
+        const files=Array.isArray(o.files)?o.files:[];
+        const fj=files.find(function(f){return /\.fastcnc(\.json)?$/i.test(f&&f.name||'');});
+        const fs=files.map(function(f){return '<span class="link" style="margin-right:8px;font-size:11px;cursor:pointer" onclick="cloudDlOrderFile(\''+esc(f.path)+'\',\''+esc(f.name)+'\')">⬇ '+esc(f.name)+'</span>';}).join('');
+        return '<div class="cloud-row" style="flex-wrap:wrap;align-items:center">'
+          +'<span><b>'+esc(o.order_number||('#'+o.order_id))+'</b> <span style="font-size:11px;color:var(--muted)">'+esc(d)+'</span></span>'
+          +'<span class="cloud-plan"'+(st==='failed'?' style="background:#fee2e2;color:#b91c1c"':'')+'>'+esc(st)+'</span>'
+          +(o.error?'<div class="sub" style="flex-basis:100%;color:#b45309">'+esc(String(o.error).slice(0,140))+'</div>':'')
+          +(files.length?'<div style="flex-basis:100%;margin-top:3px">'+fs
+            +(fj?'<div style="margin-top:4px"><button class="cbtn sec" style="margin:0" onclick="cloudOpenOrder(\''+esc(fj.path)+'\')"'+(cloudUI.busy?' disabled':'')+'>Open in Kabacal</button></div>':'')
+            +'</div>':'')
+          +'</div>';
+      }).join('');
+      body=msg+'<div class="sub">Orders landed by the site bridge — newest first. "Open in Kabacal" replaces the job on screen (save it first if it matters).</div>'+rows
+        +'<button class="cbtn sec" onclick="cloudListOrders()"'+dis+'>⟳ Refresh</button>'
+        +'<button class="cbtn sec" onclick="cloudUI.stage=\'account\';cloudRender()"'+dis+'>Back</button>';
     }else if(cloudUI.stage==='jobs'){
       const rows=(cloudUI.jobs||[]).map(function(j){
         const d=(j.updated_at||'').slice(0,16).replace('T',' ');
@@ -7866,6 +8684,7 @@ function runApp(window, document, localStorage, sessionStorage, alert, confirm, 
           +'<button class="cbtn" onclick="cloudSaveJob(false)"'+dis+'>'+(cloudJob?'☁ Update this cloud job':'☁ Save to cloud')+'</button>'
           +(cloudJob?'<button class="cbtn sec" onclick="cloudSaveJob(true)"'+dis+'>Save as a new cloud job</button>':'')
           +'<button class="cbtn sec" onclick="cloudListJobs()"'+dis+'>Open from cloud…</button>'
+          +'<button class="cbtn sec" onclick="cloudListOrders()"'+dis+'>📦 Online orders (site)…</button>'
           +'<div class="sub" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px"><b>Workshop settings</b> — prices, materials, company, tool DB, templates, quote counter. '
             +(cloudSettingsMeta?('Cloud copy: '+esc((cloudSettingsMeta.updatedAt||'').slice(0,16).replace('T',' '))):'No cloud copy yet.')+'</div>'
           +(cloudUI.confirmSet==='push'
