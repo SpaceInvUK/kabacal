@@ -2,6 +2,12 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-21 (d) — "Plain Shaker EOD" → "Plain Shaker" + o preset volta a sobreviver ao save/load
+
+- **Rename** pedido pelo Ednei: o botão vira só **Plain Shaker** (chave interna `shakerEod`→`shaker`; nada persistido usava a chave, zero refs órfãs). Tooltip sem o "edge-of-door".
+- **Bug encontrado durante o teste do rename e corrigido**: o `.fastcnc` NUNCA gravou o NOME do preset por peça — ao reabrir um job, toda porta voltava como `Custom`, então os botões Plain Shaker/Ogee não acendiam (e o Door Style, que agora deriva do preset, parecia esquecer o estilo). Novo campo **aditivo `kabOffsetName`** (gravado só quando ≠ Custom) e o loader o restaura via `normPresetName`; arquivos de produção/legados sem o campo continuam caindo em `Custom` exatamente como antes.
+- Testado: check.mjs verde; botões [Flat · Plain Shaker · Ogee | Traditional · Flushback · Reeded] e **nenhum "EOD"** em lugar nenhum; save→load preserva `shaker:Plain Shaker` e `ogee:Ogee`; arquivo legado (sem o campo) → `flat:Custom` como antes; em página limpa **GOLDEN_18mm.dxf e GOLDEN_S1_18mm_datum-ll.nc byte-idênticos** e basket 300/60/360.
+
 ## 2026-07-21 (c) — Door Style: presets de volta + Ogee como estilo
 
 Correção do pedido anterior (Ednei): os chips de preset tinham sumido do Door Style e ele quer que continuem lá — vai removendo um a um depois.

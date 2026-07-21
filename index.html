@@ -1363,7 +1363,9 @@
           backLines:(part.kabBackMode==='custom'&&Array.isArray(part.kabBackLines))?JSON.parse(JSON.stringify(part.kabBackLines)):undefined,
           hinges:{on:(part.hinges||'No')==='Yes',side:(part.hingeSide||'auto'),count:'auto',offset:num(part.hingeOffset,100),custom:(Array.isArray(part.kabHingeCustom)&&part.kabHingeCustom.length)?part.kabHingeCustom.slice():undefined,model:(typeof part.kabHingeModel==='string'&&part.kabHingeModel)?part.kabHingeModel:undefined},
           reed:{on:((part.reededEnabled||block.reededEnabled||'No')==='Yes')&&typeFromDoor(part.doorType)!=='reeded',dir:(part.reededDirection||block.reededDirection||'vertical'),spacing:num(part.reededSpacing,num(block.reededSpacing,12.5)),depth:num(part.reedDepth,num(block.reedDepth,3))},
-          offsetName:'Custom'
+          // preset NAME travels in the additive kabOffsetName (2026-07-21) so a reopened job lights the right
+          // Door Style button again; production files (no such field) keep the old 'Custom' behaviour.
+          offsetName:(typeof part.kabOffsetName==='string'&&part.kabOffsetName)?normPresetName(part.kabOffsetName):'Custom'
         };
         out.push(it);
       });
@@ -1471,6 +1473,7 @@
     if(it.recessDepth!==''&&it.recessDepth!=null)o.kabRecessDepth=+it.recessDepth;   // per-door recess depth (data only, additive)
     const ksh=shapeOf(it);if(ksh)o.kabShape=JSON.parse(JSON.stringify(ksh));         // head shape (additive; width/height stay the bounding box)
     if(it.glazed)o.kabGlazed=true;                                                   // explicit Glazing toggle (additive; the legacy GLASS keyword still works)
+    if(it.offsetName&&it.offsetName!=='Custom')o.kabOffsetName=it.offsetName;         // offset preset name (additive) — restores the Door Style button on reload
     if(it.midFrame!==''&&it.midFrame!=null)o.frameMiddle=String(it.midFrame);   // production frame-zone field (frameOverrideKey('middle'))
     o.grainDirection=grainOf(it)!=='off'?'Yes':'No'; o.grainAxis=grainOf(it); o.shapeType='rectangle';
     if(it.insOv)o.kabInsOv=JSON.parse(JSON.stringify(it.insOv));
@@ -2196,7 +2199,7 @@
   // Shaker EOD — both flat boards, the EOD one carries the shaker offset line) and INSERT styles, which keep
   // their existing insert recipes untouched (Traditional/Flushback/Reeded).
   // plain (non-insert) styles = a flat board + the matching offset preset
-  const FLAT_STYLES={flat:'None',shakerEod:'Plain Shaker',ogee:'Ogee'};
+  const FLAT_STYLES={flat:'None',shaker:'Plain Shaker',ogee:'Ogee'};
   function doorStyleOf(it){
     if(it.type!=='flat')return it.type;
     const nm=normPresetName(it.offsetName||'');
@@ -2216,7 +2219,7 @@
     const presets=Object.keys(profiles).filter(n=>n!=='None');
     return `<div class="insp-type" style="padding:2px 0">
         ${btn('flat','Flat',TYPES.flat.color,TYPES.flat.icon,'Plain flat board — no frame recess, no insert')}
-        ${btn('shakerEod','Plain Shaker EOD',TYPES.flat.color,TYPES.trad.icon,'Flat board with the Plain Shaker frame recess machined on the door itself (edge-of-door) — no separate insert piece')}
+        ${btn('shaker','Plain Shaker',TYPES.flat.color,TYPES.trad.icon,'Flat board with the Plain Shaker frame recess machined on the door itself — no separate insert piece')}
         ${btn('ogee','Ogee',TYPES.reeded.color,TYPES.trad.icon,'Flat board with the Ogee moulded profile machined on the door itself — no separate insert piece (22mm carries the validated Ogee cut template)')}
       </div>
       <div class="sub" style="font-weight:700;margin-top:8px">Insert</div>
