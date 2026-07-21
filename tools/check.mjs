@@ -786,8 +786,8 @@ if (html && !process.argv.includes('--hook')) {
     const gpR = api.hingeGuidePts({ x: 100, y: 100 }, 'right', api.HINGE_MODELS.blum_inserta.guide);
     must(gpL.length === 2 && Math.abs(gpL[0].y - gpL[1].y) === 45 && gpL[0].x - 100 === 9.5, 'hinge guide: 45mm apart, 9.5mm into the door (left side)');
     must(gpR[0].x - 100 === -9.5, 'hinge guide: the offset mirrors on the right side');
-    must(api.HINGE_MODELS.blum_inserta.guide.dia === 8 && api.HINGE_MODELS.blum.guide.dia === 5,
-      'hinge guide: Inserta = 8mm dowels, screw-on = 5mm screws');
+    must(api.HINGE_MODELS.blum_inserta.guide.dia === 8 && api.HINGE_MODELS.blum.guide.dia === 3.5,
+      'hinge guide: Inserta = 8mm expanding dowels, CLIP top screw-on = 3.5mm chipboard screws (Blum spec)');
     must(api.HINGE_MODELS.generic.guide === null, 'hinge guide: the generic model has no guide pattern');
     const hgDoor = api.mkItem('trad', 400, 600, 1, 'MDF 18mm', '8x4', F50, null, 'HG', { on: true, side: 'left', count: 2, offset: 100 }, { offsetName: 'Plain Shaker' });
     hgDoor.hinges.model = 'blum_inserta';

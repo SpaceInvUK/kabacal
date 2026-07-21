@@ -2,6 +2,17 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-21 (b) — Door Style em botões, Groove só p/ Flat, preview shaped 100% poligonal, seleção segue a forma
+
+Zonas guardadas: **DXF** (grooves bloqueadas em porta framed → `GOLDEN_RICH_18mm.dxf` regenerado, diff itemizado) · **CAM** (grooves não entram nos toolpaths de porta framed) · nesting/preview.
+
+- **Door Style (item 1)**: seção movida para logo depois de Dimensions (ordem final **Dimensions · Door Style · Shape · Frame & Panels**) e reescrita em **botões diretos, sem chips de preset** (0 presets dentro da seção — os presets continuam em Frame & Panels): grupo normal **Flat · Plain Shaker EOD** e grupo **Insert: Traditional · Flushback · Reeded**. `Plain Shaker EOD` = board flat + preset Plain Shaker (recesso na própria porta, sem peça de insert); os três Insert mantêm as receitas de insert existentes (verificado: trad continua gerando 1 insert).
+- **Groove só para Flat (item 2)**: `grooveOf` passa a devolver `on:false` fora de `type==='flat'` — **nenhuma geometria nem toolpath de groove** em porta framed/insert (provado: peça nested sem `groove`, e o DXF do job rich perdeu as 7 refs de GROOVE + 6 de LED_CHANNEL da porta Traditional). As definições ficam guardadas: voltar para Flat restaura. UI mostra o toggle desabilitado com **"Flat doors only"**.
+- **Geometria shaped (item 3)**: o que ainda estava errado era o **thumbnail** do Frame & Panels — desenhava a abertura retangular e as linhas retas por cima da banda inclinada. Agora, em porta shaped, o preview é 100% poligonal (0 `<rect>`, 9 `<path>`): contorno + banda do frame + abertura + cada layer. Medição perpendicular contra o contorno: **Layer A = 50/50/50/50** e **B/C/D/E/F = 54.5 / 56.5 / 67.5 / 73.5 / 77** em TODAS as arestas (offsets exatos do preset Ogee preservados).
+- **Seleção no nesting (item 4)**: o azul pintava a bounding box (a regra CSS pegava o `rect:first-of-type`, que na peça shaped é a caixa tracejada). Agora o contorno real leva `class="pshape"` e a caixa `class="bbox"`, com o CSS de seleção mirando só o `pshape` — **o triângulo vazio não fica mais azul**; a bbox continua como traço tracejado fraco (espaço reservado pelo nester) e o traço da seleção segue fino (1px non-scaling).
+- **Dobradiças (item 6, correção com evidência)**: Blum **CLIP top screw-on** usa **parafuso ø3.5mm** (Blum chipboard screw 3.5×15/17) — estava 5mm, corrigido; **Inserta = cavilha expansiva ø8mm**. Hettich Sensys (TB 45/9.5, cavilha ø8×11) e Grass Tiomos (ø8) mantidos. Padrão 45/9.5 e ø8 confirmados; **o resto continua sem ir para o NC** até validação no gabarito.
+- Testado: `check.mjs` verde (E2E (m) atualizado p/ ø3.5); **goldens: 8 byte-idênticos** (NC ll/c, GOLDEN_18mm, RICH 12/9/3mm, TPL S1/S2) + **`GOLDEN_RICH_18mm.dxf` regenerado nesta commit** — diff itemizado: ÚNICA mudança = remoção das 7 refs GROOVE e 6 LED_CHANNEL (contador da tabela LAYER 19→17), validado byte-a-byte contra o DXF gerado pelo app; basket 300/60/360 e rich 664/133/797 inalterados.
+
 ## 2026-07-21 — Linhas finas non-scaling, diagrama T/B/L/R ao vivo, default 400×600, HINGE_GUIDE
 
 Zonas guardadas: **DXF** (layer nova HINGE_GUIDE, aditiva) · **CAM** (verificado que NÃO emite os guias) · nesting/preview (visual). Evidência-antes reproduzida item a item.

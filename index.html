@@ -200,9 +200,10 @@
   .sheet-svg .npart>rect:first-of-type,.sheet-svg .npart>path:first-of-type{stroke-width:.7px}
   /* selected parts in the nesting (and zoom) — blue wash + a HAIRLINE outline (was 1.7 user units = 17mm
      on the sheet, which read as a fat bar and grew with every zoom step) */
-  .npart.sel>rect:first-of-type,.npart.sel>path:first-of-type{stroke:#2563eb;stroke-width:1px;fill:#3b82f645}
-  .sheet-svg .npart.sel>rect:first-of-type,.sheet-svg .npart.sel>path:first-of-type{stroke-width:1px}
-  .npart.sib>rect:first-of-type,.npart.sib>path:first-of-type{stroke-width:.8px}
+  .npart.sel>rect:first-of-type:not(.bbox),.npart.sel>path.pshape{stroke:#2563eb;stroke-width:1px;fill:#3b82f645}
+  .sheet-svg .npart.sel>rect:first-of-type:not(.bbox),.sheet-svg .npart.sel>path.pshape{stroke-width:1px}
+  .npart.sel>rect.bbox{stroke:#2563eb55}
+  .npart.sib>rect:first-of-type:not(.bbox),.npart.sib>path.pshape{stroke-width:.8px}
   .sheet-svg.editing .npart:hover rect:first-of-type{stroke-width:.9px}
   .multinote{background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:10px;font-size:12px;color:#713f12}
   .ic{display:inline-block;vertical-align:-3px;flex:none}
@@ -1018,7 +1019,9 @@
   function normPartText(v){return /^g$/i.test(String(v||'').trim())?'Glass':v;}
 
   // ---- Groove / LED Channel: decorative grooves drawn across a flat part; optional rectangular LED channel ----
-  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:!!g.on,dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:100),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
+  // Grooves are a FLAT-door feature only (Ednei 2026-07-21): framed/insert styles never get groove geometry
+  // or groove toolpaths. The stored settings are kept, they just stop being effective off a flat board.
+  function grooveOf(it){const g=it.groove||{},l=g.led||{};return {on:(!!g.on&&(it&&it.type==='flat')),dir:(g.dir==='horizontal'?'horizontal':'vertical'),spacing:(+g.spacing>0?+g.spacing:100),led:{on:!!l.on,width:(+l.width>0?+l.width:4),start:(l.start!=null?Math.max(0,+l.start):100)}};}
   function ensureGroove(i){const it=items[i];it.groove=it.groove||{on:false,dir:'vertical',spacing:100};it.groove.led=it.groove.led||{on:false,width:4,start:100};return it.groove;}
   function setGrooveOn(i,v){ensureGroove(i).on=!!v;render();}
   function setGrooveDir(i,v){ensureGroove(i).dir=(v==='horizontal'?'horizontal':'vertical');render();}
@@ -1094,7 +1097,7 @@
   // the preview + DXF only and are NEVER emitted to NC (see tpDrillMoves) until Ednei verifies them.
   const HINGE_MODELS={
     generic:{name:'Generic 35mm',cup:35,inset:22.5,depth:13,guide:null},
-    blum:{name:'Blum CLIP top (screw-on)',cup:35,inset:22.5,depth:13,guide:{kind:'screw',dia:5,spacing:45,offset:9.5,depth:10,verified:false}},
+    blum:{name:'Blum CLIP top (screw-on)',cup:35,inset:22.5,depth:13,guide:{kind:'screw',dia:3.5,spacing:45,offset:9.5,depth:10,verified:false}},
     blum_inserta:{name:'Blum Inserta (dowel)',cup:35,inset:22.5,depth:13,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:12,verified:false}},
     hettich:{name:'Hettich Sensys (TB 45/9.5)',cup:35,inset:22.5,depth:12.8,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}},
     grass:{name:'Grass Tiomos',cup:35,inset:22.5,depth:12.6,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}}
@@ -2172,8 +2175,8 @@
     const secs=[];
     if(has){
       secs.push(['part','Dimensions',secParts(i,it),St.part]);
+      secs.push(['doortype','Door Style',secDoorType(i,it),St.doortype]);   // Ednei 2026-07-21: style before shape
       secs.push(['shape','Shape',secShape(i,it),St.shape]);
-      secs.push(['doortype','Door Style',secDoorType(i,it),St.doortype]);
       secs.push(['offset','Frame & Panels',tabOffset(i,it),St.offset]);
       secs.push(['glazing','Glazing',secGlazing(i,it),St.glazing]);
       secs.push(['hinges','Hinges',tabHinges(i,it),St.hinges]);
@@ -2189,10 +2192,36 @@
     box.innerHTML=html;
     const zi=document.getElementById('zoomInsp');if(zi)zi.innerHTML=html;   // mirror into the zoom Edit drawer (same handlers, same state)
   }
+  // Door Style = DIRECT buttons (Ednei 2026-07-21), no preset chips. Two groups: plain styles (Flat, Plain
+  // Shaker EOD — both flat boards, the EOD one carries the shaker offset line) and INSERT styles, which keep
+  // their existing insert recipes untouched (Traditional/Flushback/Reeded).
+  function doorStyleOf(it){
+    if(it.type!=='flat')return it.type;
+    return (normPresetName(it.offsetName||'')==='Plain Shaker')?'shakerEod':'flat';
+  }
+  function setDoorStyle(i,style){
+    const it=items[i];
+    if(style==='flat'){it.type='flat';applyProfile(i,'None');}
+    else if(style==='shakerEod'){it.type='flat';applyProfile(i,'Plain Shaker');}
+    else{it.type=style;render();}
+    if(typeof tplAutoSyncItem==='function')tplAutoSyncItem(i);
+    render();
+  }
   function secDoorType(i,it){
-    const presets=Object.keys(profiles).filter(n=>n!=='None');
-    return `<div class="insp-type" style="padding:2px 0">${Object.keys(TYPES).map(k=>`<button class="typebtn ${it.type===k?'on':''}" style="${it.type===k?('background:'+TYPES[k].color+';border-color:'+TYPES[k].color):''}" title="${TYPES[k].name}${(k==='trad'||k==='flush')?' (insert)':''}" onclick="upd(${i},'type','${k}')">${TYPES[k].icon(it.type===k?'#fff':TYPES[k].color)}<span>${TYPES[k].name}</span></button>`).join('')}</div>
-      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Frame &amp; Panels</b> section.</div>`:'<div class="sub" style="margin-top:8px">Save a frame/offset setup in the <b>Frame &amp; Panels</b> section to reuse it here.</div>'}${(function(){const s=(typeof tplCutStatus==='function')?tplCutStatus(i):'';return s?'<div class="sub" style="margin-top:8px;padding:5px 8px;border-radius:7px;background:rgba(16,122,59,.09);color:#0e7a3b;font-weight:600">'+s+' <span style="font-weight:400;opacity:.8">— edit in the Toolpaths tab</span></div>':'';})()}`;
+    const cur=doorStyleOf(it);
+    const btn=(k,label,col,icon,tip)=>`<button class="typebtn ${cur===k?'on':''}" style="${cur===k?('background:'+col+';border-color:'+col):''}" title="${tip}" onclick="setDoorStyle(${i},'${k}')">${icon(cur===k?'#fff':col)}<span>${label}</span></button>`;
+    return `<div class="insp-type" style="padding:2px 0">
+        ${btn('flat','Flat',TYPES.flat.color,TYPES.flat.icon,'Plain flat board — no frame recess, no insert')}
+        ${btn('shakerEod','Plain Shaker EOD',TYPES.flat.color,TYPES.trad.icon,'Flat board with the Plain Shaker frame recess machined on the door itself (edge-of-door) — no separate insert piece')}
+      </div>
+      <div class="sub" style="font-weight:700;margin-top:8px">Insert</div>
+      <div class="insp-type" style="padding:2px 0">
+        ${btn('trad','Traditional',TYPES.trad.color,TYPES.trad.icon,'Framed door + a separate insert panel (existing insert recipe)')}
+        ${btn('flush','Flushback',TYPES.flush.color,TYPES.flush.icon,'Flushback door + its 12mm insert (existing insert recipe)')}
+        ${btn('reeded','Reeded',TYPES.reeded.color,TYPES.reeded.icon,'Reeded door + its reeded insert (existing insert recipe)')}
+      </div>
+      <div class="sub" style="margin-top:4px">Insert styles generate their own insert piece — nested, priced and machined as before. Offset presets live in <b>Frame &amp; Panels</b>.</div>
+      ${(function(){const s=(typeof tplCutStatus==='function')?tplCutStatus(i):'';return s?'<div class="sub" style="margin-top:8px;padding:5px 8px;border-radius:7px;background:rgba(16,122,59,.09);color:#0e7a3b;font-weight:600">'+s+' <span style="font-weight:400;opacity:.8">— edit in the Toolpaths tab</span></div>':'';})()}`;
   }
   // Shared frame editor (2026-07-13): clean labelled Top/Bottom/Left/Right fields (a single box when linked). Used by
   // the Frame & Panels section — replaces the old cramped 44px inputs with tiny letter labels
@@ -2271,7 +2300,10 @@
       <button class="segbtn ${g==='short'?'on':''}" title="Grain runs along the SHORTEST side — part stands long-side across the sheet" onclick="upd(${i},'grain','short')">↕ Shortest side</button>
     </div>
     <div class="sub" style="margin-top:6px">Grain on = the part never rotates in the nesting and the sheet shows a woodgrain texture.</div>`;}
-  function secGroove(i,it){const gr=grooveOf(it);return `
+  function secGroove(i,it){const gr=grooveOf(it);const flat=(it.type==='flat');
+    if(!flat)return `<label class="tg" style="font-weight:700;opacity:.55"><input type="checkbox" disabled ${(it.groove&&it.groove.on)?'checked':''}> Grooves on this part</label>
+      <div class="sub" style="margin-top:6px;color:#b45309;font-weight:600">Flat doors only — ${esc(TYPES[it.type].name)} is a framed/insert style, so no groove geometry or groove toolpaths are produced. Switch <b>Door Style</b> to <b>Flat</b> to use grooves.</div>`;
+    return `
     <label class="tg" style="font-weight:700"><input type="checkbox" ${gr.on?'checked':''} onchange="setGrooveOn(${i},this.checked)"> Grooves on this part</label>
     ${gr.on?`
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
@@ -2550,7 +2582,14 @@
       :cavs.filter(c=>c.w*sc>1&&c.h*sc>1).map(c=>{const cx=x0+c.x*sc,cy=y0+c.y*sc,cw=c.w*sc,ch=c.h*sc;
         return `M${cx.toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${(cy+ch).toFixed(1)} L${cx.toFixed(1)} ${(cy+ch).toFixed(1)} Z`;}).join(' ');
     if(dHoles)s+=`<path d="${dOuter} ${dHoles}" fill-rule="evenodd" fill="#93c5fd55"><title>frame band — T${f.t} · B${f.b} · L${f.l} · R${f.r} mm</title></path>`;
-    cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
+    // shaped door: the opening and EVERY offset line are polygons that follow the outline (2026-07-21 —
+    // the thumbnail was still drawing the rectangular fallback on top of the sloped band)
+    if(cavPolyPrev){
+      const pd=pts=>pts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z';
+      s+=`<path d="${pd(cavPolyPrev)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening follows the shape · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></path>`;
+      enabledLines(it).forEach(l=>{const ip=polyInset(cavPolyPrev,()=>+l.mm||0);if(ip)s+=`<path d="${pd(ip)}" fill="none" stroke="${OFFCOL[l.L]}" stroke-width="1.4"/>`;});
+    }
+    else cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
       if(cw>1&&ch>1)s+=`<rect x="${(x0+c.x*sc).toFixed(1)}" y="${(y0+c.y*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening ${Math.round(c.w)}×${Math.round(c.h)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;});
     if(dHoles){
       const lbl=(x,y,txt,rot)=>`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="6" font-weight="700" text-anchor="middle" fill="#1e3a8a"${rot?` transform="rotate(-90 ${x.toFixed(1)} ${y.toFixed(1)})"`:''}>${txt}</text>`;
@@ -2560,7 +2599,7 @@
       s+=lbl((f.l*sc>=IN)?(x0+f.l*sc/2):(x0-3),cy,'L '+f.l,true);
       s+=lbl((f.r*sc>=IN)?(x0+bw-f.r*sc/2):(x0+bw+3),cy,'R '+f.r,true);
     }
-    enabledLines(it).forEach(l=>{
+    if(!cavPolyPrev)enabledLines(it).forEach(l=>{
       const li=OFFLINES.findIndex(o=>o.L===l.L),lr=it.lines[li];
       cavs.forEach(c=>{
         const rx=x0+(c.x+lr.mm)*sc, ry=y0+(c.y+lr.mm)*sc, rw=(c.w-2*lr.mm)*sc, rh=(c.h-2*lr.mm)*sc;
@@ -2852,7 +2891,7 @@
       const beadA=beadingSpecsFor(it);const el=beadA.length?[]:enabledLines(it);   // glass frame DXF/preview shows only INSIDE+BEADING
       const pnl=pnlOf(it);                                             // internal door panels (null = single opening)
       for(let n=0,qn=Math.max(1,Math.round(+it.q||1));n<qn;n++){   // qty is ALWAYS >=1 — a 0/blank/NaN qty never yields a hidden empty part
-        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,frame0:shp?f0:undefined,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:(it.groove&&it.groove.on)?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
+        add(it.mat,{key:i+'_'+n,w:+it.w||0,h:+it.h||0,origW:+it.w||0,origH:+it.h||0,color:TYPES[it.type].color,name:TYPES[it.type].name,type:it.type,text:it.text||'',grain:grainOf(it),frame:f,frame0:shp?f0:undefined,pnl:pnl,shape:shp,lines:el,hinge:h,glass:beadA.length?{guide:beadA[0].guide,round:beadA[0].round}:null,groove:grooveOf(it).on?grooveOf(it):null,scribe:(it.scribe&&it.scribe.on)?true:null,offsetName:it.offsetName});
         // NOTE: Front+Back is the SAME physical part machined on both faces — not a separate nested part.
         // It does not consume extra material; it adds machining only (handled in service maths). So no back part here.
         insA.forEach((ins,ci)=>add(ins.mat,{key:i+'_'+n+'_i'+(ci||''),w:ins.w,h:ins.h,origW:ins.w,origH:ins.h,color:ins.color,name:'Insert',isInsert:true,insTh:ins.insTh,kind:ins.kind,reed:ins.reed,insRound:!!ins.round,text:(it.text||TYPES[it.type].name),grain:'off',frame:{t:0,r:0,b:0,l:0},lines:[],hinge:{on:false}}));
@@ -3298,10 +3337,11 @@
     const X=p.x/10,Y=p.y/10,W=p.w/10,H=p.h/10;let s='';
     s+=`<g class="npart${selOn?' sel':(sibOn?' sib':'')}" data-key="${p.key||''}" data-w="${p.w}" data-h="${p.h}">`;
     const shOut=placedOutline(p);
-    if(shOut){   // shaped head: true outline + faint dashed bounding box (what the nester reserves)
+    if(shOut){   // shaped head: TRUE outline carries the selection (class bbox = the nester's reserved box,
+                 // excluded from the selection CSS so the blue highlight never fills the empty triangle)
       const dPath=shOut.map((q,k)=>(k?'L':'M')+(X+q.x/10).toFixed(1)+' '+(Y+q.y/10).toFixed(1)).join(' ')+' Z';
-      s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="${DXFC.OUT}" stroke-width="0.15" stroke-dasharray="1 1"/>`;
-      s+=`<path d="${dPath}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h} (shaped head)</title></path>`;
+      s+=`<rect class="bbox" x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="none" stroke="${DXFC.OUT}" stroke-width="0.15" stroke-dasharray="1 1"/>`;
+      s+=`<path class="pshape" d="${dPath}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h} (shaped head)</title></path>`;
     }else{
       s+=`<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="${p.color}1a" stroke="${selOn?'#d97706':(sibOn?'#f59e0b':DXFC.OUT)}" stroke-width="${selOn?'0.9':(sibOn?'0.6':'0.4')}"${sibOn?' stroke-dasharray="1.8 1.2"':''}><title>${esc(p.name)} ${p.w}×${p.h}</title></rect>`;
     }
