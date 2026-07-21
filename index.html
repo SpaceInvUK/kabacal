@@ -2195,14 +2195,17 @@
   // Door Style = DIRECT buttons (Ednei 2026-07-21), no preset chips. Two groups: plain styles (Flat, Plain
   // Shaker EOD — both flat boards, the EOD one carries the shaker offset line) and INSERT styles, which keep
   // their existing insert recipes untouched (Traditional/Flushback/Reeded).
+  // plain (non-insert) styles = a flat board + the matching offset preset
+  const FLAT_STYLES={flat:'None',shakerEod:'Plain Shaker',ogee:'Ogee'};
   function doorStyleOf(it){
     if(it.type!=='flat')return it.type;
-    return (normPresetName(it.offsetName||'')==='Plain Shaker')?'shakerEod':'flat';
+    const nm=normPresetName(it.offsetName||'');
+    const hit=Object.keys(FLAT_STYLES).filter(k=>k!=='flat'&&FLAT_STYLES[k]===nm)[0];
+    return hit||'flat';
   }
   function setDoorStyle(i,style){
     const it=items[i];
-    if(style==='flat'){it.type='flat';applyProfile(i,'None');}
-    else if(style==='shakerEod'){it.type='flat';applyProfile(i,'Plain Shaker');}
+    if(FLAT_STYLES[style]){it.type='flat';applyProfile(i,FLAT_STYLES[style]);}
     else{it.type=style;render();}
     if(typeof tplAutoSyncItem==='function')tplAutoSyncItem(i);
     render();
@@ -2210,9 +2213,11 @@
   function secDoorType(i,it){
     const cur=doorStyleOf(it);
     const btn=(k,label,col,icon,tip)=>`<button class="typebtn ${cur===k?'on':''}" style="${cur===k?('background:'+col+';border-color:'+col):''}" title="${tip}" onclick="setDoorStyle(${i},'${k}')">${icon(cur===k?'#fff':col)}<span>${label}</span></button>`;
+    const presets=Object.keys(profiles).filter(n=>n!=='None');
     return `<div class="insp-type" style="padding:2px 0">
         ${btn('flat','Flat',TYPES.flat.color,TYPES.flat.icon,'Plain flat board — no frame recess, no insert')}
         ${btn('shakerEod','Plain Shaker EOD',TYPES.flat.color,TYPES.trad.icon,'Flat board with the Plain Shaker frame recess machined on the door itself (edge-of-door) — no separate insert piece')}
+        ${btn('ogee','Ogee',TYPES.reeded.color,TYPES.trad.icon,'Flat board with the Ogee moulded profile machined on the door itself — no separate insert piece (22mm carries the validated Ogee cut template)')}
       </div>
       <div class="sub" style="font-weight:700;margin-top:8px">Insert</div>
       <div class="insp-type" style="padding:2px 0">
@@ -2220,7 +2225,8 @@
         ${btn('flush','Flushback',TYPES.flush.color,TYPES.flush.icon,'Flushback door + its 12mm insert (existing insert recipe)')}
         ${btn('reeded','Reeded',TYPES.reeded.color,TYPES.reeded.icon,'Reeded door + its reeded insert (existing insert recipe)')}
       </div>
-      <div class="sub" style="margin-top:4px">Insert styles generate their own insert piece — nested, priced and machined as before. Offset presets live in <b>Frame &amp; Panels</b>.</div>
+      <div class="sub" style="margin-top:4px">Insert styles generate their own insert piece — nested, priced and machined as before.</div>
+      ${presets.length?`<div class="sub" style="font-weight:700;margin-top:8px">Presets</div><div class="preset-chips">${presets.map(n=>`<button class="preset-chip ${it.offsetName===n?'on':''}" title="Apply the ${esc(n)} offset preset to this door" onclick="applyProfile(${i},'${esc(n)}')">${esc(n)}${BUILTIN_PRESETS.indexOf(n)<0?`<span class="pdel" title="Delete preset" onclick="event.stopPropagation();delProfile('${esc(n)}')">✕</span>`:''}</button>`).join('')}</div><div class="sub" style="margin-top:3px">Save or import presets in the <b>Frame &amp; Panels</b> section.</div>`:''}
       ${(function(){const s=(typeof tplCutStatus==='function')?tplCutStatus(i):'';return s?'<div class="sub" style="margin-top:8px;padding:5px 8px;border-radius:7px;background:rgba(16,122,59,.09);color:#0e7a3b;font-weight:600">'+s+' <span style="font-weight:400;opacity:.8">— edit in the Toolpaths tab</span></div>':'';})()}`;
   }
   // Shared frame editor (2026-07-13): clean labelled Top/Bottom/Left/Right fields (a single box when linked). Used by

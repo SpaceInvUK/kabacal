@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-21 (c) — Door Style: presets de volta + Ogee como estilo
+
+Correção do pedido anterior (Ednei): os chips de preset tinham sumido do Door Style e ele quer que continuem lá — vai removendo um a um depois.
+
+- **Presets restaurados** dentro de Door Style (abaixo dos botões): 8 chips (Plain Shaker, Ogee + os 6 rascunhos), com ✕ nos presets criados pelo usuário; o texto continua apontando Frame & Panels para salvar/importar.
+- **Ogee vira botão de Door Style** ao lado de Flat e Plain Shaker EOD — os três são estilos de board FLAT (sem peça de insert), agora resolvidos por um mapa único `FLAT_STYLES={flat:'None',shakerEod:'Plain Shaker',ogee:'Ogee'}`, usado tanto para aplicar quanto para detectar o botão ativo (aplicar o preset pelo chip acende o botão correspondente).
+- Testado: check.mjs verde; botões [Flat · Plain Shaker EOD · Ogee | Traditional · Flushback · Reeded]; Ogee aplica as 6 linhas (0/4.5/6.5/17.5/23.5/27), **0 inserts** e auto-aplica o template Ogee validado (5 camPaths em 22mm); voltar para Flat limpa o preset; **5 goldens DXF byte-idênticos** (standard + rich 18/12/9/3mm), basket pristino 300/60/360 e rich 664/133/797.
+
 ## 2026-07-21 (b) — Door Style em botões, Groove só p/ Flat, preview shaped 100% poligonal, seleção segue a forma
 
 Zonas guardadas: **DXF** (grooves bloqueadas em porta framed → `GOLDEN_RICH_18mm.dxf` regenerado, diff itemizado) · **CAM** (grooves não entram nos toolpaths de porta framed) · nesting/preview.
