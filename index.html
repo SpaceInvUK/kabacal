@@ -191,9 +191,19 @@
   #selFab.open .fab-sat{opacity:1;transform:translate(var(--tx),var(--ty)) scale(1);pointer-events:auto}
   #selFab .fab-sat:hover{background:#eff6ff;border-color:#93c5fd}
   #selFab .fab-badge{position:absolute;top:-6px;left:-6px;background:#0d9488;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:800;z-index:3;pointer-events:none}
-  /* selected parts in the nesting (and zoom) — strong blue wash + outline + glow so they stand out */
-  .npart.sel>rect:first-of-type{stroke:#2563eb;stroke-width:1.7;fill:#3b82f645}
-  .npart.sel{filter:drop-shadow(0 0 1.6px #2563eb88)}
+  /* THIN, NON-SCALING drawing lines (Ednei 2026-07-21). Every ON-SCREEN drawing (nesting, zoom, doors
+     preview, section, panels, toolpaths) keeps its stroke width in SCREEN pixels: zooming enlarges the
+     geometry but never the line. Icons/labels/QR keep their own look, and the printed documents are
+     untouched — the print window injects its own CSS, so `.dwg-svg` never sees these rules. */
+  svg:not(.ic):not(.ticon):not(.label-svg):not(.inline-qr):not(.dwg-svg):not(.label-map-sheet) *{vector-effect:non-scaling-stroke}
+  .sheet-svg .npart rect,.sheet-svg .npart path,.sheet-svg .npart line,.sheet-svg .npart circle{stroke-width:.5px}
+  .sheet-svg .npart>rect:first-of-type,.sheet-svg .npart>path:first-of-type{stroke-width:.7px}
+  /* selected parts in the nesting (and zoom) — blue wash + a HAIRLINE outline (was 1.7 user units = 17mm
+     on the sheet, which read as a fat bar and grew with every zoom step) */
+  .npart.sel>rect:first-of-type,.npart.sel>path:first-of-type{stroke:#2563eb;stroke-width:1px;fill:#3b82f645}
+  .sheet-svg .npart.sel>rect:first-of-type,.sheet-svg .npart.sel>path:first-of-type{stroke-width:1px}
+  .npart.sib>rect:first-of-type,.npart.sib>path:first-of-type{stroke-width:.8px}
+  .sheet-svg.editing .npart:hover rect:first-of-type{stroke-width:.9px}
   .multinote{background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:10px;font-size:12px;color:#713f12}
   .ic{display:inline-block;vertical-align:-3px;flex:none}
   .dd-item .ic{margin-right:8px;color:#475569}
@@ -597,8 +607,8 @@
             </select>
           </div>
           <div class="qa-div"></div>
-          <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="600" onkeydown="qaEnter(event)"></div>
-          <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="400" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Width</label><input id="qaW" type="number" value="400" onkeydown="qaEnter(event)"></div>
+          <div class="qa-field"><label>Height</label><input id="qaH" type="number" value="600" onkeydown="qaEnter(event)"></div>
           <div class="qa-field"><label>Qty</label><input id="qaQ" type="number" min="1" step="1" value="1" onkeydown="qaEnter(event)" onchange="if(+this.value<1)this.value=1"></div>
           <div class="qa-field"><label>Text</label><input id="qaText" type="text" placeholder="optional" onkeydown="qaEnter(event)" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;width:120px"></div>
           <button class="btn primary" onclick="addItem()" title="Enter in any size field does the same">+ Add to order</button>
@@ -1078,13 +1088,26 @@
   // inset = edge → cup CENTRE (Ø35 cup: K + 17.5; K5 default ⇒ 22.5mm — exactly the value that was hard-coded
   // before, so existing jobs are byte-identical). depth = the maker's standard cup drilling depth, shown as a
   // HINT only — the drilling op still requires its own explicit depth (deliberate safety policy).
+  // guide = the two fixing holes beside the cup (the European "45/9.5" pattern: `spacing` apart along the
+  // door edge, `offset` from the cup centre measured INTO the door). dia/depth per maker; `kind` screw|dowel.
+  // ⚠ These guide numbers come from published catalogue/reseller data, NOT from a measured jig — they draw in
+  // the preview + DXF only and are NEVER emitted to NC (see tpDrillMoves) until Ednei verifies them.
   const HINGE_MODELS={
-    generic:{name:'Generic 35mm',cup:35,inset:22.5,depth:13},
-    blum:{name:'Blum CLIP top',cup:35,inset:22.5,depth:13},
-    blum_inserta:{name:'Blum Inserta',cup:35,inset:22.5,depth:13},
-    hettich:{name:'Hettich Sensys',cup:35,inset:22.5,depth:13},
-    grass:{name:'Grass Tiomos',cup:35,inset:22.5,depth:13.2}
+    generic:{name:'Generic 35mm',cup:35,inset:22.5,depth:13,guide:null},
+    blum:{name:'Blum CLIP top (screw-on)',cup:35,inset:22.5,depth:13,guide:{kind:'screw',dia:5,spacing:45,offset:9.5,depth:10,verified:false}},
+    blum_inserta:{name:'Blum Inserta (dowel)',cup:35,inset:22.5,depth:13,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:12,verified:false}},
+    hettich:{name:'Hettich Sensys (TB 45/9.5)',cup:35,inset:22.5,depth:12.8,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}},
+    grass:{name:'Grass Tiomos',cup:35,inset:22.5,depth:12.6,guide:{kind:'dowel',dia:8,spacing:45,offset:9.5,depth:11,verified:false}}
   };
+  // guide-hole centres for ONE hinge cup centre, in the same y-up/local frame as hingeCenters
+  function hingeGuidePts(c,side,g){
+    if(!g)return [];
+    const half=g.spacing/2,off=g.offset;
+    if(side==='left'||side==='right'){const gx=(side==='left')?c.x+off:c.x-off;   // offset INTO the door
+      return [{x:gx,y:c.y-half},{x:gx,y:c.y+half}];}
+    const gy=(side==='bottom')?c.y+off:c.y-off;
+    return [{x:c.x-half,y:gy},{x:c.x+half,y:gy}];
+  }
   function hingeModelOf(it){const m=it&&it.hinges&&it.hinges.model;return HINGE_MODELS[m]?m:'generic';}
   function hingeRecommended(span){return span>1500?4:span>900?3:2;}
   function hingeInfo(it){
@@ -1559,7 +1582,7 @@
   function downloadFastCnc(name){ensureOrderNumber();const doc=buildFastCnc();const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(name||project.number||'ORDER')+'.fastcnc.json';document.body.appendChild(a);a.click();a.remove();}
   function saveAsFastCnc(){ensureOrderNumber();const n=prompt('Save as — file name:',project.number||'ORDER');if(n)downloadFastCnc(n.replace(/\.fastcnc\.json$/i,''));}
   // ---- faithful DXF export: 1 file per thickness, production layer scheme + colours ----
-  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1,'PROFILE':177};
+  const DXF_LAYERS={'0':7,'text':7,'PART_NUMBER':7,'SHEET':7,'OUT':150,'OFFCUT':6,'OFFCUT_TEXT':4,'hinges':7,'HINGE_GUIDE':4,'IN':5,'REEDED':132,'INSIDE':5,'BEADING':34,'GROOVE':211,'SCRIBE':230,'LED_CHANNEL':30,'OFFSET_A':30,'OFFSET_B':1,'OFFSET_C':5,'OFFSET_D':210,'OFFSET_E':94,'OFFSET_F':30,'OFFSET_G':32,'OUT_10MM':105,'IN_22MM':5,'POKET_INSERT':30,'SHADOW':105,'WALL':8,'WALL_GAP':1,'PROFILE':177};
   function fnum(n){return (Math.round(n*100)/100).toString();}
   function dxfText(layer,x,y,h,txt,center,rot){
     var r=rot?('\n50\n'+fnum(rot)):'';
@@ -1740,7 +1763,14 @@
             else{for(let xx=8;xx<p.w-6;xx+=sp){var a2=rPtD(bx+xx,by+8),b2=rPtD(bx+xx,by+p.h-8);if(k%2===0)body+=dxfLine('REEDED',a2.x,a2.y,b2.x,b2.y);else body+=dxfLine('REEDED',b2.x,b2.y,a2.x,a2.y);k++;}}
           }
         }
-        if(p.hinge&&p.hinge.on){layers.add('hinges');hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);});}
+        if(p.hinge&&p.hinge.on){layers.add('hinges');
+          // HINGE = the 35mm cup (layer name 'hinges' is the frozen VCarve-gadget contract — never renamed).
+          // HINGE_GUIDE = the maker's fixing/dowel holes, one pair per hinge (additive layer, 2026-07-21).
+          const hg=(HINGE_MODELS[p.hinge.model||'generic']||HINGE_MODELS.generic).guide;
+          const hSide=resolveHingeSide(p.w,p.h,p.hinge.rawSide);
+          hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);
+            if(hg)hingeGuidePts(c,hSide,hg).forEach(q=>{layers.add('HINGE_GUIDE');var qc=rPtD(q.x,q.y);body+=dxfCircle('HINGE_GUIDE',qc.x,qc.y,hg.dia/2);});
+          });}
         if(p.groove){const gr=p.groove;layers.add('GROOVE');
           if(gr.dir==='vertical'){groovePositions(p.w,gr.spacing).forEach(pos=>{var a=rPtD(bx+pos,by),b2=rPtD(bx+pos,by+p.h);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
           else{groovePositions(p.h,gr.spacing).forEach(pos=>{var a=rPtD(bx,by+pos),b2=rPtD(bx+p.w,by+pos);body+=dxfLine('GROOVE',a.x,a.y,b2.x,b2.y);});}
@@ -2461,6 +2491,7 @@
     </div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">${rows}</div>
     <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost tiny" onclick="setHingeCount(${i},${n+1})">${ic('plus',12)} Add hinge</button>${h.custom?`<button class="btn ghost tiny" title="Reset both ends to ${h.offset}mm from each end and re-spread evenly" onclick="hingeAuto(${i})">${ic('reset',12)} Reset to symmetric</button>`:''}</div>
+    ${(function(){const g=HINGE_MODELS[h.model].guide;return g?`<div class="sub" style="margin-top:6px;padding:5px 8px;border-radius:7px;background:rgba(180,83,9,.08);color:#92400e"><b>HINGE_GUIDE</b> — ${esc(HINGE_MODELS[h.model].name)}: 2 × Ø${g.dia}mm ${g.kind} holes per hinge, ${g.spacing}mm apart, ${g.offset}mm from the cup centre into the door${g.depth?', ~'+g.depth+'mm deep':''}. Drawn in the preview and the DXF (layer <b>HINGE_GUIDE</b>) — <b>never sent to the NC</b> until you verify the pattern against the real jig/catalogue.</div>`:'<div class="sub" style="margin-top:6px">No guide-hole pattern for this model — the cup is drawn on its own.</div>';})()}
     <div class="sub" style="margin-top:8px">${n} hinge${n===1?'':'s'} on the longest side (${h.span}mm) · ${esc(HINGE_MODELS[h.model].name)}: Ø${HINGE_MODELS[h.model].cup} cup, centre ${HINGE_MODELS[h.model].inset}mm from the edge, maker's standard depth ${HINGE_MODELS[h.model].depth}mm (the drilling op still asks for its own depth) · positions are hinge <b>centres</b> · middles auto-space evenly between the ends — edit an <b>end</b> to re-spread, or type a <b>middle</b> to nudge just that one · +5% CNC</div>`;}
 
   function tabSpray(i,it){return `
@@ -2507,8 +2538,28 @@
     // doorCavities is the same source the sheets/DXF/toolpaths use, so the thumbnail always agrees.
     const iw=(+it.w||0)-f.l-f.r, ih=(+it.h||0)-f.t-f.b;
     const cavs=(iw>0&&ih>0)?doorCavities(it):[];
+    // LIVE frame diagram (Ednei 2026-07-21): the frame band itself is painted (outline minus every opening,
+    // evenodd — so it follows a shaped outline too) and each side carries its value. Thicker value = visibly
+    // thicker band, because the whole preview is to scale. Labels sit inside the band when it is deep enough,
+    // otherwise just outside the edge, so they never disappear on a thin frame.
+    const cavPolyPrev=doorCavityPoly(it);
+    const dOuter=shPts?(shPts.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z')
+      :`M${x0.toFixed(1)} ${y0.toFixed(1)} L${(x0+bw).toFixed(1)} ${y0.toFixed(1)} L${(x0+bw).toFixed(1)} ${(y0+bh).toFixed(1)} L${x0.toFixed(1)} ${(y0+bh).toFixed(1)} Z`;
+    const dHoles=cavPolyPrev
+      ?(cavPolyPrev.map((q,k)=>(k?'L':'M')+(x0+q.x*sc).toFixed(1)+' '+(y0+q.y*sc).toFixed(1)).join(' ')+' Z')
+      :cavs.filter(c=>c.w*sc>1&&c.h*sc>1).map(c=>{const cx=x0+c.x*sc,cy=y0+c.y*sc,cw=c.w*sc,ch=c.h*sc;
+        return `M${cx.toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${cy.toFixed(1)} L${(cx+cw).toFixed(1)} ${(cy+ch).toFixed(1)} L${cx.toFixed(1)} ${(cy+ch).toFixed(1)} Z`;}).join(' ');
+    if(dHoles)s+=`<path d="${dOuter} ${dHoles}" fill-rule="evenodd" fill="#93c5fd55"><title>frame band — T${f.t} · B${f.b} · L${f.l} · R${f.r} mm</title></path>`;
     cavs.forEach(c=>{const cw=c.w*sc,ch=c.h*sc;
       if(cw>1&&ch>1)s+=`<rect x="${(x0+c.x*sc).toFixed(1)}" y="${(y0+c.y*sc).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" fill="#ffffff" stroke="#64748b" stroke-width="0.9" stroke-dasharray="3 2"><title>opening ${Math.round(c.w)}×${Math.round(c.h)} · frame T${f.t}/R${f.r}/B${f.b}/L${f.l}</title></rect>`;});
+    if(dHoles){
+      const lbl=(x,y,txt,rot)=>`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="6" font-weight="700" text-anchor="middle" fill="#1e3a8a"${rot?` transform="rotate(-90 ${x.toFixed(1)} ${y.toFixed(1)})"`:''}>${txt}</text>`;
+      const cx=x0+bw/2,cy=y0+bh/2,IN=7;                                   // band deep enough to hold the text?
+      s+=lbl(cx,(f.t*sc>=IN)?(y0+f.t*sc/2+2):(y0-2),'T '+f.t,false);
+      s+=lbl(cx,(f.b*sc>=IN)?(y0+bh-f.b*sc/2+2):(y0+bh+5),'B '+f.b,false);
+      s+=lbl((f.l*sc>=IN)?(x0+f.l*sc/2):(x0-3),cy,'L '+f.l,true);
+      s+=lbl((f.r*sc>=IN)?(x0+bw-f.r*sc/2):(x0+bw+3),cy,'R '+f.r,true);
+    }
     enabledLines(it).forEach(l=>{
       const li=OFFLINES.findIndex(o=>o.L===l.L),lr=it.lines[li];
       cavs.forEach(c=>{
@@ -3317,8 +3368,14 @@
       const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
       const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
       const dot=(dx,dy)=>`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="${r.toFixed(2)}" fill="#dc2626"/>`;
-      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8)s+=dot(ex,dy);});}
-      else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8)s+=dot(dx,ey);});}
+      // HINGE_GUIDE preview: the maker's two fixing holes beside every cup (drawn only — never in the NC)
+      const hg=(HINGE_MODELS[h.model||'generic']||HINGE_MODELS.generic).guide;
+      const gr2=hg?Math.max(0.22,Math.min(0.6,r*(hg.dia/35)*3)):0;
+      const gdot=(dx,dy)=>`<circle cx="${dx.toFixed(2)}" cy="${dy.toFixed(2)}" r="${gr2.toFixed(2)}" fill="none" stroke="#dc2626" stroke-width="0.25"/>`;
+      if(side==='left'||side==='right'){const ex=side==='left'?X+ins2:X+W-ins2;hingePositions(h,p.h).forEach(pos=>{const dy=Y+pos/10;if(dy>Y+0.8&&dy<Y+H-0.8){s+=dot(ex,dy);
+        if(hg){const gx=(side==='left')?ex+hg.offset/10:ex-hg.offset/10,hh=hg.spacing/20;s+=gdot(gx,dy-hh)+gdot(gx,dy+hh);}}});}
+      else{const ey=side==='top'?Y+ins2:Y+H-ins2;hingePositions(h,p.w).forEach(pos=>{const dx=X+pos/10;if(dx>X+0.8&&dx<X+W-0.8){s+=dot(dx,ey);
+        if(hg){const gy=(side==='top')?ey+hg.offset/10:ey-hg.offset/10,hw=hg.spacing/20;s+=gdot(dx-hw,gy)+gdot(dx+hw,gy);}}});}
     }
     // grooves across the whole part + optional LED channel rectangle
     if(p.groove){

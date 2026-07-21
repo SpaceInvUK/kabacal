@@ -600,7 +600,8 @@ if (html && !process.argv.includes('--hook')) {
         loadFastCnc, calcQuote, mkItem, addTakeoffItems, parseTakeoffText, parseTakeoffLine, clearSel, render,
         priceForSheet, ncPegasus, tpSegsForSheet, tpSheets, tpDefaults, ensureOrderNumber, toolById, tplAutoSyncItem,
         doorCavities, buildFastCnc, shapeOf, shapeOutline, headDropOf, tpOpRects, buildSheetGroups,
-        doorCavityPoly, shapeCavityPoly, isGlassItem, beadingOf, insertSpecsFor, beadingSpecsFor, PRICES
+        doorCavityPoly, shapeCavityPoly, isGlassItem, beadingOf, insertSpecsFor, beadingSpecsFor, PRICES,
+        hingeGuidePts, HINGE_MODELS, tpDrillMoves
       }`)(win, doc, ls, ss, m => alerts.push(String(m)), () => true, () => null, { userAgent: 'node' }, win.location, () => Promise.reject(new Error('offline')), () => 0, () => {});
 
     // (a) boot: empty job, LAZY order number (no sequence consumed at page-open)
@@ -778,6 +779,23 @@ if (html && !process.argv.includes('--hook')) {
     must(api.PRICES['MDF Hidrofugo']['25mm'] === 80 && api.PRICES['MR MDF']['25mm'] === 85, 'MR 25mm: both moisture-resistant families priced');
     must(api.PRICES['MDF Hidrofugo']['18mm'] === 60 && api.PRICES['MDF Hidrofugo']['22mm'] === 70 && api.priceForSheet('MDF 18mm', '10x4') === 75,
       'MR 25mm: pre-existing prices must be untouched (additive only)');
+
+    // (m) HINGE_GUIDE (2026-07-21): every hinge gets the maker's fixing pair — 45mm apart, 9.5mm from the
+    // cup centre INTO the door, mirrored per side — drawn in preview/DXF, NEVER emitted to the NC.
+    const gpL = api.hingeGuidePts({ x: 100, y: 100 }, 'left', api.HINGE_MODELS.blum_inserta.guide);
+    const gpR = api.hingeGuidePts({ x: 100, y: 100 }, 'right', api.HINGE_MODELS.blum_inserta.guide);
+    must(gpL.length === 2 && Math.abs(gpL[0].y - gpL[1].y) === 45 && gpL[0].x - 100 === 9.5, 'hinge guide: 45mm apart, 9.5mm into the door (left side)');
+    must(gpR[0].x - 100 === -9.5, 'hinge guide: the offset mirrors on the right side');
+    must(api.HINGE_MODELS.blum_inserta.guide.dia === 8 && api.HINGE_MODELS.blum.guide.dia === 5,
+      'hinge guide: Inserta = 8mm dowels, screw-on = 5mm screws');
+    must(api.HINGE_MODELS.generic.guide === null, 'hinge guide: the generic model has no guide pattern');
+    const hgDoor = api.mkItem('trad', 400, 600, 1, 'MDF 18mm', '8x4', F50, null, 'HG', { on: true, side: 'left', count: 2, offset: 100 }, { offsetName: 'Plain Shaker' });
+    hgDoor.hinges.model = 'blum_inserta';
+    api.items.length = 0; api.clearSel(); api.items.push(hgDoor); api.render();
+    const hgSheet = api.buildSheetGroups().values().next().value[0];
+    const hgPart = hgSheet.parts.find(p => p.hinge && p.hinge.on);
+    const hgMoves = []; api.tpDrillMoves(hgMoves, hgPart, { w: 2440, h: 1220 }, { cutDepth: 13, plunge: 2000 }, { plunge: 2000 }, 18);
+    must(hgMoves.length === 10, `hinge guide SAFETY: the NC must drill the 2 cups only (5 moves each), never the guides (got ${hgMoves.length})`);
   } catch (e) { failures.push('E2E sandbox failed to run: ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join(' | ')); }
 }
 
