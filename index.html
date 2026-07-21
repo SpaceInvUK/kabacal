@@ -1062,16 +1062,17 @@
   function insertSpecFor(it){const a=insertSpecsFor(it);return a.length?a[0]:null;}
   function setInsOv(i,k,v){const it=items[i];it.insOv=it.insOv||{};if(k==='th')it.insOv.th=parseInt(v)||0;else it.insOv.matName=v;render();}
   function clearInsOv(i){delete items[i].insOv;render();}
-  // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4. Side auto: H>=W -> left, else top.
-  // Hinges ALWAYS run along the LONGEST side. raw = 'auto' | first | second long edge.
-  // Resolved from the given w,h so it follows the part's real orientation (entered or placed).
-  function resolveHingeSide(w,h,raw){
-    const horiz=(+w>=+h);                 // is the long side horizontal?
-    const first=horiz?'top':'left', second=horiz?'bottom':'right';
-    if(!raw||raw==='auto')return first;
-    return (raw==='bottom'||raw==='right')?second:first;
+  // Hinge count rule (production hingeLayoutForPlacement): 2; >900 -> 3; >1500 -> 4 (over the SPAN).
+  // Hinges ALWAYS run along the door's HEIGHT — the LEFT/RIGHT edges as TYPED (Ednei 2026-07-17).
+  // A 600w x 400h door is hinged on a 400mm edge, never on the 600mm one; the old rule used the LONGEST
+  // side, so landscape doors came out hinged along the wrong edge. raw = 'auto' | 'left' | 'right'
+  // ('auto' = left). rot = the part is rotated 90° on the sheet, where that vertical edge becomes a
+  // horizontal one: left -> top (same transpose placedCavs uses, so tall doors keep today's placement).
+  function resolveHingeSide(raw,rot){
+    const s=(raw==='right')?'right':'left';
+    return rot?(s==='left'?'top':'bottom'):s;
   }
-  // hinge positions along the LONG side, measured from the top (vertical side) / left (horizontal side).
+  // hinge positions along the span, measured from the top (vertical side) / left (horizontal side).
   // h.custom = array of mm positions (individual editing); otherwise evenly spread from the end offset.
   function hingePositions(h,span){
     // Hinges default to evenly spaced (centre-to-centre) between the first and last. Stored custom positions
@@ -1117,8 +1118,8 @@
     if(!it.hinges||!it.hinges.on)return{on:false};
     const W=+it.w||0,H=+it.h||0;
     const raw=it.hinges.side||'auto';
-    const side=resolveHingeSide(W,H,raw);
-    const span=Math.max(W,H);
+    const side=resolveHingeSide(raw);
+    const span=H;                                     // hinges run along the HEIGHT as typed
     const custom=(Array.isArray(it.hinges.custom)&&it.hinges.custom.length)?it.hinges.custom.slice():null;
     let count=hingeRecommended(span);
     if(it.hinges.count&&it.hinges.count!=='auto')count=+it.hinges.count;
@@ -1685,7 +1686,7 @@
   }
   function hingeCenters(p,bx,by){
     const h=p.hinge,out=[],inset=22.5;
-    const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
+    const side=resolveHingeSide(h.rawSide,p.rot);     // hinged edge as the part actually sits
     if(side==='left'||side==='right'){
       const cx=side==='left'?bx+inset:bx+p.w-inset;
       hingePositions(h,p.h).forEach(pos=>out.push({x:cx,y:by+p.h-pos}));      // pos measured from the TOP edge (y-up here)
@@ -1773,7 +1774,7 @@
           // HINGE = the 35mm cup (layer name 'hinges' is the frozen VCarve-gadget contract — never renamed).
           // HINGE_GUIDE = the maker's fixing/dowel holes, one pair per hinge (additive layer, 2026-07-21).
           const hg=(HINGE_MODELS[p.hinge.model||'generic']||HINGE_MODELS.generic).guide;
-          const hSide=resolveHingeSide(p.w,p.h,p.hinge.rawSide);
+          const hSide=resolveHingeSide(p.hinge.rawSide,p.rot);
           hingeCenters(p,bx,by).forEach(c=>{var pc=rPtD(c.x,c.y);body+=dxfCircle('hinges',pc.x,pc.y,17.5);
             if(hg)hingeGuidePts(c,hSide,hg).forEach(q=>{layers.add('HINGE_GUIDE');var qc=rPtD(q.x,q.y);body+=dxfCircle('HINGE_GUIDE',qc.x,qc.y,hg.dia/2);});
           });}
@@ -2505,7 +2506,7 @@
     const pts=[0].concat(arr,[h.span]);let bi=0,bg=0;for(let k=0;k+1<pts.length;k++){const g=pts[k+1]-pts[k];if(g>bg){bg=g;bi=k;}}
     arr.push(Math.round((pts[bi]+pts[bi+1])/2));it.hinges.custom=arr.sort((a,b)=>a-b);render();}
   function tabHinges(i,it){
-    const cur=(it.hinges.side==='right')?'right':'left';   // only the two long edges, labelled Left/Right
+    const cur=(it.hinges.side==='right')?'right':'left';   // the two vertical edges (height), Left/Right
     const h=hingeInfo(it);
     if(!it.hinges.on) return `
     <label class="tg" style="margin-bottom:8px"><input type="checkbox" onchange="setHingeOn(${i},this.checked)"> Hinges on</label>${ap(i,'hinges')}
@@ -2642,7 +2643,7 @@
   function sprayDesc(it){const c=it.sprayCfg||{};const faces=[c.front&&'front',c.back&&'back'].filter(Boolean);const edges=[c.eT&&'top',c.eB&&'bottom',c.eL&&'left',c.eR&&'right'].filter(Boolean);const inner=[c.iT,c.iB,c.iL,c.iR].filter(Boolean).length;if(!faces.length&&!edges.length&&!inner)return 'Click the faces / edges to mark what gets painted.';const parts=[];if(faces.length)parts.push(faces.join('+'));if(edges.length)parts.push(edges.length+' edge'+(edges.length>1?'s':''));if(inner)parts.push(inner+' inner');return 'Painted: '+parts.join(' · ');}
   function sprayEditorHtml(i,it){const c=it.sprayCfg||{};const hasFrame=enabledLines(it).length>0||it.type!=='flat';const col=p=>c[p]?'#16a34a':'#e2e8f0';const faceFill=c.front?'#bbf7d0':'#f8fafc';let s='<div class="spray-edit">';s+=`<svg viewBox="0 0 110 84" style="width:150px;height:auto;border:1px solid var(--line);border-radius:6px;background:#fff">`;s+=`<rect x="22" y="16" width="66" height="50" fill="${faceFill}" stroke="#94a3b8" stroke-width="0.8" style="cursor:pointer" onclick="sprayToggle(${i},'front')"></rect>`;s+=`<text x="55" y="43" font-size="5" text-anchor="middle" fill="#475569" style="pointer-events:none">${c.front?'FACE ✓':'face'}</text>`;s+=`<rect x="75" y="17.5" width="11" height="8" rx="1.5" fill="${c.back?'#16a34a':'#fff'}" stroke="#16a34a" stroke-width="0.6" style="cursor:pointer" onclick="sprayToggle(${i},'back')"></rect>`;s+=`<text x="80.5" y="23.4" font-size="4.6" text-anchor="middle" fill="${c.back?'#fff':'#16a34a'}" style="pointer-events:none">B</text>`;s+=`<rect x="22" y="10.5" width="66" height="4.5" fill="${col('eT')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eT')"></rect>`;s+=`<rect x="22" y="67" width="66" height="4.5" fill="${col('eB')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eB')"></rect>`;s+=`<rect x="16.5" y="16" width="4.5" height="50" fill="${col('eL')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eL')"></rect>`;s+=`<rect x="89" y="16" width="4.5" height="50" fill="${col('eR')}" stroke="#64748b" stroke-width="0.3" style="cursor:pointer" onclick="sprayToggle(${i},'eR')"></rect>`;if(hasFrame){s+=`<rect x="40" y="30" width="30" height="22" fill="#fff" stroke="#cbd5e1" stroke-width="0.5" style="pointer-events:none"></rect>`;s+=`<rect x="40" y="30" width="30" height="3" fill="${col('iT')}" style="cursor:pointer" onclick="sprayToggle(${i},'iT')"></rect>`;s+=`<rect x="40" y="49" width="30" height="3" fill="${col('iB')}" style="cursor:pointer" onclick="sprayToggle(${i},'iB')"></rect>`;s+=`<rect x="40" y="30" width="3" height="22" fill="${col('iL')}" style="cursor:pointer" onclick="sprayToggle(${i},'iL')"></rect>`;s+=`<rect x="67" y="30" width="3" height="22" fill="${col('iR')}" style="cursor:pointer" onclick="sprayToggle(${i},'iR')"></rect>`;}s+=`</svg>`;s+=`<div class="sub" style="flex:1;min-width:150px">Click the <b>face</b> (front) · small <b>B</b> = back · the <b>edges</b>${hasFrame?' · inner frame edges':''}.<br><b>${sprayDesc(it)}</b><br><span class="link" onclick="sprayApplyAll(${i})">↧ Apply this spray to all items</span></div>`;s+='</div>';return s;}
 
-  // aspect-aware: box matches the part shape; dots sit on the resolved LONG edge
+  // aspect-aware: box matches the part shape; dots sit on the hinged (left/right) edge
   function hingeDiagram(it){
     const h=hingeInfo(it);if(!h.on)return '';
     const VW=72,VH=72,pad=8,w=Math.max(1,+it.w||1),hh=Math.max(1,+it.h||1);
@@ -3415,7 +3416,7 @@
     }
     if(p.hinge&&p.hinge.on){
       const h=p.hinge,r=Math.max(0.5,Math.min(1.2,Math.min(W,H)/12)),ins2=2.25;
-      const side=resolveHingeSide(p.w,p.h,h.rawSide);   // longest side as the part actually sits
+      const side=resolveHingeSide(h.rawSide,p.rot);    // hinged edge as the part actually sits
       const dot=(dx,dy)=>`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="${r.toFixed(2)}" fill="#dc2626"/>`;
       // HINGE_GUIDE preview: the maker's two fixing holes beside every cup (drawn only — never in the NC)
       const hg=(HINGE_MODELS[h.model||'generic']||HINGE_MODELS.generic).guide;
@@ -4589,7 +4590,7 @@
     const finalZ=+(topZ-cutD).toFixed(3);
     const safeZ=topZ+(+camJob.rapidGap||20),appZ=topZ+(+camJob.approach||5);
     const fPl=(+P.plunge>0)?+P.plunge:tool.plunge;
-    const inset=(+hi.inset>0)?+hi.inset:22.5,side=resolveHingeSide(p.w,p.h,hi.rawSide),pts=[];   // cup centre from the hinge model (22.5 = legacy default)
+    const inset=(+hi.inset>0)?+hi.inset:22.5,side=resolveHingeSide(hi.rawSide,p.rot),pts=[];   // cup centre from the hinge model (22.5 = legacy default)
     if(side==='left'||side==='right'){const ex=(side==='left')?p.x+inset:p.x+p.w-inset;hingePositions(hi,p.h).forEach(pos=>pts.push([ex,p.y+pos]));}
     else{const ey=(side==='top')?p.y+inset:p.y+p.h-inset;hingePositions(hi,p.w).forEach(pos=>pts.push([p.x+pos,ey]));}
     const mY=y=>S.h-y;

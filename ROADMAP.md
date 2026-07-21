@@ -2,6 +2,16 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-07-21 (e) — Dobradiças seguem as dimensões DIGITADAS (aresta vertical/altura), não mais "o lado mais longo"
+
+Pedido do Ednei: agora que o editor tem só **Left/Right**, a dobradiça tem de respeitar as medidas digitadas — uma porta **600w × 400h** pendura na aresta de **400mm**, não na de 600. A regra antiga (`resolveHingeSide`: *"Hinges ALWAYS run along the LONGEST side"*) mandava a porta landscape para a aresta **TOP** com span 600: escolher "Left" no editor punha os copos na aresta de cima. Agora `resolveHingeSide(raw,rot)` devolve sempre a aresta **vertical como digitada** (auto=left) e o `span` do `hingeInfo` passou de `Math.max(W,H)` para **H**. Na peça **rotacionada** pelo nesting a aresta lógica vira horizontal (left→top) — a MESMA transposição do `placedCavs` —, então portas em pé ficam exatamente onde estavam. Zonas guardadas tocadas: DXF (`hinges`/`HINGE_GUIDE`) e CAM (`tpDrillMoves`).
+
+- **Antes** (evidência headless): 600×400 → `side=top`, span 600, copos na aresta de **600mm**; 1200×500 → `side=top`, span 1200, **3** copos.
+- **Depois**: 600×400 → `side=left`, span **400**, copos na aresta de **400mm** (placed rot → TOP, comprimento 400); 1200×500 → span **500**, **2** copos. Portas em pé **inalteradas**: 400×800 → left/800/aresta 800; 400×2000 rotacionada → TOP/2000 (idêntico ao anterior).
+- Testado: `node tools/check.mjs` **ok**; **goldens byte-idênticos** — `GOLDEN_RICH_18/12/9/3mm.dxf` (a única porta com dobradiças dos goldens é 480×497, retrato → intocada), `GOLDEN_18mm.dxf`, `GOLDEN_PLAINSHAKER_S1_18mm.nc`; quote da receita rich intacto (664/133/797, 11 peças).
+- Efeito desejado: a contagem automática (>900→3, >1500→4) passa a medir a **altura**, então portas largas e baixas deixam de ganhar 3–4 dobradiças por causa da largura.
+- ⚠ **Pedidos online**: o `order-intake` (Supabase) embute o engine — regerado com `node tools/build-intake.mjs` e **redeployado** nesta mesma rodada, senão as portas do site (600×400 é exatamente este caso) sairiam com a regra antiga.
+
 ## 2026-07-21 (d) — "Plain Shaker EOD" → "Plain Shaker" + o preset volta a sobreviver ao save/load
 
 - **Rename** pedido pelo Ednei: o botão vira só **Plain Shaker** (chave interna `shakerEod`→`shaker`; nada persistido usava a chave, zero refs órfãs). Tooltip sem o "edge-of-door".
