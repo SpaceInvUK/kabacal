@@ -1,0 +1,35 @@
+# Keep-alive do projeto Supabase (plano Free pausa após ~1 semana sem tráfego).
+#
+# Aconteceu de verdade: 2026-08-10 o projeto acordou INACTIVE depois de 3 semanas
+# paradas — app cloud com "Failed to fetch", deploy da order-intake recusado.
+# Este cron faz uma requisição REST leve a cada 3 dias, o que conta como
+# atividade e impede a pausa. A chave usada é a PUBLISHABLE (pública por design,
+# a mesma embutida no index.html) — nenhum segredo aqui.
+#
+# Se um dia o projeto for para o plano Pro, este workflow pode ser removido.
+
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: '17 8 */3 * *'   # a cada 3 dias, 08:17 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping REST (conta como atividade)
+        run: |
+          set -e
+          URL="https://rvmyalrtoblxmxciiovd.supabase.co"
+          KEY="sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F"
+          code_rest=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $KEY" "$URL/rest/v1/" || echo 000)
+          code_auth=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $KEY" "$URL/auth/v1/settings" || echo 000)
+          echo "rest=$code_rest auth=$code_auth"
+          # Qualquer resposta HTTP do serviço prova que ele está de pé e registra tráfego.
+          # 000 = DNS/offline = projeto pausado -> falha o job para aparecer no e-mail do GitHub.
+          if [ "$code_rest" = "000" ] && [ "$code_auth" = "000" ]; then
+            echo "::error::Projeto parece PAUSADO/offline — restaurar em https://supabase.com/dashboard/project/rvmyalrtoblxmxciiovd"
+            exit 1
+          fi

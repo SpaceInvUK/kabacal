@@ -2,6 +2,12 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-10 (b) — INCIDENTE: projeto Supabase pausado por inatividade + keep-alive
+
+Ao voltar de 3 semanas, o projeto `rvmyalrtoblxmxciiovd` estava **INACTIVE** (Free tier pausa após ~1 semana sem tráfego): DNS não resolvia, app cloud dava "Failed to fetch" no sign-in, e o primeiro run do deploy-order-intake falhou com `Cannot retrieve service … status 'INACTIVE'` — o token do Ednei estava correto, o alvo é que dormia. Enquanto o projeto esteve pausado, a ponte do site não conseguiria entregar pedidos (ficam com nota FAILED e sem `_fcnc_bridge_sent` — redisparáveis). Correção: **Restore** manual no dashboard (Ednei) + novo workflow **`supabase-keepalive.yml`**: cron a cada 3 dias faz GET em `/rest/v1/` e `/auth/v1/settings` com a chave publishable (pública por design) — tráfego suficiente para nunca mais pausar; se ambos responderem 000 (offline), o job falha de propósito para o GitHub avisar por e-mail. Alternativa definitiva no go-live: plano Pro.
+
+- Testado: YAML sem tabs; disparo manual validado após o Restore (ver run no Actions); `check.mjs` ok (nada do app tocado).
+
 ## 2026-08-10 — CI: auto-deploy da order-intake (rumo ao trabalho 100% em nuvem)
 
 Pedido do Ednei: operar de qualquer lugar sem depender do PCGu. Novo workflow `.github/workflows/deploy-order-intake.yml`: qualquer push no `main` que toque `supabase/functions/order-intake/**` faz o **deploy automático da Edge Function no CI** (Supabase CLI + `--use-api`), inclusive pushes vindos de sessões Claude na nuvem. Sem o secret `SUPABASE_ACCESS_TOKEN` no repo o job roda e **pula com aviso** (nunca quebra o CI) — o Ednei cria o token no dashboard e cola no GitHub uma única vez. Com isso o ciclo "engine mudou → build-intake → push → função atualizada" deixa de precisar de navegador/dashboard/PC ligado.
