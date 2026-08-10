@@ -2,6 +2,12 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-10 — CI: auto-deploy da order-intake (rumo ao trabalho 100% em nuvem)
+
+Pedido do Ednei: operar de qualquer lugar sem depender do PCGu. Novo workflow `.github/workflows/deploy-order-intake.yml`: qualquer push no `main` que toque `supabase/functions/order-intake/**` faz o **deploy automático da Edge Function no CI** (Supabase CLI + `--use-api`), inclusive pushes vindos de sessões Claude na nuvem. Sem o secret `SUPABASE_ACCESS_TOKEN` no repo o job roda e **pula com aviso** (nunca quebra o CI) — o Ednei cria o token no dashboard e cola no GitHub uma única vez. Com isso o ciclo "engine mudou → build-intake → push → função atualizada" deixa de precisar de navegador/dashboard/PC ligado.
+
+- Testado: `node tools/check.mjs` ok (nada do app mudou — arquivo novo de CI apenas); YAML validado por parse; o gate de secret usa output de step (secrets não quebram o `if`). Primeira execução real acontece no próximo push que tocar a função (ou manual via workflow_dispatch) — hoje deve aparecer como "skipped" até o secret existir.
+
 ## 2026-07-21 (h) — Plain Shaker: corte passante em 3 passes (a mordida mais funda saía por ÚLTIMO)
 
 **Primeiro bug reportado pela MÁQUINA** (Ednei rodou NC do Kabacal na Pegasus: "maioritariamente obedece", mas o T1 corta a layer OUT "ao contrário"). Reproduzido com evidência antes de tocar em nada:

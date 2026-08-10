@@ -1,0 +1,52 @@
+# Auto-deploy da Edge Function order-intake (doors-online).
+#
+# Objetivo: tirar o PCGu do caminho — qualquer sessão (cloud ou local) que regenerar
+# supabase/functions/order-intake/index.ts e der push no main faz o deploy acontecer
+# AQUI, no CI, sem depender de máquina nenhuma ligada.
+#
+# Requisito único (uma vez): criar o secret SUPABASE_ACCESS_TOKEN neste repo
+# (GitHub → Settings → Secrets and variables → Actions). O token é gerado no
+# dashboard do Supabase (conta → Access Tokens). Sem o secret, o job roda e
+# PULA o deploy com um aviso — nunca quebra o CI.
+
+name: deploy-order-intake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/order-intake/**'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rvmyalrtoblxmxciiovd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verificar segredo
+        id: gate
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_ACCESS_TOKEN ausente — deploy pulado. Crie o secret no repo para ativar o auto-deploy."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Supabase CLI
+        if: steps.gate.outputs.skip == 'false'
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy order-intake
+        if: steps.gate.outputs.skip == 'false'
+        run: supabase functions deploy order-intake --project-ref "$PROJECT_REF" --use-api
+
+      - name: Resumo
+        if: steps.gate.outputs.skip == 'false'
+        run: echo "order-intake deployado para $PROJECT_REF a partir de $GITHUB_SHA"
