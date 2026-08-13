@@ -10,3 +10,4 @@
 - **Skills:** `/verify-kabacal` (runtime smoke test + golden diff) · `/pricing-impact` (HEAD vs working-tree basket comparison) · `/deploy-kabacal` (gated commit + push + Pages confirm).
 - **Subagents** (read-only reviewers, `.claude/agents/`): `pricing-guard` · `dxf-nesting-reviewer` · `cam-reviewer`. Run the matching one on any guarded-zone diff before shipping; `cam-reviewer` currently holds the full machine contract (until `docs/CONTRACT-CAM.md` is extracted).
 - **Memory:** Claude project memory may contain Kabacal notes. The repo files win on any disagreement — fix the repo file, not the memory.
+- **Cloud sessions:** the repo is self-sufficient anywhere — a claude.ai cloud environment gets the protocol via the SessionStart hook (`.claude/settings.json` → `tools/protocol-hook.mjs`). Setup + what stays physical: `docs/CLOUD.md`.

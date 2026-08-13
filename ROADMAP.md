@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-13 — Kabacal cloud-ready: protocolo dentro do repo + guia de ambiente Cloud
+
+Pedido do Ednei: acessar/trabalhar o Kabacal de qualquer lugar (ambiente Cloud "Kabacal"). Diagnóstico: nunca existiu sessão cloud (todas `local_*`), e o protocolo vivia num hook PowerShell local do PCGu — uma sessão cloud não o receberia.
+
+- **`tools/protocol-hook.mjs`** (novo, zero-dep) + **`.claude/settings.json`** (novo, commitado): hook **SessionStart** cross-platform — TODA sessão aberta neste repo (local em qualquer OS ou claude.ai cloud) recebe o protocolo Kabacal automaticamente, incluindo a regra de um-escritor compartilhada entre local e cloud e o aviso do que é físico (VCarve/Syntec/Local WP). Pipe-test verde; `.gitignore` já isola `settings.local.json` (o settings.json do projeto viaja).
+- **`docs/CLOUD.md`** (novo): as 3 camadas que JÁ são cloud (app no Pages, repo no GitHub, settings/pedidos no Supabase) + o passo-a-passo do que só o Ednei pode fazer (criar o environment "Kabacal" no claude.ai/code e autorizar o GitHub App no `SpaceInvUK/kabacal`) + o que uma sessão cloud pode/não pode fazer. `CLAUDE.md` ganhou o ponteiro.
+- Sonda de agente remoto disparada para verificar a disponibilidade real de ambiente cloud na conta (resultado reportado na conversa).
+- Testado: `node tools/check.mjs` verde (app intocado); hook pipe-testado com JSON válido; goldens intocados (nenhuma mudança em index.html).
+
 ## 2026-08-10 (b) — INCIDENTE: projeto Supabase pausado por inatividade + keep-alive
 
 Ao voltar de 3 semanas, o projeto `rvmyalrtoblxmxciiovd` estava **INACTIVE** (Free tier pausa após ~1 semana sem tráfego): DNS não resolvia, app cloud dava "Failed to fetch" no sign-in, e o primeiro run do deploy-order-intake falhou com `Cannot retrieve service … status 'INACTIVE'` — o token do Ednei estava correto, o alvo é que dormia. Enquanto o projeto esteve pausado, a ponte do site não conseguiria entregar pedidos (ficam com nota FAILED e sem `_fcnc_bridge_sent` — redisparáveis). Correção: **Restore** manual no dashboard (Ednei) + novo workflow **`supabase-keepalive.yml`**: cron a cada 3 dias faz GET em `/rest/v1/` e `/auth/v1/settings` com a chave publishable (pública por design) — tráfego suficiente para nunca mais pausar; se ambos responderem 000 (offline), o job falha de propósito para o GitHub avisar por e-mail. Alternativa definitiva no go-live: plano Pro.
