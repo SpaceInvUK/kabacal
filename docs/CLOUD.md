@@ -49,3 +49,9 @@ If step 2/3 fails again, note the exact error message — that is the piece to d
 
 A cloud session that reaches one of these must record the pending step in STATUS.md for the
 next PCGu session instead of guessing.
+
+## Resuming a work stream from any session
+
+`docs/WORKSTREAMS.md` maps every front (Doors editor, Paneling, CAM, SaaS, Doors Online,
+WorkPlanner, infra) with its current state, pendings and a paste-ready opening message.
+Sessions do not share chat memory — the repo docs are the only continuity.

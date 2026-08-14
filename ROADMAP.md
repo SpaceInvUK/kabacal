@@ -2,6 +2,14 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-14 — Environment cloud CONECTADO + mapa de frentes (docs/WORKSTREAMS.md)
+
+Ednei criou o environment no claude.ai/code e autorizou o GitHub App da conta **SpaceInvUK** para `kabacal` e `cnc-calculator` (o bloqueio anterior era o navegador logado na conta errada). Para "continuar de onde parou" em qualquer sessão (que não compartilham memória de conversa):
+
+- **`docs/WORKSTREAMS.md`** (novo): mapa das 7 frentes — Doors editor/Configurator, Paneling, CAM/Toolpaths, SaaS, Doors Online, WorkPlanner, infra cloud — cada uma com estado, pendências e **mensagem de abertura pronta para colar** numa sessão nova. Inclui a regra de um-escritor entre local↔cloud.
+- `tools/protocol-hook.mjs` e `docs/CLOUD.md` ganharam o ponteiro para o WORKSTREAMS (toda sessão nova é informada do mapa).
+- Testado: hook pipe-testado (JSON válido, 1363 chars); `node tools/check.mjs` verde; `index.html` intocado → goldens intocados.
+
 ## 2026-08-13 — Kabacal cloud-ready: protocolo dentro do repo + guia de ambiente Cloud
 
 Pedido do Ednei: acessar/trabalhar o Kabacal de qualquer lugar (ambiente Cloud "Kabacal"). Diagnóstico: nunca existiu sessão cloud (todas `local_*`), e o protocolo vivia num hook PowerShell local do PCGu — uma sessão cloud não o receberia.

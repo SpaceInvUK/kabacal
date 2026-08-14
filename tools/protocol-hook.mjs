@@ -13,6 +13,6 @@ This session is on the Kabacal repository. Follow the Kabacal protocol AUTOMATIC
 6. Smallest focused change — no drive-by refactors.
 7. Run \`node tools/check.mjs\` after every index.html edit; NEVER commit if it fails; goldens byte-identical unless the diff is intentional and itemised.
 8. Dated ROADMAP.md entry (with a "Testado" list), commit, push, confirm https://spaceinvuk.github.io/kabacal/ serves the change.
-Cloud sessions: everything needed is in the repo (checker, goldens, docs, skills, agents); the physical world (VCarve, the Syntec machine, the local WordPress test site) is NOT reachable — flag anything needing them as pending for a PCGu session. See docs/CLOUD.md.
+Cloud sessions: everything needed is in the repo (checker, goldens, docs, skills, agents); the physical world (VCarve, the Syntec machine, the local WordPress test site) is NOT reachable — flag anything needing them as pending for a PCGu session. See docs/CLOUD.md; docs/WORKSTREAMS.md maps every work stream (state + pendings + resume prompts).
 </kabacal-protocol>`;
 process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } }));
