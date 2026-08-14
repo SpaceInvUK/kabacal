@@ -28,6 +28,20 @@ automated from a session:
    Kabacal protocol; approve the project hooks/trust prompt on first run.
 5. Optional: on the phone, the Claude app → Code shows the same environment.
 
+Environment settings that work (verified 2026-08-14, repos kabacal + cnc-calculator):
+Network access = Full · Environment variables = none (secrets are human-paste only) ·
+Setup script = the multi-repo-safe block below. **Do NOT use a bare
+`git config core.hooksPath .githooks`** — with 2+ repos the setup cwd is not a git
+directory and the whole session dies with exit code 128:
+
+```bash
+#!/bin/bash
+for d in . kabacal */kabacal; do
+  if [ -d "$d/.githooks" ] && [ -e "$d/.git" ]; then git -C "$d" config core.hooksPath .githooks; fi
+done
+exit 0
+```
+
 If step 2/3 fails again, note the exact error message — that is the piece to debug next.
 
 ## What a cloud session CAN do

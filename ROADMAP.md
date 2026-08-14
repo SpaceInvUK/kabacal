@@ -9,6 +9,7 @@ Ednei criou o environment no claude.ai/code e autorizou o GitHub App da conta **
 - **`docs/WORKSTREAMS.md`** (novo): mapa das 7 frentes — Doors editor/Configurator, Paneling, CAM/Toolpaths, SaaS, Doors Online, WorkPlanner, infra cloud — cada uma com estado, pendências e **mensagem de abertura pronta para colar** numa sessão nova. Inclui a regra de um-escritor entre local↔cloud.
 - `tools/protocol-hook.mjs` e `docs/CLOUD.md` ganharam o ponteiro para o WORKSTREAMS (toda sessão nova é informada do mapa).
 - Testado: hook pipe-testado (JSON válido, 1363 chars); `node tools/check.mjs` verde; `index.html` intocado → goldens intocados.
+- **Primeira sessão cloud REAL verde** (mesmo dia, mais tarde): setup script original (`git config … && node tools/check.mjs`) morria com exit 128 num environment de 2 repos (cwd do setup não é repo git) — corrigido no environment para o loop multi-repo-safe (registrado em docs/CLOUD.md). Sessão "Kabacal cloud setup inicial": protocolo carregou via hook, `check.mjs` verde no sandbox, resumo das 7 frentes do WORKSTREAMS entregue.
 
 ## 2026-08-13 — Kabacal cloud-ready: protocolo dentro do repo + guia de ambiente Cloud
 
