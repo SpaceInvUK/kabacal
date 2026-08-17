@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-17 — Auditoria RLS do hosted + BUG na migration 0004 (corrigida ANTES de aplicar)
+
+Pedido do Ednei: conferir o estado real do RLS ("chave pública no HTML" — a preocupação do outro chat) e corrigir o que precisasse. Sessão cloud, sem tocar `index.html`.
+
+- **Auditoria anónima contra o hosted `rvmyalrtoblxmxciiovd`** (só a publishable key pública do app): as 6 tabelas SaaS (accounts, account_members, jobs, account_settings, billing_customers, billing_subscriptions) devolvem **401 permission denied** — anon revogado como o 0001/0002 mandam. `fastcnc_orders` devolvia **200 `[]`** (RLS esconde as linhas — dado de cliente NÃO exposto — mas o 0003 não revogou os grants default, então a tabela é sondável). INSERT anon → 401 RLS; UPDATE → 0 linhas; bucket `fastcnc-orders` (list e fetch direto) → vazio/not-found. **Veredito: tudo falha fechado; nenhum dado de cliente legível com a chave pública.**
+- **BUG real encontrado na `0004_orders_read.sql` (ainda não aplicada — nada quebrou em produção):** as policies usavam `exists (select … from app_admins)` direto, mas `app_admins` tem RLS ligado sem policy de SELECT — o subquery roda como o usuário e vê ZERO linhas, logo **o admin enrolado veria zero pedidos** na tab Online Orders (o check final do runbook ia falhar). Corrigido com `is_app_admin()` **security definer** (mesmo padrão/razão do `is_account_member` do 0001), usada nas duas policies (tabela + storage). De carona, belt-and-braces no espírito do docs/SAAS.md: `revoke all` de anon em `fastcnc_orders`/`app_admins`, authenticated fica só com SELECT em `fastcnc_orders` (a superfície que a policy filtra).
+- Runbook do Ednei **não muda**: aplicar a 0004 no SQL editor + enrolar o próprio uid (supabase/README.md §Online Orders).
+- Testado: Postgres 16 local descartável — A/B provou o bug (policy original: admin vê 0; com definer: admin vê 1) e a migration corrigida rodou inteira num banco limpo com mock do `storage.objects`: admin vê pedido + só ficheiros do bucket certo; não-admin vê 0 em tudo e leva permission denied em `app_admins`; anon leva permission denied em `fastcnc_orders`. Sondas reais anónimas contra o hosted (acima). `node tools/check.mjs` verde; `index.html` intocado → goldens intocados.
+
 ## 2026-08-14 — Environment cloud CONECTADO + mapa de frentes (docs/WORKSTREAMS.md)
 
 Ednei criou o environment no claude.ai/code e autorizou o GitHub App da conta **SpaceInvUK** para `kabacal` e `cnc-calculator` (o bloqueio anterior era o navegador logado na conta errada). Para "continuar de onde parou" em qualquer sessão (que não compartilham memória de conversa):
