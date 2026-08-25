@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-08-25 — APP PÚBLICO DERRUBADO (decisão do Ednei: bloquear acesso público)
+
+Ednei decidiu bloquear o acesso público do Kabacal (reverte D4; registro no STATUS risco 4 + decision log). Como mudar a visibilidade do repo é clique de admin (pendente do Ednei), o passo executável da sessão cloud foi: **`index.html` no `main` substituído por uma página estática "This application is now private"** (noindex, sem script, sem dados). O app completo continua no histórico do git — **restaurar = `git revert` deste commit** — e no clone local do PCGu (`python -m http.server 8123`; login Supabase já aceita localhost).
+
+- **Exceção consciente à regra de ferro 1**: `check.mjs` FALHA neste estado (não há engine para compilar) e o CI do main ficará VERMELHO de propósito até o repo ficar privado e o app ser restaurado. Não é regressão — é o takedown pedido.
+- Order-intake / Supabase / pedidos do site: **não afetados** (independem do Pages).
+- Próximos passos (Ednei): flip `kabacal` e `cnc-calculator` para Private no GitHub; depois, sessão dedicada para rehospedar com login real (ex.: Cloudflare Access) se quiser URL pública de volta.
+- Testado: página placeholder validada localmente (HTML puro, sem script); commit revertível confirmado (`git show` do index.html anterior intacto no histórico).
+
 ## 2026-08-14 — Environment cloud CONECTADO + mapa de frentes (docs/WORKSTREAMS.md)
 
 Ednei criou o environment no claude.ai/code e autorizou o GitHub App da conta **SpaceInvUK** para `kabacal` e `cnc-calculator` (o bloqueio anterior era o navegador logado na conta errada). Para "continuar de onde parou" em qualquer sessão (que não compartilham memória de conversa):
