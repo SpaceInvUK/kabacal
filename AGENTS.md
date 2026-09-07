@@ -4,7 +4,9 @@
 
 ## What this is
 
-Single-file web app — `index.html`, inline CSS + ONE inline `<script>` (~5,700 lines) — for FAST CNC: door & wall-panel order entry, quoting, sheet nesting, offcut detection, DXF export, CAM toolpaths and Pegasus/Syntec `.NC` machine code. Live at https://spaceinvuk.github.io/kabacal/ — **push to `main` IS the production deploy** (GitHub Pages).
+Single-file web app — `index.html`, inline CSS + ONE inline `<script>` (~5,700 lines) — for FAST CNC: door & wall-panel order entry, quoting, sheet nesting, offcut detection, DXF export, CAM toolpaths and Pegasus/Syntec `.NC` machine code.
+
+> ⚠️ **BRANCH LAYOUT CHANGED 2026-08-25 — read before any code change.** The public site was taken down on purpose (STATUS risk 4). **`main` carries ONLY the private placeholder + docs; the real app lives on the `app` branch.** So: **develop on `app`, never restore `index.html` to `main`** — pushing the app to `main` re-publishes it to the whole internet (GitHub Pages serves `main`). `check.mjs`/CI are RED on `main` by design; on `app` they must stay green. **Every verified change: push `app` AND hand Ednei the updated `index.html` file** (he runs it offline — standing order 2026-08-25).
 
 Family: `cnc-calculator` repo = the production calculator Kabacal stays file-compatible with (`.fastcnc`); the VCarve gadgets (in the "CNC App" repo) consume our DXF layers; `Kabacal 3D/` = prototype whose confirmed rules were merged into `KABACAL_RULES.md`.
 
@@ -71,7 +73,7 @@ Family: `cnc-calculator` repo = the production calculator Kabacal stays file-com
 - **Verify runtime:** full model-neutral procedure in `docs/TESTING.md` (invariants table, quote baskets, golden self-check trick); seeding recipes in `tests/golden/README.md`.
 - **Goldens:** `tests/golden/` holds byte-exact NC / DXF / quote-JSON outputs for three fixed jobs (standard, rich doors, panels). If your change alters any of them **intentionally**, itemise the diff and regenerate in the same commit. Unintended diff = your change is wrong.
 - **Examples:** `examples/*.fastcnc.json` are the same jobs as loadable files — use them for manual tests and the save/load round-trip check (`docs/TESTING.md`).
-- **Deploy:** push to `main` (Pages serves it within ~1 min). CI (`.github/workflows/check.yml`) runs the checker post-push.
+- **Deploy (since 2026-08-25):** there is NO public deploy. Work on the **`app`** branch (`git checkout app`), keep `check.mjs` green there, `git push -u origin app` — and **deliver the resulting `index.html` to Ednei as a file** so his offline copy matches the repo. `main` stays the placeholder: never push `index.html` there without an explicit new decision from Ednei (it would republish the app publicly). CI on `main` is red by design; the CI that matters runs on `app`.
 
 ## Reading order by task
 
