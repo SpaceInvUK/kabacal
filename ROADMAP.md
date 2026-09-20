@@ -2,6 +2,15 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-09-20 — TAKEDOWN COMPLETO dos dois sites públicos (kabacal + cnc-calculator)
+
+Ednei viu que `https://spaceinvuk.github.io/cnc-calculator/Cnc%20Calculator%20UI%20Test.html` ainda estava no ar e pediu o desligamento. Auditoria mostrou que o takedown de 25/08 era **incompleto**: o Pages serve TODOS os arquivos do branch de deploy, não só o `index.html`.
+
+- **kabacal**: `docs/PRICING.md`, `KABACAL_RULES.md`, `AGENTS.md` (£75 + taxas 35/25/50/250 + £330/chapa) e `tests/golden/*.json` respondiam **200 OK** publicamente. `main` agora tem só `index.html` (placeholder) + `README.md`; os 77 arquivos restantes vivem no branch **`app`** (aplicação + docs + tooling + goldens, `check.mjs` verde).
+- **cnc-calculator**: o Pages servia 4 apps HTML (CNC Calculator 1.0, UI Test, 2 protótipos) + docs + gadgets VCarve. Mesmo tratamento: conteúdo no branch **`app`**, `main` só com placeholder + README.
+- Testado: polling nas URLs até 404 — kabacal (PRICING/RULES/AGENTS/golden) e cnc-calculator (UI Test/Calculator 1.0/docs) todos **404**, raiz servindo o placeholder nos dois repos.
+- **Pendente do Ednei (2 cliques)**: tornar os repos **Private** (esconde código e histórico — o Pages já não serve nada, mas o github.com sim); e mudar o **default branch para `app`** para as sessões cloud caírem no branch certo (hoje um clone do main não tem CLAUDE.md nem o hook de protocolo).
+
 ## 2026-08-25 — APP PÚBLICO DERRUBADO (decisão do Ednei: bloquear acesso público)
 
 Ednei decidiu bloquear o acesso público do Kabacal (reverte D4; registro no STATUS risco 4 + decision log). Como mudar a visibilidade do repo é clique de admin (pendente do Ednei), o passo executável da sessão cloud foi: **`index.html` no `main` substituído por uma página estática "This application is now private"** (noindex, sem script, sem dados). O app completo continua no histórico do git — **restaurar = `git revert` deste commit** — e no clone local do PCGu (`python -m http.server 8123`; login Supabase já aceita localhost).
