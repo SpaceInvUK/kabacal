@@ -2,6 +2,20 @@
 
 App: `index.html` · Publicado: https://spaceinvuk.github.io/kabacal/ · Repo: `SpaceInvUK/kabacal`
 
+## 2026-11-25 — Projeto Supabase salvo a 5 dias do congelamento + keep-alive consertado
+
+E-mail da Supabase (25/11): projeto **Kabacal** (`rvmyalrtoblxmxciiovd`) **85 dias pausado, congelamento permanente em 5 dias** (depois disso: sem restore, só download dos dados). **Ednei clicou Restore no dashboard no prazo** (ação humana — só ele tem essa porta).
+
+Investigação do porquê (o cron existia desde 10/08 e não evitou nada):
+- `/rest/v1/` passou a exigir **secret key** e devolve **401** à chave publishable. O guard antigo só falhava em `000` (DNS), então **401 = "success"** — o workflow cantou verde a cada 3 dias de 19/08 a 19/09 com o projeto **já pausado desde 31/08**. Ednei nunca recebeu alarme.
+- Um request rejeitado provavelmente **não conta como atividade** para a Supabase — daí a 2a pausa.
+- Em 20/09 o takedown do site público removeu `.github/workflows/` do `main`; **cron do GitHub só roda no branch default**, então o keep-alive parou completamente.
+
+Corrigido: `supabase-keepalive.yml` reescrito — liveness por `/auth/v1/settings` (200 = de pé; 521/5xx/000 = pausado), cron **de 2 em 2 dias** (margem contra a pausa de ~7 dias), **falha alto** com `::error::` + link do dashboard, e ping forte opcional (SELECT real via PostgREST) quando existir o secret `SUPABASE_SECRET_KEY`. Copiado para `main` (onde o cron roda) **e** `app` (onde se desenvolve), com as duas cópias idênticas e o histórico do incidente escrito no topo do arquivo.
+
+- Testado: caminho de ALARME verificado de verdade contra o projeto fora do ar (`auth=521` → `exit=1` com `::error::`) — era exatamente isto que o antigo não fazia; caminho de SUCESSO verificado após o projeto voltar; `node tools/check.mjs` verde; `index.html` intocado → goldens intocados.
+- **Pendente do Ednei**: colar `SUPABASE_SECRET_KEY` em Settings → Secrets and variables → Actions (ping forte); decidir Free vs Pro (no Free a pausa volta); e os 2 cliques antigos (repos Private, default branch → `app`).
+
 ## 2026-09-20 — TAKEDOWN COMPLETO dos dois sites públicos (kabacal + cnc-calculator)
 
 Ednei viu que `https://spaceinvuk.github.io/cnc-calculator/Cnc%20Calculator%20UI%20Test.html` ainda estava no ar e pediu o desligamento. Auditoria mostrou que o takedown de 25/08 era **incompleto**: o Pages serve TODOS os arquivos do branch de deploy, não só o `index.html`.
