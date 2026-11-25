@@ -1,0 +1,66 @@
+# Keep-alive do projeto Supabase (plano Free pausa apos ~1 semana sem trafego).
+#
+# Historico (ler antes de mexer):
+#  - 2026-08-10: projeto pausou por inatividade pela 1a vez -> este cron foi criado.
+#  - 2026-08-31: pausou DE NOVO com o cron rodando "verde" a cada 3 dias. Motivo
+#    descoberto em 2026-11-25: o endpoint /rest/v1/ passou a exigir SECRET key e
+#    responde 401 a chave publishable. O guard antigo so falhava em 000 (DNS),
+#    entao 401 contava como sucesso -> 3 semanas de falso verde, e um request
+#    REJEITADO provavelmente nao conta como atividade para a Supabase.
+#  - 2026-09-20: o takedown do site publico removeu os workflows do main e o cron
+#    parou de vez (cron do GitHub so roda no branch default).
+#  - 2026-11-25: projeto ficou 85 dias pausado e quase foi congelado em definitivo
+#    (restaurado pelo Ednei no dashboard, no prazo).
+#
+# Regras deste arquivo:
+#  1. Mora no branch DEFAULT (hoje `main`) ou nao roda. Mantenha as duas copias
+#     (main e app) iguais.
+#  2. Falha ALTO em qualquer resposta que nao seja saudavel — o e-mail de falha do
+#     GitHub e o unico alarme que existe. Nunca mais "success" com projeto morto.
+#  3. Nenhum segredo aqui: a chave publishable e publica por desenho (a mesma do
+#     index.html). A versao forte usa o secret SUPABASE_SECRET_KEY do repo, se existir.
+#  4. Se o projeto algum dia for para o plano Pro (nao pausa), este workflow pode sair.
+
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: '17 8 */2 * *'   # a cada 2 dias (margem: a pausa vem por volta de 7 dias)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping autenticado (conta como atividade) + health check estrito
+        env:
+          SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -u
+          URL="https://rvmyalrtoblxmxciiovd.supabase.co"
+          PUB="sb_publishable_DbNcfH4spPNkhcTCvBYVyg_3ghcI67F"
+
+          fail() { echo "::error::$1"; echo "Restaurar/inspecionar: https://supabase.com/dashboard/project/rvmyalrtoblxmxciiovd"; exit 1; }
+
+          # 1) Liveness: /auth/v1/settings responde 200 quando o projeto esta de pe.
+          #    Projeto pausado = 521/5xx (Cloudflare) ou 000 (DNS). Qualquer um = alarme.
+          auth=$(curl -s -o /tmp/auth.out -w '%{http_code}' --max-time 30 -H "apikey: $PUB" "$URL/auth/v1/settings" || echo 000)
+          echo "auth/v1/settings -> $auth"
+          [ "$auth" = "200" ] || fail "Projeto NAO esta saudavel (auth/v1/settings=$auth). Provavelmente PAUSADO."
+
+          # 2) Atividade real no banco. Com o secret, faz um SELECT de verdade via
+          #    PostgREST (o que conta como trafego). Sem o secret, so o liveness acima.
+          if [ -n "${SECRET_KEY:-}" ]; then
+            db=$(curl -s -o /tmp/db.out -w '%{http_code}' --max-time 30 \
+                   -H "apikey: $SECRET_KEY" -H "Authorization: Bearer $SECRET_KEY" \
+                   "$URL/rest/v1/accounts?select=id&limit=1" || echo 000)
+            echo "rest/v1/accounts -> $db"
+            [ "$db" = "200" ] || fail "Query autenticada falhou (accounts=$db): $(head -c 200 /tmp/db.out)"
+            echo "OK: projeto de pe + query real no banco (atividade registrada)."
+          else
+            echo "::warning::Sem o secret SUPABASE_SECRET_KEY: so foi feito o liveness check."
+            echo "Para o keep-alive FORTE (query real no banco, que e o que conta como"
+            echo "atividade), cole uma secret key do Supabase em Settings > Secrets and"
+            echo "variables > Actions, com o nome SUPABASE_SECRET_KEY."
+            echo "OK: projeto de pe (liveness)."
+          fi
